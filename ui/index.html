@@ -1611,12 +1611,24 @@
           return h >>> 0;
         }
 
-        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex, rememberedMap) {
+        function extractEventAgentName(events) {
+          const list = Array.isArray(events) ? events : [];
+          for (let i = list.length - 1; i >= 0; i--) {
+            const ev = list[i];
+            if ((ev?.kind === "act" || (ev?.kind === "msg" && ev.role === "agent")) && ev.agent) {
+              return String(ev.agent).trim();
+            }
+          }
+          return "";
+        }
+
+        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex, rememberedMap, events) {
           const record =
-            (agentsMap && (agentsMap[runObj?.id] || (runObj?.agent_id ? agentsMap[runObj.agent_id] : null))) ||
-            (rememberedMap && (rememberedMap[runObj?.id] || (runObj?.agent_id ? rememberedMap[runObj.agent_id] : null))) ||
+            (agentsMap && runObj?.id ? agentsMap[runObj.id] : null) ||
+            (rememberedMap && runObj?.id ? rememberedMap[runObj.id] : null) ||
             null;
-          const seed = hashString(String(runObj?.id || actorLabelForRole(runObj?.role) || "agent")) % 10000;
+          const fallbackName = extractEventAgentName(events) || actorLabelForRole(runObj?.role);
+          const seed = hashString(String(runObj?.id || fallbackName || "agent")) % 10000;
           const baseColor = normalizeHex(record?.color || record?.body, NEUTRAL_AGENT_COLOR);
           const body = mixHex(baseColor, "#FFFFFF", 0.70);
           const edge = normalizeHex(record?.edge, mixHex(body, "#FFFFFF", 0.35));
@@ -1624,7 +1636,7 @@
           const ink = ensureContrastInk(body, derivedInk);
           return {
             id: runObj?.id || `agent-${fallbackIndex}`,
-            name: String(record?.name || actorLabelForRole(runObj?.role)).trim(),
+            name: String(record?.name || fallbackName).trim(),
             color: baseColor,
             palette: { body, edge, ink },
             seed,
@@ -1792,6 +1804,11 @@
             case "help_answer":
               if (ev.timed_out) return "Approval expired";
               return `Answered: ${sentenceCase(ev.answer || "")}`;
+            case "msg": {
+              const msgText = String(ev.text || "").trim();
+              if (!msgText || ev.msg_kind === "prompt") return "";
+              return sentenceCase(msgText);
+            }
             case "speak":
               return ev.text || ev.msg || ev.message ? sentenceCase(ev.text || ev.msg || ev.message) : "";
             case "artifact":
@@ -1855,17 +1872,40 @@
         }
 
         function extractSpeakText(allRunsInGroup, detailsById) {
-          let latest = "";
+          let latestMsg = "";
           for (const r of allRunsInGroup) {
             const detail = detailsById[r.id];
             const evs = Array.isArray(detail?.events) ? detail.events : [];
             const speak = [...evs].reverse().find((e) => e.kind === "speak" && (e.text || e.msg || e.message));
             if (speak) {
-              latest = String(speak.text || speak.msg || speak.message).trim();
-              if (latest) return latest;
+              const txt = String(speak.text || speak.msg || speak.message).trim();
+              if (txt) return txt;
+            }
+            if (!latestMsg) {
+              const msg = [...evs]
+                .reverse()
+                .find(
+                  (e) =>
+                    e.kind === "msg" &&
+                    (e.role === "assistant" || e.msg_kind === "result" || e.msg_kind === "plan") &&
+                    e.text
+                );
+              if (msg) {
+                latestMsg = String(msg.text).trim();
+              }
             }
           }
-          return latest;
+          return latestMsg;
+        }
+
+        function hasMockVerifyEvidence(allRunsInGroup, detailsById) {
+          for (const r of allRunsInGroup) {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            if (evs.some((e) => e?.kind === "verify" && e.achieved === true && /^mock$/i.test(String(e.evidence || "").trim()))) {
+              return true;
+            }
+          }
+          return false;
         }
 
         function hasVerifyPass(allRunsInGroup, detailsById) {
@@ -1918,11 +1958,11 @@
         ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role);
-          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex, rememberedMap);
+          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex, rememberedMap, events);
           const app = extractRunApp(childRun, events, parentRouteEvent, fallbackIndex);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
           const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
-          const isMockStep = Boolean(isMockContext || childRun.mock || childRun.ca_mock || childRun.result?.mock || childRun.result?.ca_mock);
+          const isSampleStep = Boolean(isMockContext);
 
           let stateSymbolWord = "▶ Running";
           let stateColorClass = "state-working";
@@ -1940,7 +1980,7 @@
             stateColorClass = "state-working";
             isWorking = true;
           } else if (childRun.state === "done" && childRun.result?.ok === true) {
-            stateSymbolWord = isMockStep ? "✓ Verified (mock)" : "✓ Verified";
+            stateSymbolWord = isSampleStep ? "✓ Verified (mock)" : "✓ Verified";
             stateColorClass = "state-success";
           } else if (childRun.state === "failed" || childRun.result?.ok === false) {
             stateSymbolWord = "× Failed";
@@ -2121,20 +2161,28 @@
             actEvents.length > 0
               ? actEvents.filter((a) => a.fromMemory).length
               : Number(rawDigest?.memory_steps || 0);
+          const helpRequests = rawDigest?.help_requests != null ? Number(rawDigest.help_requests) : 0;
+          const children = Array.isArray(rawDigest?.children)
+            ? rawDigest.children
+            : rawChildren.map((c) => c.id);
 
           let costUsd = null;
           if (costData && typeof costData.cost_usd === "number") {
             costUsd = costData.cost_usd;
           } else if (rawDigest?.task_cost && typeof rawDigest.task_cost.cost_usd === "number") {
             costUsd = rawDigest.task_cost.cost_usd;
-          } else if (rawDigest?.llm && typeof rawDigest.llm.cost === "number" && rawDigest.llm.calls > 0) {
+          } else if (rawDigest?.llm && typeof rawDigest.llm.cost === "number" && (rawDigest.llm.calls > 0 || rawDigest.llm.cost > 0)) {
             costUsd = rawDigest.llm.cost;
           }
 
           return {
+            summary: rawDigest?.summary ? String(rawDigest.summary) : "",
             timeText: formatSeconds(seconds),
             totalSteps,
             memorySteps,
+            helpRequests,
+            children,
+            llm: rawDigest?.llm || null,
             costUsd,
             costText: formatCostUsd(costUsd),
             actEvents,
@@ -2212,12 +2260,11 @@
                 helpItemsById.set(hid, {
                   id: hid,
                   run: he.run,
-                  kind: he.help_kind || he.kind_name || "",
+                  kind: he.help_kind || "",
                   question: he.question || "Approval needed",
                   options: Array.isArray(he.options) ? he.options : [],
-                  detail: he.detail || "",
+                  detail: "",
                   answer: null,
-                  timed_out: true,
                 });
               }
             }
@@ -2234,7 +2281,7 @@
                   : nowSec;
               const elapsedSec = Math.max(0, nowSec - askedAtSec);
               const remainingSec = Math.max(0, Math.ceil(300 - elapsedSec));
-              const isExpired = Boolean(h.timed_out || timedOutHelpIds.has(h.id) || remainingSec <= 0);
+              const isExpired = Boolean(timedOutHelpIds.has(h.id) || remainingSec <= 0);
               const countdownText = isExpired ? "0:00" : formatCountdown(remainingSec);
               return {
                 id: h.id,
@@ -2257,14 +2304,8 @@
 
             const activePendingHelp = pendingHelp.filter((h) => !h.isExpired);
 
-            const isMockRun = Boolean(
-              meta.isSampleData ||
-              parent.mock ||
-              parent.ca_mock ||
-              parent.result?.mock ||
-              parent.result?.ca_mock ||
-              rawChildren.some((c) => c.mock || c.ca_mock || c.result?.mock || c.result?.ca_mock)
-            );
+            const isSampleContext = Boolean(meta.isSampleData);
+            const hasMockVerify = hasMockVerifyEvidence(groupRuns, detailsById);
 
             const steps = (rawChildren.length ? rawChildren : [parent]).map((child, idx) => {
               const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
@@ -2274,7 +2315,7 @@
                 childHelp,
                 agentsMap,
                 idx,
-                isMockRun,
+                isSampleContext,
                 rememberedMap,
                 parentRouteEvent
               );
@@ -2328,15 +2369,15 @@
               stateColorClass = "state-working";
             } else if (parent.state === "done" && parent.result?.ok === true) {
               state = "verified";
-              stateSymbolWord = isMockRun ? "✓ Verified (mock)" : "✓ Verified";
-              const rawSummary = parent.result.summary || speakText;
+              stateSymbolWord = isSampleContext ? "✓ Verified (mock)" : "✓ Verified";
+              const rawSummary = parent.result.summary || parent.result.digest?.summary || speakText;
               stateFact = rawSummary ? cleanFailureFact(rawSummary) : "All checks passed";
               pillFact = buildPillFact(stateFact, true);
               stateColorClass = "state-success";
             } else if (parent.state === "failed" || parent.result?.ok === false) {
               state = "failed";
               stateSymbolWord = "× Failed";
-              const baseSummary = cleanFailureFact(parent.result?.summary);
+              const baseSummary = cleanFailureFact(parent.result?.summary || parent.result?.digest?.summary);
               stateFact = unappliedPatch
                 ? `${baseSummary} · Nothing was changed.`
                 : baseSummary;
@@ -2345,7 +2386,7 @@
             } else if (parent.state === "done") {
               state = "unverified";
               stateSymbolWord = "◔ Finished, not verified";
-              const baseSummary = cleanFailureFact(parent.result?.summary || speakText);
+              const baseSummary = cleanFailureFact(parent.result?.summary || parent.result?.digest?.summary || speakText);
               stateFact = baseSummary;
               pillFact = buildPillFact(baseSummary, false);
               stateColorClass = "state-warning";
@@ -2371,8 +2412,12 @@
               elapsedText: formatSeconds(parent.elapsed),
               state,
               isFinished,
-              isMock: isMockRun,
-              mockNote: isMockRun ? "Mock verification is not real evidence" : "",
+              isMock: isSampleContext || hasMockVerify,
+              mockNote: isSampleContext
+                ? "Mock verification is not real evidence"
+                : hasMockVerify
+                ? "Mock verification (CA_MOCK) is not real evidence"
+                : "",
               stateSymbolWord,
               stateFact,
               pillFact,
