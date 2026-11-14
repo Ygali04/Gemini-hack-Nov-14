@@ -38,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             object: nil
         )
         loadPage()
+        if ProcessInfo.processInfo.environment["CA_INSPECT"] == "1" {
+            startInspectLoop()
+        }
     }
 
     private func resolveUIFileURL() -> URL? {
@@ -48,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             candidates.append(URL(fileURLWithPath: envPath))
         }
 
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL.appendingPathComponent("ui/index.html"))
+        }
+
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
         candidates.append(cwd.appendingPathComponent("ui/index.html"))
 
@@ -56,6 +63,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             candidates.append(execDir.appendingPathComponent("../../ui/index.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("../ui/index.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("ui/index.html").standardizedFileURL)
+        }
+
+        for candidate in candidates {
+            if fm.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func resolveWorkspaceFileURL() -> URL? {
+        let fm = FileManager.default
+        var candidates: [URL] = []
+
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL.appendingPathComponent("ui/workspace.html"))
+        }
+
+        if let indexURL = uiFileURL {
+            candidates.append(indexURL.deletingLastPathComponent().appendingPathComponent("workspace.html"))
+        }
+
+        let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
+        candidates.append(cwd.appendingPathComponent("ui/workspace.html"))
+
+        if let execURL = Bundle.main.executableURL {
+            let execDir = execURL.deletingLastPathComponent()
+            candidates.append(execDir.appendingPathComponent("../../ui/workspace.html").standardizedFileURL)
+            candidates.append(execDir.appendingPathComponent("../ui/workspace.html").standardizedFileURL)
+            candidates.append(execDir.appendingPathComponent("ui/workspace.html").standardizedFileURL)
         }
 
         for candidate in candidates {
@@ -269,26 +306,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
 
         if let workspaceWebView = workspaceWebView {
-            if let indexURL = uiFileURL {
-                let uiDir = indexURL.deletingLastPathComponent()
-                let wsFileURL = uiDir.appendingPathComponent("workspace.html")
-                if FileManager.default.fileExists(atPath: wsFileURL.path) {
-                    var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
-                    var queryItems = [URLQueryItem(name: "shell", value: "notch")]
-                    if let fixtureName = fixtureName {
-                        queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
-                    }
-                    components?.queryItems = queryItems
-                    let targetURL = components?.url ?? wsFileURL
-                    if workspaceWebView.url?.standardizedFileURL != targetURL.standardizedFileURL {
-                        workspaceWebView.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
-                    }
-                } else {
-                    let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
-                    workspaceWebView.loadHTMLString(html, baseURL: nil)
+            if let wsFileURL = resolveWorkspaceFileURL() {
+                let uiDir = wsFileURL.deletingLastPathComponent()
+                var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
+                var queryItems = [URLQueryItem(name: "shell", value: "notch")]
+                if let fixtureName = fixtureName {
+                    queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
+                }
+                components?.queryItems = queryItems
+                let targetURL = components?.url ?? wsFileURL
+                if workspaceWebView.url?.standardizedFileURL != targetURL.standardizedFileURL {
+                    workspaceWebView.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
                 }
             } else {
-                let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/ directory not found.</body></html>"
+                let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
                 workspaceWebView.loadHTMLString(html, baseURL: nil)
             }
         }
@@ -489,10 +520,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     @objc private func reloadPage(_ sender: Any?) {
         loadPage()
+        if ProcessInfo.processInfo.environment["CA_INSPECT"] == "1" {
+            startInspectLoop()
+        }
     }
 
     @objc private func quitApp(_ sender: Any?) {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func startInspectLoop() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            while let line = readLine(strippingNewline: true) {
+                guard let data = line.data(using: .utf8),
+                      let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    continue
+                }
+                DispatchQueue.main.async {
+                    self?.handleInspectCommand(req)
+                }
+            }
+        }
+    }
+
+    private func writeInspectResponse(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let text = String(data: data, encoding: .utf8) else {
+            return
+        }
+        print(text)
+        fflush(stdout)
+    }
+
+    private func quartzRectDict(for win: NSWindow?) -> [String: Any]? {
+        guard let win = win else { return nil }
+        let f = win.frame
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? f.maxY
+        return [
+            "x": f.origin.x,
+            "y": primaryMaxY - f.maxY,
+            "width": f.size.width,
+            "height": f.size.height,
+            "cocoaX": f.origin.x,
+            "cocoaY": f.origin.y,
+            "windowNumber": win.windowNumber,
+            "visible": win.isVisible,
+            "isKey": win.isKeyWindow,
+            "title": win.title
+        ]
+    }
+
+    private func handleInspectCommand(_ req: [String: Any]) {
+        let reqId = req["id"] ?? NSNull()
+        let cmd = req["cmd"] as? String ?? ""
+        switch cmd {
+        case "bounds":
+            writeInspectResponse([
+                "id": reqId,
+                "ok": true,
+                "panel": quartzRectDict(for: panel) ?? NSNull(),
+                "workspace": quartzRectDict(for: workspaceWindow) ?? NSNull()
+            ])
+        case "eval":
+            let target = req["target"] as? String ?? "notch"
+            let js = req["js"] as? String ?? ""
+            let wv: WKWebView? = (target == "workspace") ? workspaceWebView : webView
+            guard let targetWebView = wv else {
+                writeInspectResponse([
+                    "id": reqId,
+                    "ok": false,
+                    "error": "Target webView not available"
+                ])
+                return
+            }
+            targetWebView.evaluateJavaScript(js) { [weak self] value, error in
+                let safeVal: Any
+                if let val = value, JSONSerialization.isValidJSONObject(["v": val]) {
+                    safeVal = val
+                } else if let val = value {
+                    safeVal = String(describing: val)
+                } else {
+                    safeVal = NSNull()
+                }
+                self?.writeInspectResponse([
+                    "id": reqId,
+                    "ok": error == nil,
+                    "result": safeVal,
+                    "error": error?.localizedDescription ?? ""
+                ])
+            }
+        case "quit":
+            writeInspectResponse(["id": reqId, "ok": true])
+            NSApplication.shared.terminate(nil)
+        default:
+            writeInspectResponse(["id": reqId, "ok": false, "error": "Unknown cmd"])
+        }
     }
 }
 
