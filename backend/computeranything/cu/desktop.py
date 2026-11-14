@@ -137,7 +137,9 @@ def act(kind, ref=None, text=None, app=None, key=None, direction="down"):
     if kind == "launch":
         return run("launch", app or text, timeout=60)
     if kind == "press":
-        return run("press", key or text, *(["--app", app] if app else []))
+        if not app:  # keys go to the agent's own app process, never to whatever the user has in front
+            raise ValueError("press needs the target app")
+        return run("press", key or text, "--app", app)
     if kind == "type":
         return run("type", ref, "--stdin", stdin=text or "")
     if kind == "set_value":
