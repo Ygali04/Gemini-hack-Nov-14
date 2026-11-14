@@ -18,7 +18,7 @@
 
       --text-primary: #f2f4f8;
       --text-secondary: #a6adbb;
-      --text-muted: #767d8e;
+      --text-muted: #7c8394;
 
       --ink-fill: #f2f4f8;
       --ink-text: #0c0d10;
@@ -389,6 +389,19 @@
 
       .workspace-frame-wrap {
         height: 540px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .demo-play-btn {
+        transition: opacity 120ms ease;
+      }
+
+      .demo-progress-fill,
+      .demo-step-pill,
+      .control-btn,
+      .view-link {
+        transition: none;
       }
     }
   </style>
