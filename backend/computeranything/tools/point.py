@@ -24,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_BIN = os.path.join(HERE, "..", "..", "overlay", "overlay")
 FIFO = os.environ.get("CA_FIFO", "")  # set by run.sh to a FIFO in a private 0700 dir
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
-VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID") or "2X7h8q4r8pMNZ7zRmpiF"  # Sunny; a blank .env value falls back too
 
 SYSTEM = """You are ComputerAnything, a helper that can see the user's screen and has its own blue cursor.
 Answer in one to three short spoken sentences (no markdown). Add tags to act on the screen, using
