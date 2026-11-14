@@ -2,16 +2,24 @@
 
 CA_MOCK=1 swaps in a scripted fake so the whole pipeline runs offline in tests.
 """
-import base64, json, os, re, urllib.request
+
+import base64
+import json
+import os
+import re
+import urllib.request
 
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
 USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
-_mock = []                                           # queued fake replies (tests)
+_mock = []  # queued fake replies (tests)
 
 
-def load_env(path=os.path.join(HERE, ".env")):
+ENV_PATH = os.path.join(HERE, ".env")
+
+
+def load_env(path=ENV_PATH):
     """KEY=VALUE lines into os.environ (never overrides what is already set)."""
     try:
         for ln in open(path):
@@ -40,15 +48,26 @@ def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=
     content = [{"type": "text", "text": user}]
     for p in images:
         mime = "image/png" if p.endswith(".png") else "image/jpeg"
-        content.append({"type": "image_url", "image_url": {
-            "url": f"data:{mime};base64," + base64.b64encode(open(p, "rb").read()).decode()}})
-    body = {"model": MODEL, "max_tokens": max_tokens, "temperature": temperature, "usage": {"include": True},
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{mime};base64," + base64.b64encode(open(p, "rb").read()).decode()},
+            }
+        )
+    body = {
+        "model": MODEL,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "usage": {"include": True},
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
+    }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    req = urllib.request.Request(URL, data=json.dumps(body).encode(), headers={
-        "Authorization": "Bearer " + key, "Content-Type": "application/json",
-        "X-Title": "ComputerAnything"})
+    req = urllib.request.Request(
+        URL,
+        data=json.dumps(body).encode(),
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "X-Title": "ComputerAnything"},
+    )
     r = json.load(urllib.request.urlopen(req, timeout=120))
     if "error" in r:
         raise RuntimeError("OpenRouter: %s" % r["error"])

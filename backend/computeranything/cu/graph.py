@@ -7,15 +7,52 @@ posterior mean P = (1+k)/(2+n). The planner runs Dijkstra on cost -log P + LAMBD
 never routes through destructive edges. Successful runs are also saved as skills (goal -> action
 labels) and replayed next time without a model call.
 """
-import hashlib, heapq, json, math, os, re, threading, time
+
+import hashlib
+import heapq
+import json
+import math
+import os
+import re
+import threading
+import time
 
 HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
 PATH = os.path.join(HOME, "graph.json")
 MERGE = 0.8
 LAMBDA = 0.05
-DESTRUCTIVE = re.compile(r"\b(send|pay|buy|purchase|order|checkout|delete|remove|erase|post|publish|transfer|"
-                         r"confirm|submit|unsubscribe|sign out|log out|reset|empty trash|wire|withdraw)\b", re.I)
-STOP = {"the", "a", "an", "to", "in", "on", "of", "and", "my", "me", "please", "open", "go", "app", "for", "it", "then", "check", "show", "see", "find", "get", "view", "look", "at"}
+DESTRUCTIVE = re.compile(
+    r"\b(send|pay|buy|purchase|order|checkout|delete|remove|erase|post|publish|transfer|"
+    r"confirm|submit|unsubscribe|sign out|log out|reset|empty trash|wire|withdraw)\b",
+    re.I,
+)
+STOP = {
+    "the",
+    "a",
+    "an",
+    "to",
+    "in",
+    "on",
+    "of",
+    "and",
+    "my",
+    "me",
+    "please",
+    "open",
+    "go",
+    "app",
+    "for",
+    "it",
+    "then",
+    "check",
+    "show",
+    "see",
+    "find",
+    "get",
+    "view",
+    "look",
+    "at",
+}
 _lock = threading.Lock()
 
 
@@ -30,7 +67,7 @@ def toks(s):
 
 def action_key(kind, el=None, text=None, key=None):
     """Refs change every snapshot, so an action is remembered by what it targets, not by its ref."""
-    lab = lambda v: re.sub(r"\s+", " ", (v or "").lower()).strip()[:50]   # keep digits: "7" != "6"
+    lab = lambda v: re.sub(r"\s+", " ", (v or "").lower()).strip()[:50]  # keep digits: "7" != "6"
     if el is not None:
         return "%s:%s:%s" % (kind, el["role"], lab(el["name"]))
     return "%s:%s" % (kind, lab(key or text))
@@ -60,8 +97,9 @@ class Graph:
 
     # ---------- edges
     def record(self, src, akey, dst, ok, ms):
-        e = self.edges.setdefault(src, {}).setdefault(akey, {"n": 0, "k": 0, "ms": [], "to": {},
-                                                               "destructive": bool(DESTRUCTIVE.search(akey))})
+        e = self.edges.setdefault(src, {}).setdefault(
+            akey, {"n": 0, "k": 0, "ms": [], "to": {}, "destructive": bool(DESTRUCTIVE.search(akey))}
+        )
         e["n"] += 1
         e["k"] += int(bool(ok))
         e["ms"] = (e["ms"] + [int(ms)])[-50:]
@@ -80,8 +118,11 @@ class Graph:
     def hints(self, nid, limit=8):
         """Known actions from this screen, most reliable first, for the model to consider."""
         rows = sorted(self.edges.get(nid, {}).items(), key=lambda kv: -self.p(kv[1]) * math.log(2 + kv[1]["n"]))
-        return ["%s  P=%.2f n=%d p50=%dms%s" % (a, self.p(e), e["n"], self.p50(e), " DESTRUCTIVE" if e["destructive"] else "")
-                for a, e in rows[:limit]]
+        return [
+            "%s  P=%.2f n=%d p50=%dms%s"
+            % (a, self.p(e), e["n"], self.p50(e), " DESTRUCTIVE" if e["destructive"] else "")
+            for a, e in rows[:limit]
+        ]
 
     def plan(self, start, goal, max_depth=8):
         """First action on the most reliable known path to a screen whose title names the goal."""
@@ -109,8 +150,9 @@ class Graph:
 
     # ---------- skills (macro replay)
     def save_skill(self, app, goal, steps):
-        self.skills.setdefault(app, []).append({"goal": goal, "toks": sorted(toks(goal)), "steps": steps,
-                                                "ok": 1, "saved": time.time()})
+        self.skills.setdefault(app, []).append(
+            {"goal": goal, "toks": sorted(toks(goal)), "steps": steps, "ok": 1, "saved": time.time()}
+        )
 
     def find_skill(self, app, goal, min_j=0.75):
         g, best, best_j = toks(goal), None, 0.0
@@ -123,10 +165,14 @@ class Graph:
 
     def stats(self):
         es = [e for v in self.edges.values() for e in v.values()]
-        return {"screens": len(self.nodes), "transitions": len(es), "skills": sum(map(len, self.skills.values())),
-                "apps": sorted({n["app"] for n in self.nodes.values()}),
-                "mean_edge_p": round(sum(map(self.p, es)) / len(es), 3) if es else None,
-                "destructive_edges": sum(e["destructive"] for e in es)}
+        return {
+            "screens": len(self.nodes),
+            "transitions": len(es),
+            "skills": sum(map(len, self.skills.values())),
+            "apps": sorted({n["app"] for n in self.nodes.values()}),
+            "mean_edge_p": round(sum(map(self.p, es)) / len(es), 3) if es else None,
+            "destructive_edges": sum(e["destructive"] for e in es),
+        }
 
     # ---------- persistence
     def save(self, path=PATH):
@@ -157,7 +203,11 @@ def load(path=PATH):
 
 def selftest():
     g = Graph()
-    home = [{"role": "button", "name": "Battery"}, {"role": "button", "name": "General"}, {"role": "statictext", "name": "Settings 87%"}]
+    home = [
+        {"role": "button", "name": "Battery"},
+        {"role": "button", "name": "General"},
+        {"role": "statictext", "name": "Settings 87%"},
+    ]
     home2 = [dict(e, name=e["name"].replace("87", "86")) for e in home]
     batt = [{"role": "statictext", "name": "Battery"}, {"role": "button", "name": "Battery Health"}]
     health = [{"role": "statictext", "name": "Maximum Capacity 98%"}]
@@ -166,10 +216,10 @@ def selftest():
     b, h = g.identify("S", "Battery", batt), g.identify("S", "Battery Health", health)
     g.record(a, action_key("click", home[0]), b, True, 300)
     g.record(b, action_key("click", batt[1]), h, True, 400)
-    g.record(b, "click:button:delete all data", h, True, 100)            # shorter but destructive
+    g.record(b, "click:button:delete all data", h, True, 100)  # shorter but destructive
     p = g.plan(a, "check battery health")
     assert p and p["action"] == "click:button:battery" and p["hops"] == 2, p
-    assert abs(Graph.p(g.edges[a]["click:button:battery"]) - 2 / 3) < 1e-9   # (1+1)/(2+1)
+    assert abs(Graph.p(g.edges[a]["click:button:battery"]) - 2 / 3) < 1e-9  # (1+1)/(2+1)
     g.save_skill("S", "check my battery health", ["click:button:battery", "click:button:battery health"])
     assert g.find_skill("S", "check battery health") and not g.find_skill("S", "open wifi")
     path = os.path.join(__import__("tempfile").gettempdir(), "ca_graph_selftest.json")

@@ -3,14 +3,19 @@
 A help request blocks the asking agent until a person answers in the UI. No answer before the
 timeout counts as deny (money, sign-in and destructive steps must never default to yes).
 """
-import itertools, json, os, threading, time
+
+import itertools
+import json
+import os
+import threading
+import time
 
 HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
 RUNS_DIR = os.path.join(HOME, "runs")
 _ids = itertools.count(1)
 _lock = threading.Lock()
-RUNS = {}            # id -> Run
-HELP = {}            # help id -> request dict
+RUNS = {}  # id -> Run
+HELP = {}  # help id -> request dict
 _help_ids = itertools.count(1)
 
 
@@ -29,8 +34,7 @@ class Run:
         os.makedirs(RUNS_DIR, exist_ok=True)
         with open(os.path.join(RUNS_DIR, self.id + ".jsonl"), "a") as f:
             f.write(json.dumps(ev, default=str) + "\n")
-        print("[%s %s] %s %s" % (self.id, self.role, _kind,
-                                 json.dumps(data, default=str)[:220]), flush=True)
+        print("[%s %s] %s %s" % (self.id, self.role, _kind, json.dumps(data, default=str)[:220]), flush=True)
         return ev
 
     def set(self, state):
@@ -40,17 +44,34 @@ class Run:
             self.ended = time.time()
 
     def view(self, since=0):
-        return {"id": self.id, "goal": self.goal, "role": self.role, "parent": self.parent, "state": self.state,
-                "elapsed": round((self.ended or time.time()) - self.started, 1),
-                "events": self.events[since:], "n_events": len(self.events), "result": self.result}
+        return {
+            "id": self.id,
+            "goal": self.goal,
+            "role": self.role,
+            "parent": self.parent,
+            "state": self.state,
+            "elapsed": round((self.ended or time.time()) - self.started, 1),
+            "events": self.events[since:],
+            "n_events": len(self.events),
+            "result": self.result,
+        }
 
 
 def ask_human(run, kind, question, options=("approve", "deny"), timeout=300, detail=None):
     """Block until the UI answers. kind: captcha | sign_in | money | destructive | clarify.
     Returns the chosen option, 'deny' on timeout. In CA_AUTO_APPROVE=1 test mode returns options[0]."""
     hid = "h%d" % next(_help_ids)
-    req = {"id": hid, "run": run.id, "kind": kind, "question": question, "options": list(options),
-           "detail": detail, "answer": None, "event": threading.Event(), "asked": time.time()}
+    req = {
+        "id": hid,
+        "run": run.id,
+        "kind": kind,
+        "question": question,
+        "options": list(options),
+        "detail": detail,
+        "answer": None,
+        "event": threading.Event(),
+        "asked": time.time(),
+    }
     HELP[hid] = req
     run.set("awaiting_human")
     run.emit("help", id=hid, help_kind=kind, question=question, options=list(options))
@@ -80,8 +101,17 @@ def digest(run, children=()):
     """End-of-task report: what it did, how long, how many steps, cost, outcome."""
     acts = [e for e in run.events if e["kind"] == "act"]
     from . import llm
-    return {"run": run.id, "goal": run.goal, "role": run.role, "ok": bool(run.result and run.result.get("ok")),
-            "summary": (run.result or {}).get("summary", ""), "seconds": round((run.ended or time.time()) - run.started, 1),
-            "steps": len(acts), "help_requests": sum(e["kind"] == "help" for e in run.events),
-            "memory_steps": sum(e.get("source") == "memory" for e in acts),
-            "llm": dict(llm.USAGE), "children": [c.id for c in children]}
+
+    return {
+        "run": run.id,
+        "goal": run.goal,
+        "role": run.role,
+        "ok": bool(run.result and run.result.get("ok")),
+        "summary": (run.result or {}).get("summary", ""),
+        "seconds": round((run.ended or time.time()) - run.started, 1),
+        "steps": len(acts),
+        "help_requests": sum(e["kind"] == "help" for e in run.events),
+        "memory_steps": sum(e.get("source") == "memory" for e in acts),
+        "llm": dict(llm.USAGE),
+        "children": [c.id for c in children],
+    }

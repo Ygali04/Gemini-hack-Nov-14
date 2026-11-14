@@ -2,12 +2,37 @@
 
 Actions go to element refs, headless: the user's real pointer and focus are never moved.
 """
-import json, re, subprocess
+
+import json
+import subprocess
 
 BIN = "agent-desktop"
-KEEP_ROLES = {"button", "textfield", "textarea", "searchfield", "link", "menuitem", "menubaritem", "checkbox",
-              "radiobutton", "popupbutton", "combobox", "tab", "cell", "row", "treeitem", "slider", "switch",
-              "statictext", "heading", "image", "scrollarea", "incrementor", "colorwell", "disclosure"}
+KEEP_ROLES = {
+    "button",
+    "textfield",
+    "textarea",
+    "searchfield",
+    "link",
+    "menuitem",
+    "menubaritem",
+    "checkbox",
+    "radiobutton",
+    "popupbutton",
+    "combobox",
+    "tab",
+    "cell",
+    "row",
+    "treeitem",
+    "slider",
+    "switch",
+    "statictext",
+    "heading",
+    "image",
+    "scrollarea",
+    "incrementor",
+    "colorwell",
+    "disclosure",
+}
 
 
 class DesktopError(RuntimeError):
@@ -20,16 +45,23 @@ def run(*args, stdin=None, timeout=45):
     p = subprocess.run([BIN, *args], input=stdin, capture_output=True, text=True, timeout=timeout)
     try:
         env = json.loads(p.stdout or "{}")
-    except ValueError:
-        raise DesktopError({"code": "BAD_OUTPUT", "message": (p.stdout + p.stderr)[:300]})
+    except ValueError as e:
+        raise DesktopError({"code": "BAD_OUTPUT", "message": (p.stdout + p.stderr)[:300]}) from e
     if not env.get("ok"):
         raise DesktopError(env.get("error") or {"code": "UNKNOWN", "message": p.stderr[:300]})
     return env.get("data") or {}
 
 
 def frontmost_app():
-    out = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first '
-                          'application process whose frontmost is true'], capture_output=True, text=True)
+    out = subprocess.run(
+        [
+            "osascript",
+            "-e",
+            'tell application "System Events" to get name of first application process whose frontmost is true',
+        ],
+        capture_output=True,
+        text=True,
+    )
     return out.stdout.strip() or "Finder"
 
 
@@ -55,10 +87,20 @@ def flatten(tree):
         role = (n.get("role") or "").lower()
         name = (n.get("name") or n.get("description") or "").replace("\u200e", "").strip()
         if n.get("ref_id") or (role in KEEP_ROLES and name):
-            out.append({"ref": n.get("ref_id"), "role": role, "name": name[:80], "value": str(n.get("value") or "").replace("\u200e", "")[:80],
-                        "bounds": n.get("bounds"), "actions": n.get("available_actions") or [], "ctx": ctx})
+            out.append(
+                {
+                    "ref": n.get("ref_id"),
+                    "role": role,
+                    "name": name[:80],
+                    "value": str(n.get("value") or "").replace("\u200e", "")[:80],
+                    "bounds": n.get("bounds"),
+                    "actions": n.get("available_actions") or [],
+                    "ctx": ctx,
+                }
+            )
         for c in n.get("children") or []:
             walk(c, name or ctx)
+
     walk(tree, "")
     return out
 
@@ -106,10 +148,20 @@ def act(kind, ref=None, text=None, app=None, key=None, direction="down"):
 
 
 def selftest():
-    tree = {"role": "window", "name": "Calc", "children": [
-        {"role": "button", "name": "7", "ref_id": "@s1:e6", "bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
-         "available_actions": ["Click"]},
-        {"role": "statictext", "name": "42", "children": []}]}
+    tree = {
+        "role": "window",
+        "name": "Calc",
+        "children": [
+            {
+                "role": "button",
+                "name": "7",
+                "ref_id": "@s1:e6",
+                "bounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+                "available_actions": ["Click"],
+            },
+            {"role": "statictext", "name": "42", "children": []},
+        ],
+    }
     els = flatten(tree)
     assert [e["name"] for e in els] == ["7", "42"] and els[0]["ref"] == "@s1:e6", els
     assert table(els).splitlines() == ['[0] button "7"', '[1] statictext "42" (read-only)'], table(els)

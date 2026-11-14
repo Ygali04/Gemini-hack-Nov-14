@@ -8,7 +8,17 @@ Usage:
   python3 agent.py --selftest       # offline checks
 Stdlib only.
 """
-import base64, json, os, re, shutil, stat, subprocess, sys, tempfile, urllib.request
+
+import base64
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_BIN = os.path.join(HERE, "..", "..", "overlay", "overlay")
@@ -79,16 +89,18 @@ def capture():
     path = os.path.join(tempfile.mkdtemp(prefix="ca-"), "shot.png")
     subprocess.run(["screencapture", "-x", "-C", path], check=True)
     subprocess.run(["sips", "-Z", "1280", path], capture_output=True, check=True)
-    info = subprocess.run(["sips", "-g", "pixelWidth", "-g", "pixelHeight", path],
-                          capture_output=True, text=True).stdout
+    info = subprocess.run(
+        ["sips", "-g", "pixelWidth", "-g", "pixelHeight", path], capture_output=True, text=True
+    ).stdout
     w = float(re.search(r"pixelWidth: (\d+)", info).group(1))
     h = float(re.search(r"pixelHeight: (\d+)", info).group(1))
     return path, (w, h)
 
 
 def post_json(url, payload, headers):
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json", **headers})
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", **headers}
+    )
     with urllib.request.urlopen(req, timeout=90) as r:
         return r.read()
 
@@ -102,14 +114,20 @@ def ask(prompt, png_path):
         "model": MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}},
-            ]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}},
+                ],
+            },
         ],
     }
-    raw = post_json("https://openrouter.ai/api/v1/chat/completions", body,
-                    {"Authorization": "Bearer " + key, "X-Title": "ComputerAnything"})
+    raw = post_json(
+        "https://openrouter.ai/api/v1/chat/completions",
+        body,
+        {"Authorization": "Bearer " + key, "X-Title": "ComputerAnything"},
+    )
     return json.loads(raw)["choices"][0]["message"]["content"]
 
 
@@ -119,9 +137,11 @@ def speak(text):
     key = os.environ.get("ELEVENLABS_API_KEY")
     if key:
         try:
-            mp3 = post_json(f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
-                            {"text": text, "model_id": "eleven_flash_v2_5"},
-                            {"xi-api-key": key, "Accept": "audio/mpeg"})
+            mp3 = post_json(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
+                {"text": text, "model_id": "eleven_flash_v2_5"},
+                {"xi-api-key": key, "Accept": "audio/mpeg"},
+            )
             path = os.path.join(tempfile.mkdtemp(prefix="ca-"), "say.mp3")
             open(path, "wb").write(mp3)
             subprocess.Popen(["afplay", path])
@@ -139,11 +159,20 @@ def listen():
     print("Listening for 5 s...", file=sys.stderr)
     subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "avfoundation", "-i", ":0", "-t", "5", "-y", wav], check=True)
     boundary = "----ca" + os.urandom(8).hex()
-    parts = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\nscribe_v1\r\n"
-             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"mic.wav\"\r\n"
-             f"Content-Type: audio/wav\r\n\r\n").encode() + open(wav, "rb").read() + f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request("https://api.elevenlabs.io/v1/speech-to-text", data=parts,
-                                 headers={"xi-api-key": key, "Content-Type": "multipart/form-data; boundary=" + boundary})
+    parts = (
+        (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="model_id"\r\n\r\nscribe_v1\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="mic.wav"\r\n'
+            f"Content-Type: audio/wav\r\n\r\n"
+        ).encode()
+        + open(wav, "rb").read()
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    req = urllib.request.Request(
+        "https://api.elevenlabs.io/v1/speech-to-text",
+        data=parts,
+        headers={"xi-api-key": key, "Content-Type": "multipart/form-data; boundary=" + boundary},
+    )
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.loads(r.read())["text"]
 
@@ -169,7 +198,7 @@ def main(argv):
     else:
         prompt = " ".join(a for a in argv if not a.startswith("--")) or sys.stdin.read().strip()
     if not prompt:
-        sys.exit("usage: agent.py \"your question\"")
+        sys.exit('usage: agent.py "your question"')
     png, shot = capture()
     reply = ask(prompt, png)
     spoken, ops = parse_tags(reply)

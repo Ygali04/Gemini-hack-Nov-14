@@ -4,7 +4,15 @@ route() picks a role (qa | marketing | cu), submit() runs it on a daemon thread 
 and the parent's result carries a digest of every child run. Money and sign-in steps are handled
 inside cu_agent (it calls runs.ask_human); this module only passes goals through.
 """
-import json, os, re, subprocess, sys, tempfile, threading, time
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 
 from ..core import llm, runs
 
@@ -35,6 +43,7 @@ Reply with JSON only: {"tagline": str, "launch_script": str (60-second voice-ove
 
 # ---------------------------------------------------------------- routing
 
+
 def _keyword_route(prompt):
     p = prompt.lower()
     if re.search(r"\b(test|tests|testing|qa|bug|bugs|debug|fix)\b", p):
@@ -48,8 +57,13 @@ def _keyword_route(prompt):
     url = url.group(0) if url else None
     if url and not url.startswith("http"):
         url = "http://" + url
-    return {"role": role, "app": None, "repo": repo.group(1) if repo and role == "qa" else None,
-            "url": url, "goal": prompt.strip()}
+    return {
+        "role": role,
+        "app": None,
+        "repo": repo.group(1) if repo and role == "qa" else None,
+        "url": url,
+        "goal": prompt.strip(),
+    }
 
 
 def route(prompt, attachments=()):
@@ -72,6 +86,7 @@ def route(prompt, attachments=()):
 
 
 # ---------------------------------------------------------------- pipeline
+
 
 def submit(prompt, attachments=()):
     """Start the pipeline on a daemon thread; return the parent Run at once (.thread to join)."""
@@ -111,6 +126,7 @@ def _pipeline(parent, prompt, attachments):
 
 def _cu():
     from ..cu import cu_agent  # written in parallel; import lazily
+
     return cu_agent
 
 
@@ -123,6 +139,7 @@ def _finish(run, ok, summary, **extra):
 
 # ---------------------------------------------------------------- cu role
 
+
 def cu(parent, goal, app=None):
     child = runs.Run(goal, role="cu", parent=parent.id)
     child.set("acting")
@@ -132,6 +149,7 @@ def cu(parent, goal, app=None):
 
 
 # ---------------------------------------------------------------- qa role
+
 
 def _sh(cmd, cwd, timeout=TEST_TIMEOUT):
     try:
@@ -155,8 +173,9 @@ def detect_tests(repo):
         if test and "no test specified" not in test:
             return ["npm", "test", "--silent"]
     names = os.listdir(repo)
-    if ({"pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini", "tests"} & set(names)
-            or any(re.match(r"test_.*\.py$|.*_test\.py$", n) for n in names)):
+    if {"pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini", "tests"} & set(names) or any(
+        re.match(r"test_.*\.py$|.*_test\.py$", n) for n in names
+    ):
         return [sys.executable or "python3", "-m", "pytest", "-q", "-x"]
     return None
 
@@ -178,7 +197,14 @@ def qa_round(qa, repo, url, goal, rnd):
         ui = _cu().run_task(qa, "open %s and check the main page works" % url, app=_browser(), max_steps=12)
         qa.emit("ui_check", round=rnd, ok=ui.get("ok"), summary=ui.get("summary"))
     user = "Goal: %s\nRepo: %s\nRound %d\nTest command: %s (exit %s)\nTest output tail:\n%s\n\nUI check: %s" % (
-        goal, repo, rnd, " ".join(cmd) if cmd else "none", code, tail, json.dumps(ui) if ui else "not run")
+        goal,
+        repo,
+        rnd,
+        " ".join(cmd) if cmd else "none",
+        code,
+        tail,
+        json.dumps(ui) if ui else "not run",
+    )
     report = llm.chat(QA_SYS, user, json_mode=True, max_tokens=1500)
     bugs = report.get("bugs") if isinstance(report, dict) else None
     bugs = [b for b in (bugs or []) if isinstance(b, dict) and b.get("title")]
@@ -222,24 +248,45 @@ def apply_patch(repo, patch):
 def dev_fix(dev, repo, bugs, test_out, rnd):
     files = gather_files(repo, bugs, test_out)
     user = "Bugs:\n%s\n\nTest output tail:\n%s\n\nFiles:\n%s" % (
-        json.dumps(bugs, indent=1), test_out[-2000:],
-        "\n\n".join("=== %s ===\n%s" % (k, v) for k, v in files.items()) or "(none found)")
+        json.dumps(bugs, indent=1),
+        test_out[-2000:],
+        "\n\n".join("=== %s ===\n%s" % (k, v) for k, v in files.items()) or "(none found)",
+    )
     err = None
     for attempt in (1, 2):
-        ask = user if not err else user + "\n\nYour previous patch failed `git apply`:\n%s\nSend a corrected patch." % err
+        ask = (
+            user if not err else user + "\n\nYour previous patch failed `git apply`:\n%s\nSend a corrected patch." % err
+        )
         r = llm.chat(DEV_SYS, ask, json_mode=True, max_tokens=4000)
         patch = (r.get("patch") or "") if isinstance(r, dict) else ""
         if not patch.strip():
             dev.emit("patch", round=rnd, attempt=attempt, applied=False, error="empty patch")
             return False
-        if os.environ.get("CA_CONFIRM_PATCH", "1") != "0":       # model-written code needs a yes by default
-            if runs.ask_human(dev, "destructive", "Apply patch to %s?" % repo, ("approve", "deny"),
-                              timeout=300, detail=patch[:4000]) != "approve":
+        if os.environ.get("CA_CONFIRM_PATCH", "1") != "0":  # model-written code needs a yes by default
+            if (
+                runs.ask_human(
+                    dev,
+                    "destructive",
+                    "Apply patch to %s?" % repo,
+                    ("approve", "deny"),
+                    timeout=300,
+                    detail=patch[:4000],
+                )
+                != "approve"
+            ):
                 dev.emit("patch", round=rnd, attempt=attempt, applied=False, error="denied by user")
                 return False
         ok, out = apply_patch(repo, patch)
-        dev.emit("patch", round=rnd, attempt=attempt, applied=ok, files=sorted(files),
-                 explanation=r.get("explanation", ""), diff=patch[:3000], error=None if ok else out[:1000])
+        dev.emit(
+            "patch",
+            round=rnd,
+            attempt=attempt,
+            applied=ok,
+            files=sorted(files),
+            explanation=r.get("explanation", ""),
+            diff=patch[:3000],
+            error=None if ok else out[:1000],
+        )
         if ok:
             commit_patch(dev, repo, patch, r.get("explanation", ""), rnd)
             return True
@@ -255,7 +302,9 @@ def commit_patch(dev, repo, patch, explanation, rnd):
     if not touched:
         return
     msg = "fix(qa round %d): %s\n\nCo-Authored-By: Gemini 4 Argon <noreply@openrouter.ai>\n" % (
-        rnd, (explanation or "patch from the dev agent").splitlines()[0][:72])
+        rnd,
+        (explanation or "patch from the dev agent").splitlines()[0][:72],
+    )
     _sh(["git", "-C", repo, "add", "--", *touched], repo, timeout=60)
     code, out = _sh(["git", "-C", repo, "commit", "-q", "-m", msg, "--", *touched], repo, timeout=60)
     dev.emit("commit", files=touched, ok=code == 0, out=out.strip()[:300])
@@ -294,6 +343,7 @@ def qa_loop(parent, repo, url, goal, max_rounds=5):
 
 # ---------------------------------------------------------------- marketing role
 
+
 def _shot(path):
     if os.environ.get("CA_MOCK") == "1":
         return None  # no real screen in tests
@@ -312,12 +362,15 @@ def marketing(parent, url_or_app, goal):
     if target and not is_url:
         try:
             from ..cu import desktop
+
             desktop.act("launch", app=app)
         except Exception as e:  # noqa: BLE001
             child.emit("warn", error="launch failed: %s" % e)
-    tours = ["open %s and show its main screen" % (target or "the frontmost app"),
-             "in %s, open the most impressive feature screen" % (target or "the app"),
-             "in %s, show one more distinct screen that a new user would love" % (target or "the app")]
+    tours = [
+        "open %s and show its main screen" % (target or "the frontmost app"),
+        "in %s, open the most impressive feature screen" % (target or "the app"),
+        "in %s, show one more distinct screen that a new user would love" % (target or "the app"),
+    ]
     shots = []
     for i, g in enumerate(tours, 1):
         try:
@@ -330,14 +383,19 @@ def marketing(parent, url_or_app, goal):
         if p:
             shots.append(p)
             child.emit("artifact", path=p, type="screenshot")
-    brief = llm.chat(MKT_SYS, "Goal: %s\nProduct: %s" % (goal, target or app), images=shots,
-                     json_mode=True, max_tokens=2000)
-    brief = {k: brief.get(k) for k in ("tagline", "launch_script", "shot_list", "palette")} if isinstance(brief, dict) else {}
+    brief = llm.chat(
+        MKT_SYS, "Goal: %s\nProduct: %s" % (goal, target or app), images=shots, json_mode=True, max_tokens=2000
+    )
+    brief = (
+        {k: brief.get(k) for k in ("tagline", "launch_script", "shot_list", "palette")}
+        if isinstance(brief, dict)
+        else {}
+    )
     brief["screenshots"] = shots
     path = os.path.join(out_dir, "brief.json")
     with open(path, "w") as f:
         json.dump(brief, f, indent=2)
-    # ponytail: the brief is JSON + screenshots; rendering it into a real launch video with Remotion is the upgrade path.
+    # ponytail: the brief is JSON + screenshots; a Remotion launch-video render is the upgrade path.
     child.emit("artifact", path=path, type="brief", tagline=brief.get("tagline"))
     ok = bool(brief.get("tagline") and brief.get("launch_script"))
     res = {"ok": ok, "summary": "launch brief at %s: %s" % (path, brief.get("tagline")), "brief": path}
@@ -347,10 +405,12 @@ def marketing(parent, url_or_app, goal):
 
 # ---------------------------------------------------------------- selftest
 
+
 def selftest():
     os.environ["CA_MOCK"] = "1"
-    os.environ["CA_AUTO_APPROVE"] = "1"         # the patch-approval prompt answers itself in tests
+    os.environ["CA_AUTO_APPROVE"] = "1"  # the patch-approval prompt answers itself in tests
     import types
+
     calls = []
 
     def stub(run, goal, app=None, max_steps=25):
@@ -362,7 +422,7 @@ def selftest():
     except Exception:  # noqa: BLE001 - not written yet: inject a stub module
         mod = types.ModuleType(__package__ + ".cu_agent")
         sys.modules[mod.__name__] = mod
-        setattr(sys.modules[__package__], "cu_agent", mod)
+        sys.modules[__package__].cu_agent = mod
     mod.run_task = stub
 
     # 1. keyword fallback when the LLM raises
@@ -382,13 +442,28 @@ def selftest():
     _sh(["git", "init", "-q"], repo, 30)
     _sh(["git", "-C", repo, "config", "user.email", "qa@example.com"], repo, 30)
     _sh(["git", "-C", repo, "config", "user.name", "qa"], repo, 30)
-    patch = ("diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n"
-             " def add(a, b):\n-    return a - b\n+    return a + b\n")
-    llm.mock(json.dumps({"role": "qa", "app": None, "repo": repo, "url": None, "goal": "test and fix calc"}),
-             json.dumps({"bugs": [{"id": "B1", "title": "add subtracts", "severity": "high",
-                                   "evidence": "add(2,2) == 0", "file_hint": "calc.py"}]}),
-             json.dumps({"patch": patch, "explanation": "use +"}),
-             json.dumps({"bugs": []}))
+    patch = (
+        "diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n"
+        " def add(a, b):\n-    return a - b\n+    return a + b\n"
+    )
+    llm.mock(
+        json.dumps({"role": "qa", "app": None, "repo": repo, "url": None, "goal": "test and fix calc"}),
+        json.dumps(
+            {
+                "bugs": [
+                    {
+                        "id": "B1",
+                        "title": "add subtracts",
+                        "severity": "high",
+                        "evidence": "add(2,2) == 0",
+                        "file_hint": "calc.py",
+                    }
+                ]
+            }
+        ),
+        json.dumps({"patch": patch, "explanation": "use +"}),
+        json.dumps({"bugs": []}),
+    )
     parent = submit("test my calculator at " + repo)
     parent.thread.join(30)
     assert parent.state == "done", (parent.state, parent.events[-3:])
@@ -409,8 +484,11 @@ def selftest():
     p2 = submit("add lunch at noon to my calendar")
     p2.thread.join(10)
     assert p2.state == "done" and calls[-1] == ("add lunch at noon", "Calendar"), (p2.state, calls)
-    llm.mock(json.dumps({"tagline": "Math, fixed.", "launch_script": "Meet calc.", "shot_list": ["hero"],
-                         "palette": ["#112233"]}))
+    llm.mock(
+        json.dumps(
+            {"tagline": "Math, fixed.", "launch_script": "Meet calc.", "shot_list": ["hero"], "palette": ["#112233"]}
+        )
+    )
     res, (m,) = marketing(runs.Run("promo", role="orchestrator"), "http://localhost:3000", "promo for calc")
     assert res["ok"] and json.load(open(res["brief"]))["tagline"] == "Math, fixed."
     print("orchestrator selftest OK")

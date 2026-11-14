@@ -1,0 +1,18 @@
+[project]
+name = "computeranything"
+version = "0.1.0"
+description = "Desktop computer-use agent backend: Gemini 4 Argon brain, accessibility-tree actions, action-graph memory"
+requires-python = ">=3.10"
+dependencies = []          # stdlib only; actions need the agent-desktop CLI (npm install -g agent-desktop)
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E401", "E731"]   # one-line stdlib imports and small lambdas are deliberate
+
+[tool.ruff.lint.per-file-ignores]
+"computeranything/api/server.py" = ["E501"]   # inline HTML/JS page
+"computeranything/tools/point.py" = ["E501"]   # long tag fixtures in the selftest

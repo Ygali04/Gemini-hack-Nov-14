@@ -1,6 +1,10 @@
 """The blue cursor. Owns the Swift overlay process and talks to it over an inherited pipe
 (no path on disk, so nothing else on the machine can send it clicks)."""
-import json, os, subprocess, threading
+
+import json
+import os
+import subprocess
+import threading
 
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(BACKEND, "overlay", "overlay")
@@ -32,9 +36,17 @@ def point_at(bounds, label):
     if not bounds:
         return False
     x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
-    return send({"op": "point", "x": x, "y": y, "label": label[:40]},
-                {"op": "draw", "shape": "rect", "x": bounds["x"] - 4, "y": bounds["y"] - 4,
-                 "w": bounds["width"] + 8, "h": bounds["height"] + 8})
+    return send(
+        {"op": "point", "x": x, "y": y, "label": label[:40]},
+        {
+            "op": "draw",
+            "shape": "rect",
+            "x": bounds["x"] - 4,
+            "y": bounds["y"] - 4,
+            "w": bounds["width"] + 8,
+            "h": bounds["height"] + 8,
+        },
+    )
 
 
 def stop():

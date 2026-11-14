@@ -4,7 +4,15 @@ Run: cd backend && python3 -m computeranything   (port from CA_PORT, default 876
 Every /api call needs the startup token (header X-CA-Token or query t=), because runs can click
 on this machine. Requests with a foreign Origin header are refused.
 """
-import atexit, hmac, json, os, re, secrets, sys, traceback
+
+import atexit
+import hmac
+import json
+import os
+import re
+import secrets
+import sys
+import traceback
 from email.parser import BytesParser
 from email.policy import default as email_default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -158,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
                     views.append(v)
                 return self._send(200, views)
             if p.startswith("/api/runs/"):
-                r = runs.RUNS.get(p[len("/api/runs/"):])
+                r = runs.RUNS.get(p[len("/api/runs/") :])
                 if not r:
                     return self._send(404, {"error": "no such run"})
                 since = int((parse_qs(u.query).get("since") or ["0"])[0] or 0)
@@ -168,6 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/graph":
                 try:
                     from ..cu import graph
+
                     return self._send(200, graph.load().stats() or {})
                 except ImportError:
                     return self._send(200, {})
@@ -184,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/task":
                 return self._task()
             if p.startswith("/api/help/"):
-                hid = p[len("/api/help/"):]
+                hid = p[len("/api/help/") :]
                 if hid not in runs.HELP:
                     return self._send(404, {"ok": False, "error": "no such help request"})
                 choice = json.loads(self._body() or b"{}").get("choice")
@@ -204,14 +213,15 @@ class Handler(BaseHTTPRequestHandler):
         prompt, files = "", []
         if ctype.startswith("multipart/form-data"):
             msg = BytesParser(policy=email_default).parsebytes(
-                b"Content-Type: " + ctype.encode() + b"\r\nMIME-Version: 1.0\r\n\r\n" + body)
+                b"Content-Type: " + ctype.encode() + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
+            )
             for part in msg.iter_parts():
                 field = part.get_param("name", header="content-disposition")
                 fname = part.get_filename()
                 data = part.get_payload(decode=True) or b""
                 if fname is not None:
                     if not fname and not data:
-                        continue      # empty file input
+                        continue  # empty file input
                     name = _safe_name(fname)
                     if not name:
                         return self._send(400, {"error": "bad file name"})
@@ -221,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif field == "prompt":
                     prompt = data.decode("utf-8", "replace")
         else:
-            prompt = (json.loads(body or b"{}").get("prompt") or "")
+            prompt = json.loads(body or b"{}").get("prompt") or ""
         prompt = prompt.strip()
         if not prompt:
             return self._send(400, {"error": "empty prompt"})
@@ -245,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     try:
         from ..cu import overlay
+
         overlay.start()
         atexit.register(overlay.stop)
     except Exception as e:

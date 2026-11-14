@@ -4,13 +4,21 @@ Each step: observe (accessibility tree) -> decide (skill replay, else Gemini) ->
 -> show (blue cursor) -> act (headless, by ref) -> record (action graph). A "done" claim is
 checked by a separate verifier call before the run counts as a success.
 """
-import os, re, subprocess, tempfile, time
+
+import os
+import re
+import subprocess
+import tempfile
+import time
 
 from ..core import llm, runs
 from . import desktop, graph, overlay
 
-SENSITIVE_APP = re.compile(r"bank|chase|wells|schwab|fidelity|vanguard|robinhood|coinbase|venmo|paypal|"
-                           r"cash app|zelle|wallet|1password|bitwarden|lastpass|keychain|authenticator", re.I)
+SENSITIVE_APP = re.compile(
+    r"bank|chase|wells|schwab|fidelity|vanguard|robinhood|coinbase|venmo|paypal|"
+    r"cash app|zelle|wallet|1password|bitwarden|lastpass|keychain|authenticator",
+    re.I,
+)
 MONEY = re.compile(r"\b(pay|buy|purchase|checkout|transfer|withdraw|wire|place order|trade|sell)\b", re.I)
 SIGN_IN = re.compile(r"\b(sign in|log in|login|password|passkey|verification code|2fa)\b", re.I)
 CAPTCHA = re.compile(r"captcha|i'?m not a robot|verify you are human", re.I)
@@ -53,10 +61,14 @@ def _gate(run, app, kind, el, text, els=()):
         # Return submits whatever form is focused, so judge it by what is on screen, not by the key name
         label += " " + " ".join(e["name"] for e in els if e.get("ref"))
     if CAPTCHA.search(label):
-        return runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app,
-                              ("done", "cancel")) == "done"
+        return (
+            runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app, ("done", "cancel"))
+            == "done"
+        )
     if MONEY.search(label):
-        return runs.ask_human(run, "money", "Allow '%s' in %s? This may move money." % (label.strip(), app)) == "approve"
+        return (
+            runs.ask_human(run, "money", "Allow '%s' in %s? This may move money." % (label.strip(), app)) == "approve"
+        )
     if SIGN_IN.search(label) and kind in ("click", "type", "set_value"):
         return runs.ask_human(run, "sign_in", "Allow signing in to %s ('%s')?" % (app, label.strip())) == "approve"
     if graph.DESTRUCTIVE.search(label):
@@ -66,7 +78,13 @@ def _gate(run, app, kind, el, text, els=()):
 
 def _decide(goal, app, title, els, history, hints, shot):
     user = "Goal: %s\nApp: %s  Window: %s\n\nScreen:\n%s\n\nRecent steps:\n%s\n\nRemembered actions here:\n%s" % (
-        goal, app, title, desktop.table(els, 150), "\n".join(history[-8:]) or "(none)", "\n".join(hints) or "(none)")
+        goal,
+        app,
+        title,
+        desktop.table(els, 150),
+        "\n".join(history[-8:]) or "(none)",
+        "\n".join(hints) or "(none)",
+    )
     return llm.chat(SYSTEM, user, images=[shot] if shot else (), json_mode=True, max_tokens=600)
 
 
@@ -74,10 +92,14 @@ def _verify(goal, app, title, els):
     if os.environ.get("CA_MOCK") == "1":
         return True, "mock"
     try:
-        v = llm.chat(VERIFY, "Goal: %s\nApp: %s  Window: %s\n\nScreen:\n%s" % (goal, app, title, desktop.table(els, 200)),
-                     json_mode=True, max_tokens=300)
+        v = llm.chat(
+            VERIFY,
+            "Goal: %s\nApp: %s  Window: %s\n\nScreen:\n%s" % (goal, app, title, desktop.table(els, 200)),
+            json_mode=True,
+            max_tokens=300,
+        )
         return bool(v.get("achieved")), v.get("evidence", "")
-    except Exception as e:                                   # a failed verifier call is not a yes
+    except Exception as e:  # a failed verifier call is not a yes
         return False, "verifier error: %s" % e
 
 
@@ -99,7 +121,7 @@ def run_task(run, goal, app=None, max_steps=25):
     if skill:
         run.emit("memory", msg="replaying a saved skill", goal=skill["goal"], steps=len(replay))
     history, trail, summary, ok = [], [], "", False
-    prev = None                                               # (node, action_key, t0)
+    prev = None  # (node, action_key, t0)
     run.set("acting")
     for step in range(max_steps):
         t_obs = time.time()
@@ -114,7 +136,7 @@ def run_task(run, goal, app=None, max_steps=25):
             g.record(prev[0], prev[1], nid, True, (t_obs - prev[2]) * 1000)
         obs_ms = int((time.time() - t_obs) * 1000)
         source, d = "llm", None
-        if replay:                                            # tier 1: replay a remembered step by label
+        if replay:  # tier 1: replay a remembered step by label
             want = replay[0]
             el = next((e for e in els if e["ref"] and graph.action_key(want.split(":")[0], e) == want), None)
             if el:
@@ -124,11 +146,19 @@ def run_task(run, goal, app=None, max_steps=25):
             else:
                 run.emit("memory", msg="saved step not on screen, asking the model", step=want)
                 replay = []
-        if d is None:                                         # tier 2: Gemini decides
+        if d is None:  # tier 2: Gemini decides
             shot = _screenshot() if (step == 0 or len(els) < 4 or (history and "FAILED" in history[-1])) else None
             t0 = time.time()
             try:
-                d = _decide(goal, app, title, els, history, g.hints(nid) + ([str(g.plan(nid, goal))] if g.plan(nid, goal) else []), shot)
+                d = _decide(
+                    goal,
+                    app,
+                    title,
+                    els,
+                    history,
+                    g.hints(nid) + ([str(g.plan(nid, goal))] if g.plan(nid, goal) else []),
+                    shot,
+                )
             except Exception as e:
                 run.emit("error", msg="decide: %s" % e)
                 break
@@ -143,8 +173,9 @@ def run_task(run, goal, app=None, max_steps=25):
             history.append("done was claimed but the verifier says no: %s" % evidence)
             continue
         if kind == "ask_human":
-            ans = runs.ask_human(run, d.get("help") or "clarify", d.get("thought") or "Need your help",
-                                 ("done", "cancel"))
+            ans = runs.ask_human(
+                run, d.get("help") or "clarify", d.get("thought") or "Need your help", ("done", "cancel")
+            )
             history.append("asked the user (%s): %s" % (d.get("help"), ans))
             if ans != "done":
                 summary = "Stopped: you cancelled at a %s step." % d.get("help")
@@ -153,7 +184,7 @@ def run_task(run, goal, app=None, max_steps=25):
         idx = d.get("index")
         el = els[idx] if isinstance(idx, int) and 0 <= idx < len(els) else None
         tgt = (d.get("target") or "").strip().lower()
-        if tgt and not (el and el["name"].lower() == tgt):    # index and label disagree: trust the label
+        if tgt and not (el and el["name"].lower() == tgt):  # index and label disagree: trust the label
             el = next((e for e in els if e["ref"] and e["name"].lower() == tgt), el)
         if kind in ("click", "double_click", "type", "set_value", "scroll") and not (el and el["ref"]):
             history.append("step %d FAILED: index %r is not an actionable element" % (step, idx))
@@ -167,8 +198,13 @@ def run_task(run, goal, app=None, max_steps=25):
         akey = graph.action_key(kind, el, d.get("text"), d.get("key"))
         t_act = time.time()
         try:
-            desktop.act(kind, ref=el and el["ref"], text=d.get("text"), key=d.get("key"),
-                        app=(d.get("text") or app) if kind == "launch" else app)
+            desktop.act(
+                kind,
+                ref=el and el["ref"],
+                text=d.get("text"),
+                key=d.get("key"),
+                app=(d.get("text") or app) if kind == "launch" else app,
+            )
             history.append("step %d: %s %s" % (step, akey, "'%s'" % d["text"] if d.get("text") else ""))
             trail.append(akey)
             prev = (nid, akey, t_act)
@@ -176,8 +212,15 @@ def run_task(run, goal, app=None, max_steps=25):
             g.record(nid, akey, None, False, (time.time() - t_act) * 1000)
             history.append("step %d FAILED: %s -> %s" % (step, akey, e))
             prev = None
-        run.emit("act", step=step, source=source, action=akey, observe_ms=obs_ms,
-                 act_ms=int((time.time() - t_act) * 1000), node=nid)
+        run.emit(
+            "act",
+            step=step,
+            source=source,
+            action=akey,
+            observe_ms=obs_ms,
+            act_ms=int((time.time() - t_act) * 1000),
+            node=nid,
+        )
     if ok and trail and not skill:
         g.save_skill(app, goal, [a for a in trail if not a.startswith("type:")])
     g.save()
