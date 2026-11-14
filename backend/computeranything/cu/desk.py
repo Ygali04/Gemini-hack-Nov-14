@@ -1,21 +1,18 @@
 """How several agents share one Mac without stepping on each other.
 
-- Foreground lock: only one agent at a time may change focus, use Spotlight or type with physical keys.
-  Ref clicks are headless, so the others keep working while one holds it.
+- Agents never touch the user's focus or keyboard: apps open in the background and every action goes to
+  an element ref, headless, so there is no foreground to share.
 - App leases: one agent per app, so two agents never drive the same window.
 - Lanes: each agent's window is placed in its own tile on the stage display, so raising one window
   never covers another agent's work.
 """
 
-import contextlib
 import json
 import os
 import subprocess
 import threading
 import time
 
-_fg = threading.Lock()
-_fg_owner = {"agent": None, "since": 0.0}
 _cv = threading.Condition()
 LEASES = {}  # app name (lower) -> agent
 LANES = {}  # agent -> {"x","y","w","h","display"}
@@ -25,19 +22,6 @@ TOP_INSET = 32  # menu bar
 
 class Busy(RuntimeError):
     pass
-
-
-@contextlib.contextmanager
-def foreground(agent, timeout=60):
-    """Hold the screen's focus for a short sequence (Spotlight, activate, physical keys)."""
-    if not _fg.acquire(timeout=timeout):
-        raise Busy("foreground held by %s for %.0fs" % (_fg_owner["agent"], time.time() - _fg_owner["since"]))
-    _fg_owner.update(agent=agent, since=time.time())
-    try:
-        yield
-    finally:
-        _fg_owner.update(agent=None, since=0.0)
-        _fg.release()
 
 
 def lease(app, agent, timeout=120):
@@ -121,12 +105,6 @@ def selftest():
     threading.Timer(0.3, lambda: unlease("Calculator", "CU 1")).start()
     lease("Calculator", "CU 2", timeout=5)  # waits for CU 1 to let go
     assert LEASES["calculator"] == "CU 2" and time.time() - t0 >= 0.25
-    with foreground("CU 1"):
-        got = []
-        th = threading.Thread(target=lambda: got.append(_fg.acquire(timeout=0.1)))
-        th.start()
-        th.join()
-        assert got == [False], "a second agent must not get the foreground while one holds it"
     release("CU 2")
     assert "calculator" not in LEASES
     print("desk selftest OK")

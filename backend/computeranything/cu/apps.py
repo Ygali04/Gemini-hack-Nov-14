@@ -1,8 +1,9 @@
-"""Opening apps the way a person does, and knowing when they are really open.
+"""Opening apps behind the user's work, and knowing when they are really open.
 
-open_app: reuse a running window, else find the .app on disk and `open` it, else Spotlight
-(cmd+space, type, return). Then wait until a visible window answers with accessibility elements,
-move it into the agent's lane, and bring it to the front so the user can watch.
+Agents never take the user's focus or keyboard. open_app reuses a running window, else finds the .app on
+disk or in Spotlight's index (mdfind, no Spotlight UI, no keystrokes) and launches it with `open -g`, which
+starts it in the background. Then it waits until a window answers with accessibility elements and moves
+that window into the agent's lane, without activating it. All later actions go to refs, headless.
 
 AppleScript: agents may run scripts on purpose (run_applescript, gated and logged). Text that is
 data (app names, typed text) is always passed as argv, never pasted into script source, so words
@@ -15,7 +16,7 @@ import re
 import subprocess
 import time
 
-from . import desk, desktop
+from . import desktop
 
 APP_DIRS = [
     "/Applications",
@@ -80,22 +81,6 @@ def wait_ready(app, timeout=30):
     raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout))
 
 
-def spotlight(text):
-    """cmd+space, type, return. Physical keys: caller must hold the foreground lock."""
-    return _osa(
-        [
-            'tell application "System Events"',
-            "key code 49 using command down",
-            "delay 0.6",
-            "keystroke (item 1 of argv)",
-            "delay 0.9",
-            "key code 36",
-            "end tell",
-        ],
-        text,
-    )
-
-
 def place(pid, lane):
     """Move (and size, if the window allows it) the app's front window into this agent's lane."""
     code, out = _osa(
@@ -117,46 +102,22 @@ def place(pid, lane):
     return code == 0, out
 
 
-def bring_front(pid):
-    return _osa(
-        [
-            'tell application "System Events" to set frontmost of (first process whose unix id is '
-            "((item 1 of argv) as integer)) to true"
-        ],
-        pid,
-    )
-
-
 def open_app(agent, name, method="auto", lane=None, timeout=30):
-    """Open `name` visibly and wait until it is usable. method: auto | finder | spotlight.
-    Returns {"app", "window", "method", "seconds", "path"}."""
+    """Open `name` in the background and wait until it is usable. Never activates it, never types.
+    method: auto | finder (file system) | spotlight (Spotlight's index). Returns
+    {"app", "window", "method", "seconds", "ready_after", "path"}."""
     t0 = time.time()
-    path = find_app(name)
-    app = os.path.basename(path)[:-4] if path else name
-    ws = windows(app) if path else []
+    path = find_app(name)  # file system first, then the Spotlight index (mdfind)
+    if not path:
+        raise FileNotFoundError("no app named %r on disk or in the Spotlight index" % name)
+    app = os.path.basename(path)[:-4]
     used = "running"
-    if not ws:
-        with desk.foreground(agent):
-            before = desktop.frontmost_app()
-            if path and method in ("auto", "finder"):
-                subprocess.run(["open", path], check=False, timeout=30)  # Launch Services, like a double-click
-                used = "finder"
-            else:
-                spotlight(name)
-                used = "spotlight"
-                if not path:  # Spotlight picked the app; learn its real name from what came to the front
-                    for _ in range(20):
-                        time.sleep(0.5)
-                        front = desktop.frontmost_app()
-                        if front not in (before, "Spotlight", ""):
-                            app = front
-                            break
-            time.sleep(0.5)
+    if not windows(app):
+        subprocess.run(["open", "-g", path], check=False, timeout=30)  # -g: launch without coming to the front
+        used = "spotlight" if method == "spotlight" else "finder"
     win, waited = wait_ready(app, timeout)
     if lane:
-        place(win["pid"], lane)
-        with desk.foreground(agent):
-            bring_front(win["pid"])
+        place(win["pid"], lane)  # moving a window does not activate its app
         win = next(iter(windows(app)), win)
     return {
         "app": app,

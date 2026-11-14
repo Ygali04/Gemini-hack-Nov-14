@@ -204,7 +204,7 @@ final class Overlay {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.prohibited)  // never becomes the active app: the user keeps focus and keyboard
 let overlay = Overlay()
 DispatchQueue.global().async {
     while let line = readLine() {

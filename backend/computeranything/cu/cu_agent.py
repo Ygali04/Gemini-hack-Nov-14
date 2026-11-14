@@ -5,6 +5,7 @@ Each step: observe (accessibility tree) -> decide (skill replay, else Gemini) ->
 checked by a separate verifier call before the run counts as a success.
 """
 
+import hashlib
 import os
 import re
 import subprocess
@@ -22,8 +23,9 @@ SENSITIVE_APP = re.compile(
 MONEY = re.compile(r"\b(pay|buy|purchase|checkout|transfer|withdraw|wire|place order|trade|sell)\b", re.I)
 SIGN_IN = re.compile(r"\b(sign in|log in|login|password|passkey|verification code|2fa)\b", re.I)
 RISKY_SCRIPT = re.compile(
-    r"do shell script|delete|remove|erase|send|pay|password|keychain|sudo|administrator|"
-    r"empty trash|quit application|shut down|restart|log out",
+    r"do shell script|do script|run script|load script|«event|open location|system events|keystroke|activate|"
+    r"delete|remove|erase|send|pay|password|keychain|sudo|administrator|empty trash|quit application|shut down|"
+    r"restart|log out",  # only sharpens the approval question; every script is approved either way
     re.I,
 )
 CAPTCHA = re.compile(r"captcha|i'?m not a robot|verify you are human", re.I)
@@ -36,18 +38,19 @@ table, your recent steps, and remembered actions from earlier runs (with reliabi
  "index": <element number for click/double_click/type/set_value/scroll>,
  "target": "<that element's exact label, as a cross-check>",
  "text": "<text to type | app name for open_app | AppleScript source for run_applescript>",
- "method": "auto|spotlight|finder (open_app only: spotlight = cmd+space and type the name; finder = open the .app
-            from /Applications; auto tries the file system, then Spotlight)",
+ "method": "auto|spotlight|finder (open_app only: finder = the .app on disk; spotlight = Spotlight's index;
+            either way the app opens in the background, behind the user's windows)",
  "key": "<key combo for press, e.g. return, cmd+l, cmd+t>",
  "help": "captcha|sign_in|money|clarify (only with ask_human)",
  "summary": "<with done: what you achieved, with the key values you read off the screen>"}
-Rules: one action per turn; to work in a different app, use open_app (you will be switched to its window once it
-is open and usable); prefer elements by their label; type into a field by its index, then press return if needed;
-run_applescript is for things an app's script dictionary does better than clicking (it is logged, and risky
-scripts need the user's approval); use done only when the screen shows the goal is met; use ask_human for
-captchas, sign-ins, payments or real ambiguity. Never invent an index that is not in the table.
-Apps often reopen showing leftovers from earlier sessions: when the goal asks you to DO something (compute,
-create, change, send), do it yourself in this run; an old result already on screen does not count."""
+Rules: the user keeps working while you act, so never bring windows forward and never use AppleScript "activate"
+or keystroke; one action per turn; to work in a different app, use open_app (you will be switched to its window
+once it is open and usable); prefer elements by their label; type into a field by its index, then press return
+if needed; run_applescript is for things an app's script dictionary does better than clicking (it is logged, and
+risky scripts need the user's approval); use done only when the screen shows the goal is met; use ask_human for
+captchas, sign-ins, payments or real ambiguity. Never invent an index that is not in the table. Apps often
+reopen showing leftovers from earlier sessions: when the goal asks you to DO something (compute, create, change,
+send), do it yourself in this run; an old result already on screen does not count."""
 
 VERIFY = """Given a goal, the steps the agent took in THIS run, and the app's current screen (element table),
 decide if the goal is achieved. If the goal asks the agent to do something (compute, create, change, send) and its
@@ -71,11 +74,17 @@ def _gate(run, app, kind, el, text, els=()):
         # Any key can submit the focused form (return, space, shift+return...), so fail closed: judge
         # every key press by what is on screen, not by the key name.
         label += " " + " ".join(e["name"] for e in els if e.get("ref"))
-    if kind == "run_applescript" and RISKY_SCRIPT.search(text or ""):
-        return (
-            runs.ask_human(run, "destructive", "Run this AppleScript in %s?" % app, detail=(text or "")[:1500])
-            == "approve"
-        )
+    if kind == "run_applescript":  # fail closed: no keyword list can make arbitrary script safe
+        h = hashlib.sha256((text or "").encode()).hexdigest()
+        seen = getattr(run, "approved_scripts", set())
+        if h in seen:  # this exact script was already approved in this run
+            return True
+        risky = " It can run shell commands, send keys or change data." if RISKY_SCRIPT.search(text or "") else ""
+        q = "Run this AppleScript in %s?%s" % (app, risky)
+        if runs.ask_human(run, "destructive", q, detail=(text or "")[:4000]) != "approve":
+            return False
+        run.approved_scripts = seen | {h}
+        return True
     if CAPTCHA.search(label):
         return (
             runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app, ("done", "cancel"))
@@ -155,18 +164,30 @@ def _run(run, goal, app, max_steps, me):
         run.set("failed")
         return run.result
     lane = desk.lane(me)
-    ctx = {"app": app, "wid": None}
+    ctx = {"app": app, "wid": None, "approved_apps": set()}
+
+    def sensitive_ok(name, path=None):
+        """Money, password and health apps need a yes, judged on the RESOLVED name and path."""
+        if not SENSITIVE_APP.search("%s %s" % (name, path or "")) or name.lower() in ctx["approved_apps"]:
+            return
+        if runs.ask_human(run, "money", "Let the agent use %s?" % name) != "approve":
+            log("open_app:%s" % name.lower(), "denied", source="policy")
+            raise PermissionError("you declined access to %s" % name)
+        ctx["approved_apps"].add(name.lower())
 
     def switch(name, method="auto"):
-        """Lease the app (one agent per app), open it visibly, wait until usable, pin to its window."""
+        """Lease the app (one agent per app), open it in the background, wait until usable, pin to its window."""
         nonlocal app
         t0 = time.time()
         if ctx["app"] and ctx["app"].lower() != name.lower():
             desk.unlease(ctx["app"], me)
+        path = apps.find_app(name)
+        sensitive_ok(os.path.basename(path)[:-4] if path else name, path)  # gate what will really open
         desk.lease(name, me)
         info = apps.open_app(me, name, method=method, lane=lane)
-        if info["app"].lower() != name.lower():  # Spotlight resolved a different real name
+        if info["app"].lower() != name.lower():  # the index resolved a different real name: gate it before use
             desk.unlease(name, me)
+            sensitive_ok(info["app"], info.get("path"))
             desk.lease(info["app"], me)
         app, ctx["app"], ctx["wid"] = info["app"], info["app"], info["window"]["id"]
         run.emit(
