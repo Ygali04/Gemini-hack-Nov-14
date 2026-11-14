@@ -28,7 +28,7 @@ backend/
     agents/  orchestrator.py (routing, QA to dev loop, marketing, CU)
     api/     server.py (HTTP API + test page)
     tools/   point.py (one-shot: ask about the screen, cursor points)
-  overlay/   Overlay.swift (transparent click-through cursor layer)
+  overlay/   Overlay.swift (transparent click-through layer, one cursor per agent)
   scripts/   point_repl.sh
 ```
 
@@ -66,6 +66,14 @@ the Beta(1,1) posterior mean. After 2 successes in 2 tries, $P = 3/4$. The plann
 
 A successful run is saved as a skill. The same goal later replays by element label without a model call.
 
+Every action by every agent is logged against its screen node: the agent, run, app and source (memory or Gemini), the screen it led to, latency, and one outcome of `ok`, `failed`, `denied`, `help`, `done_verified` or `done_rejected`. The full history is append-only in `~/.computeranything/actions.jsonl`. Only executed actions (`ok`, `failed`) move $P$, so a person saying no never makes a button look unreliable.
+
+## Many agents, many cursors
+
+A prompt with independent parts, such as "work out 7 × 6 in Calculator and open Appearance settings", becomes up to 4 CU agents running in parallel. Each agent claims its own cursor with its own color and name tag (`CU 1`, `CU 2`, `QA`, `Marketing`). Its clicks run headless, so the agents never fight over your one real pointer.
+
+Measured on a Mac: two agents ran at once, one in Calculator (7 × 6 = 42) and one in System Settings (opened Appearance). All 7 of their actions landed in one shared graph, each tagged with its agent.
+
 Measured on a Mac: Calculator "7 × 6" ran headless to 42. The second run replayed all 4 clicks from memory, using 1 model call instead of 5 (only the "done" check).
 
 ## API for the UI
@@ -79,7 +87,9 @@ Every `/api` call needs the token, as header `X-CA-Token` or query `t=`. The ser
 | `GET /api/runs/<id>?since=N` | events after N: `decide`, `act`, `memory`, `verify`, `help`, `bug_report`, `patch`, `commit`, `result` |
 | `GET /api/help` | pending help: `captcha`, `sign_in`, `money`, `destructive`, `clarify` |
 | `POST /api/help/<id>` | `{"choice": "approve"}`, one of the request's options; no answer in 5 min counts as deny |
-| `GET /api/graph` | memory stats: screens, transitions, skills |
+| `GET /api/graph` | memory stats: screens, transitions, skills, actions logged, agents |
+| `GET /api/actions?since=N&agent=CU%201` | the graph's action log, optionally for one agent |
+| `GET /api/agents` | live cursors: agent id, name and color |
 
 A finished parent run has `result.digest`: steps, seconds, steps replayed from memory, help count and model usage.
 

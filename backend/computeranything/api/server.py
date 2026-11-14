@@ -180,6 +180,23 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, graph.load().stats() or {})
                 except ImportError:
                     return self._send(200, {})
+            if p == "/api/actions":  # the state-machine graph's action log, every agent
+                from ..cu import graph
+
+                q = parse_qs(urlparse(self.path).query)
+                since = int((q.get("since") or ["0"])[0] or 0)
+                agent = (q.get("agent") or [None])[0]
+                try:
+                    with open(graph.LOG) as f:
+                        rows = [json.loads(ln) for ln in f]
+                except OSError:
+                    rows = []
+                sel = [r for r in rows[since:] if not agent or r.get("agent") == agent]
+                return self._send(200, {"total": len(rows), "actions": sel[-500:]})
+            if p == "/api/agents":  # live cursors: which agents are on screen, in which color
+                from ..cu import overlay
+
+                return self._send(200, overlay.CURSORS)
             return self._send(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
