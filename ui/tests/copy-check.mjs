@@ -20,12 +20,15 @@ const DEFAULT_ROOT = path.resolve(__dirname, "../..");
 
 function parseArgs(argv) {
   let root = process.env.COPY_CHECK_ROOT || DEFAULT_ROOT;
+  const files = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root" && argv[i + 1]) {
       root = path.resolve(argv[++i]);
+    } else if (argv[i] && !argv[i].startsWith("--")) {
+      files.push(argv[i]);
     }
   }
-  return { root };
+  return { root, files };
 }
 
 const TARGET_FILES = [
@@ -570,21 +573,26 @@ function scanJs(jsText, file, baseLine = 1) {
    ============================================================================ */
 
 function main() {
-  const { root } = parseArgs(process.argv.slice(2));
+  const { root, files } = parseArgs(process.argv.slice(2));
+  const targets = files.length > 0 ? files : TARGET_FILES;
 
-  for (const relPath of TARGET_FILES) {
-    const absPath = path.join(root, relPath);
+  for (const target of targets) {
+    const absPath = path.isAbsolute(target)
+      ? target
+      : fs.existsSync(path.join(root, target))
+        ? path.join(root, target)
+        : path.resolve(target);
     if (!fs.existsSync(absPath)) {
-      addFinding(relPath, 1, "missing-file", `Target file not found: ${relPath}`);
+      addFinding(target, 1, "missing-file", `Target file not found: ${target}`);
       continue;
     }
     const content = fs.readFileSync(absPath, "utf8");
-    if (relPath.endsWith(".css")) {
-      scanCss(content, relPath, 1);
-    } else if (relPath.endsWith(".js")) {
-      scanJs(content, relPath, 1);
-    } else if (relPath.endsWith(".html")) {
-      scanHtmlFragment(content, relPath, 1);
+    if (target.endsWith(".css")) {
+      scanCss(content, target, 1);
+    } else if (target.endsWith(".js")) {
+      scanJs(content, target, 1);
+    } else if (target.endsWith(".html")) {
+      scanHtmlFragment(content, target, 1);
     }
   }
 

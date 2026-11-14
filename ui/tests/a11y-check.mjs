@@ -28,12 +28,15 @@ const TARGET_FILES = [
 
 function parseArgs(argv) {
   let root = process.env.A11Y_CHECK_ROOT || DEFAULT_ROOT;
+  const files = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root" && argv[i + 1]) {
       root = path.resolve(argv[++i]);
+    } else if (argv[i] && !argv[i].startsWith("--")) {
+      files.push(argv[i]);
     }
   }
-  return { root };
+  return { root, files };
 }
 
 function lineAt(source, index) {
@@ -816,7 +819,7 @@ function scanJs(jsText, file, baseLine, findings, hostHtml = "") {
    ============================================================================ */
 
 function main() {
-  const { root } = parseArgs(process.argv.slice(2));
+  const { root, files } = parseArgs(process.argv.slice(2));
   const findings = [];
 
   // Load workspace/styles.css vars first if available so workspace.html / app.js can reference them if needed
@@ -826,19 +829,24 @@ function main() {
     workspaceVars = parseCssBlocks(fs.readFileSync(stylesPath, "utf8")).vars;
   }
 
-  for (const relPath of TARGET_FILES) {
-    const absPath = path.join(root, relPath);
+  const targets = files.length > 0 ? files : TARGET_FILES;
+  for (const target of targets) {
+    const absPath = path.isAbsolute(target)
+      ? target
+      : fs.existsSync(path.join(root, target))
+        ? path.join(root, target)
+        : path.resolve(target);
     if (!fs.existsSync(absPath)) {
-      addFinding(findings, relPath, 1, "missing-file", `Target file not found: ${relPath}`);
+      addFinding(findings, target, 1, "missing-file", `Target file not found: ${target}`);
       continue;
     }
     const content = fs.readFileSync(absPath, "utf8");
-    if (relPath.endsWith(".css")) {
-      scanCss(content, relPath, 1, findings);
-    } else if (relPath.endsWith(".js")) {
-      scanJs(content, relPath, 1, findings);
-    } else if (relPath.endsWith(".html")) {
-      scanHtmlFragment(content, relPath, 1, findings, { sharedVars: workspaceVars });
+    if (target.endsWith(".css")) {
+      scanCss(content, target, 1, findings);
+    } else if (target.endsWith(".js")) {
+      scanJs(content, target, 1, findings);
+    } else if (target.endsWith(".html")) {
+      scanHtmlFragment(content, target, 1, findings, { sharedVars: workspaceVars });
     }
   }
 
