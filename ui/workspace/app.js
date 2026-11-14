@@ -1814,7 +1814,7 @@
         <div class="section-header-row">
           <div>
             <h2 class="section-title">Agent graph</h2>
-            <p class="section-subtitle">Primary orchestrator and up to 4 computer-use child agents per prompt</p>
+            <p class="section-subtitle">One lead agent and the agents it starts</p>
           </div>
           <span class="state-text state-working">&hellip; Loading agent graph</span>
         </div>
@@ -1959,21 +1959,9 @@
     const banner = document.getElementById("connection-banner");
     if (!banner) return;
 
-    if (vm.connectionStatus === "disconnected" || (vm.connectionStatus === "loading" && !hasLoadedOnce)) {
+    if (vm.connectionStatus === "disconnected" || (vm.connectionStatus === "loading" && !hasLoadedOnce) || vm.connectionStatus === "stale") {
       banner.classList.add("hidden");
       banner.innerHTML = "";
-      return;
-    }
-
-    if (vm.connectionStatus === "stale") {
-      banner.classList.remove("hidden");
-      banner.innerHTML = `
-        <div class="filter-group">
-          <span class="state-text state-warning">&#9684; May be out of date</span>
-          <span class="section-subtitle">Data is older than 30s since the last successful refresh while disconnected.</span>
-        </div>
-        <button type="button" class="btn" data-action="retry-poll">Retry</button>
-      `;
       return;
     }
 
@@ -2082,7 +2070,7 @@
       clearMountedGlass("b1-graph");
       container.innerHTML = renderNotConnectedViewHtml({
         title: "Agent graph",
-        subtitle: "Primary orchestrator and up to 4 computer-use child agents per prompt",
+        subtitle: "One lead agent and the agents it starts",
         connectionError: vm.connectionError,
       });
       attachConnectInputHandlers(container);
@@ -2095,7 +2083,7 @@
         ${renderViewStatusNoticesHtml(vm)}
         ${renderEmptyStateHtml({
           title: "Agent graph",
-          subtitle: "Primary orchestrator and up to 4 computer-use child agents per prompt",
+          subtitle: "One lead agent and the agents it starts",
           message: "No runs yet. Send a prompt above to watch your primary agent and its child agents work.",
           ctaLabel: "Ask agents to run a task",
           ctaAction: "focus-prompt",
@@ -2900,8 +2888,6 @@
       : vm.connectionStatus === "connected"
         ? "Live metrics from the local backend store."
         : "Not connected. Connect to the backend or load preview data to inspect analytics.";
-
-    const hasRecordedAnalytics = Boolean(an && (an.tasks > 0 || an.llm_calls > 0));
 
     const summaryStripHtml = hasRecordedAnalytics
       ? `
