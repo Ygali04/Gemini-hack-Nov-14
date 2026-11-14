@@ -84,15 +84,14 @@
 
     .demo-player {
       position: sticky;
-      top: 12px;
+      top: 0;
       z-index: 20;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding: 14px 16px;
-      border-radius: 12px;
-      border: 1px solid var(--line-strong);
-      background: rgba(22, 24, 29, 0.94);
+      padding: 12px 0 16px;
+      border-bottom: 1px solid var(--line-divider);
+      background: rgba(12, 13, 16, 0.92);
       backdrop-filter: blur(12px);
     }
 
@@ -118,7 +117,7 @@
       min-height: 30px;
       padding: 0 12px;
       border-radius: 8px;
-      border: 1px solid var(--ink-fill);
+      border: none;
       background: var(--ink-fill);
       color: var(--ink-text);
       font-family: inherit;
@@ -187,10 +186,10 @@
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      min-height: 26px;
-      padding: 0 9px;
-      border-radius: 999px;
-      border: 1px solid var(--line-divider);
+      min-height: 28px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: none;
       background: transparent;
       color: var(--text-muted);
       font-family: inherit;
@@ -198,7 +197,7 @@
       line-height: 18px;
       cursor: pointer;
       white-space: nowrap;
-      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      transition: background 120ms ease, color 120ms ease;
     }
 
     .demo-step-pill:hover {
@@ -206,10 +205,14 @@
       color: var(--text-primary);
     }
 
+    .demo-step-pill:active {
+      background: var(--btn-pressed);
+    }
+
     .demo-step-pill[aria-current="step"] {
-      border-color: var(--ink-fill);
       color: var(--text-primary);
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--bg-raised);
+      font-weight: 600;
     }
 
     .demo-section.is-demo-focus .notch-frame-wrap,
@@ -270,7 +273,7 @@
       min-height: 30px;
       padding: 0 10px;
       border-radius: 8px;
-      border: 1px solid var(--line-divider);
+      border: none;
       background: transparent;
       color: var(--text-secondary);
       font-family: inherit;
@@ -280,25 +283,30 @@
       text-decoration: none;
       cursor: pointer;
       white-space: nowrap;
-      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      transition: background 120ms ease, color 120ms ease;
     }
 
-    .control-btn:hover,
+    .control-btn:hover:not(:disabled),
     .view-link:hover {
       background: var(--btn-hover);
       color: var(--text-primary);
     }
 
-    .control-btn:active,
+    .control-btn:active:not(:disabled),
     .view-link:active {
       background: var(--btn-pressed);
     }
 
+    .control-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
     .control-btn[aria-pressed="true"],
     .view-link[aria-current="true"] {
-      background: var(--ink-fill);
-      border-color: var(--ink-fill);
-      color: var(--ink-text);
+      background: var(--bg-raised);
+      color: var(--text-primary);
+      font-weight: 600;
     }
 
     .external-link {
@@ -372,7 +380,7 @@
 
       .demo-player {
         position: static;
-        padding: 12px;
+        padding: 12px 0 16px;
       }
 
       .notch-frame-wrap {
@@ -540,7 +548,7 @@
           fixture: "working-live",
           duration: 7,
           label: "Working",
-          caption: "The orchestrator splits the task and agents stream live steps."
+          caption: "Two agents work in parallel and report each step."
         },
         {
           target: "notch",
@@ -568,7 +576,7 @@
           view: "graph",
           duration: 6,
           label: "Graph",
-          caption: "Open the workspace to see how the orchestrator and child agents connect."
+          caption: "Open the workspace to see how the main agent and helper agents connect."
         },
         {
           target: "workspace",
