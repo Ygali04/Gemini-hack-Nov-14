@@ -1,0 +1,6 @@
+{
+  "call_me": "Alex",
+  "voice_id": "",
+  "model": "google/gemini-4-argon",
+  "decide_model": "google/gemini-3.5-flash-lite"
+}

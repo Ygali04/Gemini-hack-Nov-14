@@ -1,0 +1,14 @@
+[
+  {
+    "name": "sample-quote.csv",
+    "path": "/Users/sample/Documents/sample-quote.csv",
+    "dir": false,
+    "where": "~/Documents"
+  },
+  {
+    "name": "Invoices",
+    "path": "/Users/sample/Desktop/Invoices",
+    "dir": true,
+    "where": "~/Desktop"
+  }
+]

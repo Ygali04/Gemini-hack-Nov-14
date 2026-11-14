@@ -11,7 +11,8 @@
       "attachments": [
         "sample-quote.csv"
       ]
-    }
+    },
+    "color": null
   },
   {
     "id": 2,
@@ -33,7 +34,8 @@
           "Iris"
         ]
       }
-    }
+    },
+    "color": null
   },
   {
     "id": 3,
@@ -45,7 +47,8 @@
     "text": "Hi, I'm Iris! I'll compute 8 * 31 in Calculator.",
     "meta": {
       "agent_role": "cu"
-    }
+    },
+    "color": "#C0DED0"
   },
   {
     "id": 4,
@@ -59,7 +62,8 @@
       "step": 0,
       "source": "llm",
       "app": "Calculator"
-    }
+    },
+    "color": "#C0DED0"
   },
   {
     "id": 5,
@@ -73,7 +77,8 @@
       "step": 1,
       "source": "memory",
       "app": "Calculator"
-    }
+    },
+    "color": "#C0DED0"
   },
   {
     "id": 6,
@@ -85,7 +90,8 @@
     "text": "Calculator display reads 248 for 8 * 31",
     "meta": {
       "ok": true
-    }
+    },
+    "color": "#C0DED0"
   },
   {
     "id": 7,
@@ -95,6 +101,7 @@
     "agent": "ComputerAnything",
     "kind": "result",
     "text": "Calculator display reads 248 for 8 * 31",
-    "meta": {}
+    "meta": {},
+    "color": null
   }
 ]

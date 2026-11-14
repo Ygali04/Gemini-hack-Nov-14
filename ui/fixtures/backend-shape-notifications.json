@@ -1,0 +1,26 @@
+[
+  {
+    "id": "m7",
+    "kind": "result",
+    "title": "Sample: open Calculator and compute 8 * 31",
+    "text": "Calculator display reads 248 for 8 * 31",
+    "ok": true,
+    "thread": "r1763149000-1-a1b2",
+    "ts": 1763149001.8,
+    "body": null,
+    "edge": null,
+    "ink": null
+  },
+  {
+    "id": "m12",
+    "kind": "error",
+    "title": "Sample: submit quarterly report",
+    "text": "orchestrator error: RuntimeError: target window closed",
+    "ok": false,
+    "thread": "r1763149005-5-d9e0",
+    "ts": 1763149008.4,
+    "body": null,
+    "edge": null,
+    "ink": null
+  }
+]
