@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Runs adapter-check, workspace-check, copy-check, demo-check, and a11y-check.
+ * Runs adapter-check, workspace-check, copy-check, demo-check, bridge-check, and a11y-check.
  * a11y-check is evaluated per file: files already at 0 findings must stay at 0
  * (FAIL on regression), while files still being fixed are reported as WARN with count.
  * Prints summary lines per check and a final PASS/FAIL line.
@@ -18,6 +18,7 @@ const CHECKS = [
   { name: "workspace-check", file: "workspace-check.mjs" },
   { name: "copy-check", file: "copy-check.mjs" },
   { name: "demo-check", file: "demo-check.mjs" },
+  { name: "bridge-check", file: "bridge-check.mjs" },
 ];
 
 const A11Y_FILES = [
