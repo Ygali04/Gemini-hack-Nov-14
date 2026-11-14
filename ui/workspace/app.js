@@ -271,6 +271,7 @@
         analytics: parsed.analytics && typeof parsed.analytics === "object" ? parsed.analytics : null,
         costs: parsed.costs && typeof parsed.costs === "object" ? parsed.costs : {},
         profile: parsed.profile && typeof parsed.profile === "object" ? parsed.profile : { call_me: "" },
+        memory: Array.isArray(parsed.memory) ? parsed.memory : null,
       };
       activeFixtureName = safe;
     }
@@ -427,6 +428,27 @@
         };
         return { ok: true, profile: fixtureState.profile };
       }
+      if (method === "GET" && cleanPath === "/api/memory") {
+        if (!Array.isArray(fixtureState.memory)) {
+          throw new Error("HTTP 404");
+        }
+        return JSON.parse(JSON.stringify(fixtureState.memory));
+      }
+      if (method === "DELETE" && cleanPath === "/api/memory") {
+        if (!Array.isArray(fixtureState.memory)) {
+          throw new Error("HTTP 404");
+        }
+        fixtureState.memory = [];
+        return { ok: true };
+      }
+      if (method === "DELETE" && cleanPath.startsWith("/api/memory/")) {
+        if (!Array.isArray(fixtureState.memory)) {
+          throw new Error("HTTP 404");
+        }
+        const mid = decodeURIComponent(cleanPath.slice("/api/memory/".length));
+        fixtureState.memory = fixtureState.memory.filter((m) => String(m.id) !== mid);
+        return { ok: true };
+      }
       if (method === "POST" && cleanPath.startsWith("/api/help/")) {
         const hid = decodeURIComponent(cleanPath.slice("/api/help/".length));
         const choice = options.jsonBody?.choice;
@@ -484,7 +506,7 @@
               parent.result = { ok: false, summary: `Stopped: ${choice} by user` };
             } else if (allDone) {
               parent.state = "done";
-              parent.result = { ok: true, summary: "All child agents verified completion" };
+              parent.result = { ok: true, summary: "All agents it started verified completion" };
             }
           }
         }
@@ -663,6 +685,58 @@
     ],
   };
 
+  const PRIMARY_AGENT_STORAGE_KEY = "ca.primaryAgent";
+
+  function getPrimaryAgentSwatch() {
+    const idx = Math.max(0, Number(OnboardingState.swatchIndex) || 0) % AGENT_SWATCHES.length;
+    return AGENT_SWATCHES[idx] || AGENT_SWATCHES[0];
+  }
+
+  function getPrimaryAgentDisplayName(fallback) {
+    const trimmed = String(OnboardingState.agentName || "").trim();
+    return trimmed || fallback || "ComputerAnything";
+  }
+
+  function loadPrimaryAgentChoice() {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const raw = localStorage.getItem(PRIMARY_AGENT_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        if (typeof parsed.alias === "string") {
+          OnboardingState.agentName = parsed.alias;
+        }
+        if (typeof parsed.swatch === "string") {
+          const foundIdx = AGENT_SWATCHES.findIndex((s) => s.key === parsed.swatch);
+          if (foundIdx >= 0) {
+            OnboardingState.swatchIndex = foundIdx;
+          }
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function savePrimaryAgentChoice() {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const sw = getPrimaryAgentSwatch();
+      localStorage.setItem(
+        PRIMARY_AGENT_STORAGE_KEY,
+        JSON.stringify({
+          alias: String(OnboardingState.agentName || "").trim(),
+          swatch: sw.key,
+        })
+      );
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  loadPrimaryAgentChoice();
+
   function warningForApprovalKind(kind) {
     if (kind === "destructive") return { text: "This can't be undone", danger: true };
     if (kind === "sign_in") return { text: "This changes sign-in or security settings", danger: false };
@@ -780,7 +854,15 @@
      */
     function lookupNodeGlassRecord(runItem, rawAgentsMap, isPrimary, recoveredInfo) {
       if (isPrimary) {
-        return null;
+        const sw = getPrimaryAgentSwatch();
+        return {
+          name: getPrimaryAgentDisplayName(runItem?.agent_name || recoveredInfo?.name || "Primary orchestrator"),
+          body: sw.body,
+          edge: sw.edge,
+          ink: sw.ink,
+          rawInk: sw.rawInk,
+          swatchKey: sw.key,
+        };
       }
       const direct = rawAgentsMap && typeof rawAgentsMap === "object" ? rawAgentsMap[runItem.id] || null : null;
       if (direct && (direct.color || direct.body)) {
@@ -867,6 +949,51 @@
             summary: `Dispatched ${ev.agent || roleLabel(ev.role)}${ev.app ? ` on ${ev.app}` : ""}: ${ev.goal || ""}`,
             timeText: tText,
           };
+        case "bug_report": {
+          const bugs = Array.isArray(ev.bugs) ? ev.bugs : [];
+          return {
+            kind: "bug_report",
+            label: "Bug report",
+            summary: bugs.length
+              ? `Round ${ev.round || 1}: ${bugs.length} issue${bugs.length === 1 ? "" : "s"} (${bugs[0].title || "bug"})`
+              : `Round ${ev.round || 1}: no bugs found`,
+            timeText: tText,
+          };
+        }
+        case "patch":
+          return {
+            kind: "patch",
+            label: "Patch",
+            summary: ev.applied
+              ? `Round ${ev.round || 1}: applied${ev.explanation ? ` · ${ev.explanation}` : ""}`
+              : `Round ${ev.round || 1}: not applied${ev.error ? ` (${ev.error})` : ""}`,
+            timeText: tText,
+          };
+        case "commit":
+          return {
+            kind: "commit",
+            label: "Commit",
+            summary: ev.ok !== false
+              ? `Committed ${(Array.isArray(ev.files) ? ev.files.length : 0)} file${(Array.isArray(ev.files) && ev.files.length === 1) ? "" : "s"}`
+              : `Commit failed${ev.out ? `: ${ev.out}` : ""}`,
+            timeText: tText,
+          };
+        case "tour":
+          return {
+            kind: "act",
+            label: "Tour",
+            summary: `Step ${ev.step || 1}: ${ev.summary || (ev.ok ? "Captured screen" : "Tour step")}`,
+            timeText: tText,
+          };
+        case "artifact": {
+          const name = ev.path ? String(ev.path).split("/").pop() : "artifact";
+          return {
+            kind: "artifact",
+            label: sentenceCase(ev.type || "Artifact"),
+            summary: ev.tagline ? `${name} · ${ev.tagline}` : name,
+            timeText: tText,
+          };
+        }
         case "llm": {
           const costStr = ev.cost == null ? "—" : `$${Number(ev.cost).toFixed(4)}`;
           return {
@@ -1222,7 +1349,7 @@
 
           const glassRecord = lookupNodeGlassRecord(runItem, rawAgents, isPrimary, recoveredInfo);
           const displayName = isPrimary
-            ? OnboardingState.agentName || "Primary orchestrator"
+            ? getPrimaryAgentDisplayName(runItem.agent_name || recoveredInfo?.name || "Primary orchestrator")
             : glassRecord?.name || recoveredInfo?.name || roleLabel(runItem.role);
 
           if (glassRecord) {
@@ -1297,8 +1424,11 @@
         const combinedEvents = [];
         if (transcriptRows.length) {
           for (const tr of transcriptRows) {
+            const rawAgent = tr.agent || tr.role || "Agent";
+            const isOrchestratorRow = rawAgent === "ComputerAnything" || tr.role === "orchestrator";
             combinedEvents.push({
-              agentName: tr.agent || tr.role || "Agent",
+              agentName: isOrchestratorRow ? getPrimaryAgentDisplayName(rawAgent) : rawAgent,
+              agentPalette: isOrchestratorRow ? getPrimaryAgentSwatch() : null,
               label: sentenceCase(tr.kind || tr.role || "Message"),
               summary: tr.text || "",
               timeText: tr.ts ? new Date(tr.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "",
@@ -1464,6 +1594,255 @@
         })
         .filter((rr) => rr.steps.length > 0);
 
+      function basenameOf(p) {
+        const clean = String(p || "").trim();
+        if (!clean) return "";
+        const parts = clean.split(/[\\/]/);
+        return parts[parts.length - 1] || clean;
+      }
+
+      function isWebRenderableSrc(src) {
+        const s = String(src || "").trim();
+        if (!s) return false;
+        if (/^(data:image\/|https?:\/\/)/i.test(s)) return true;
+        if (/^\.?\/(?:ui\/|fixtures\/|assets\/)/i.test(s)) return true;
+        return false;
+      }
+
+      const artifacts = [];
+      const seenBriefKeys = new Set();
+
+      for (const g of taskGroups) {
+        for (const n of g.allNodes) {
+          const evs = Array.isArray(n.rawEvents) ? n.rawEvents : [];
+          evs.forEach((ev, idx) => {
+            if (!ev || typeof ev !== "object") return;
+            const tText = ev.t != null ? `+${Number(ev.t).toFixed(1)}s` : n.elapsedText;
+            const sortTs = ev.ts || ev.t || 0;
+            if (ev.kind === "bug_report") {
+              const bugs = Array.isArray(ev.bugs) ? ev.bugs : [];
+              artifacts.push({
+                id: `${n.runId}-bug-${idx}`,
+                kind: "bug_report",
+                kindLabel: bugs.length
+                  ? `Bug report · Round ${ev.round || 1} (${bugs.length})`
+                  : `Bug report · Round ${ev.round || 1}`,
+                statusObj: bugs.length
+                  ? { symbolWord: "◔ Bugs found", colorClass: "state-warning" }
+                  : { symbolWord: "✓ Clean", colorClass: "state-success" },
+                agentName: n.agentName,
+                agentPalette: n.palette,
+                taskId: g.id,
+                taskGoal: g.goal,
+                timeText: tText,
+                sortTs,
+                summary: bugs.length ? bugs.map((b) => b.title || "Bug").join("; ") : "No bugs found",
+                detail: { bugs, round: ev.round || 1 },
+              });
+            } else if (ev.kind === "patch") {
+              const applied = Boolean(ev.applied);
+              const filesList = Array.isArray(ev.files) ? ev.files : [];
+              artifacts.push({
+                id: `${n.runId}-patch-${idx}`,
+                kind: "patch",
+                kindLabel: `Patch · Round ${ev.round || 1}`,
+                statusObj: applied
+                  ? { symbolWord: "✓ Applied", colorClass: "state-success" }
+                  : { symbolWord: "✕ Not applied", colorClass: "state-danger" },
+                agentName: n.agentName,
+                agentPalette: n.palette,
+                taskId: g.id,
+                taskGoal: g.goal,
+                timeText: tText,
+                sortTs,
+                summary: applied
+                  ? (ev.explanation || (filesList.length ? filesList.join(", ") : "Patch applied"))
+                  : (ev.error ? `Not applied: ${ev.error}` : "Patch was not applied"),
+                detail: {
+                  applied,
+                  round: ev.round || 1,
+                  attempt: ev.attempt || 1,
+                  files: filesList,
+                  explanation: ev.explanation || "",
+                  diff: ev.diff || "",
+                  error: ev.error || "",
+                },
+              });
+            } else if (ev.kind === "commit") {
+              const ok = ev.ok !== false;
+              const filesList = Array.isArray(ev.files) ? ev.files : [];
+              artifacts.push({
+                id: `${n.runId}-commit-${idx}`,
+                kind: "commit",
+                kindLabel: "Commit",
+                statusObj: ok
+                  ? { symbolWord: "✓ Committed", colorClass: "state-success" }
+                  : { symbolWord: "✕ Failed", colorClass: "state-danger" },
+                agentName: n.agentName,
+                agentPalette: n.palette,
+                taskId: g.id,
+                taskGoal: g.goal,
+                timeText: tText,
+                sortTs,
+                summary: filesList.length ? filesList.join(", ") : (ev.out || "Git commit"),
+                detail: { ok, files: filesList, out: ev.out || "" },
+              });
+            } else if (ev.kind === "artifact") {
+              const artType = String(ev.type || "artifact").toLowerCase();
+              const fileName = basenameOf(ev.path || ev.url || "");
+              if (artType === "brief") {
+                seenBriefKeys.add(`${n.runId}:${ev.path || ""}`);
+              }
+              const kindLabel =
+                artType === "brief"
+                  ? "Marketing brief"
+                  : artType === "screenshot"
+                    ? "Screenshot"
+                    : sentenceCase(artType);
+              artifacts.push({
+                id: `${n.runId}-art-${idx}`,
+                kind: "artifact",
+                artifactType: artType,
+                kindLabel,
+                statusObj: { symbolWord: "✓ Saved", colorClass: "state-success" },
+                agentName: n.agentName,
+                agentPalette: n.palette,
+                taskId: g.id,
+                taskGoal: g.goal,
+                timeText: tText,
+                sortTs,
+                summary: ev.tagline ? `${fileName ? `${fileName} · ` : ""}${ev.tagline}` : (fileName || "Saved artifact"),
+                detail: {
+                  type: artType,
+                  fileName,
+                  path: ev.path || "",
+                  url: ev.url || "",
+                  tagline: ev.tagline || "",
+                  brief: ev.brief && typeof ev.brief === "object" ? ev.brief : null,
+                },
+              });
+            }
+          });
+
+          const nodeDetail = detailsById[n.runId] || runsList.find((r) => r.id === n.runId) || null;
+          const resBrief = nodeDetail?.result?.brief;
+          if (resBrief) {
+            const pathStr = typeof resBrief === "string" ? resBrief : (resBrief.path || "");
+            const dedupKey = `${n.runId}:${pathStr}`;
+            if (!seenBriefKeys.has(dedupKey)) {
+              seenBriefKeys.add(dedupKey);
+              const fileName = basenameOf(pathStr);
+              artifacts.push({
+                id: `${n.runId}-res-brief`,
+                kind: "artifact",
+                artifactType: "brief",
+                kindLabel: "Marketing brief",
+                statusObj: n.status,
+                agentName: n.agentName,
+                agentPalette: n.palette,
+                taskId: g.id,
+                taskGoal: g.goal,
+                timeText: n.elapsedText,
+                sortTs: 0,
+                summary: (typeof resBrief === "object" && resBrief.tagline)
+                  ? resBrief.tagline
+                  : (fileName || n.resultSummary || "Launch brief"),
+                detail: {
+                  type: "brief",
+                  fileName,
+                  path: pathStr,
+                  tagline: typeof resBrief === "object" ? (resBrief.tagline || "") : "",
+                  brief: typeof resBrief === "object" ? resBrief : null,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      const marketingRuns = [];
+      for (const g of taskGroups) {
+        const mktNode = g.allNodes.find((n) => n.role === "marketing");
+        if (!mktNode && g.primaryNode.role !== "marketing") continue;
+        const targetNode = mktNode || g.primaryNode;
+        const evs = Array.isArray(targetNode.rawEvents) ? targetNode.rawEvents : [];
+        const nodeDetail = detailsById[targetNode.runId] || runsList.find((r) => r.id === targetNode.runId) || null;
+        const parentDetail = detailsById[g.id] || runsList.find((r) => r.id === g.id) || null;
+
+        const briefEv = evs.find((e) => e.kind === "artifact" && String(e.type || "").toLowerCase() === "brief") || null;
+        const rawBrief = nodeDetail?.result?.brief || parentDetail?.result?.brief || null;
+        const briefObj =
+          rawBrief && typeof rawBrief === "object"
+            ? rawBrief
+            : briefEv?.brief && typeof briefEv.brief === "object"
+              ? briefEv.brief
+              : briefEv && (briefEv.launch_script || briefEv.shot_list || briefEv.palette)
+                ? briefEv
+                : null;
+        const briefPath =
+          typeof rawBrief === "string"
+            ? rawBrief
+            : typeof briefEv?.path === "string"
+              ? briefEv.path
+              : "";
+        const briefFileName = basenameOf(briefPath);
+        const tagline = briefObj?.tagline || briefEv?.tagline || "";
+        const launchScript = briefObj?.launch_script || "";
+        const shotList = Array.isArray(briefObj?.shot_list) ? briefObj.shot_list : [];
+        const palette = Array.isArray(briefObj?.palette) ? briefObj.palette : [];
+
+        const shotEntries = [];
+        const seenShot = new Set();
+        const addShot = (item) => {
+          const src = typeof item === "string" ? item : (item?.url || item?.path || "");
+          const label = typeof item === "object" && item?.label ? item.label : basenameOf(src);
+          const key = src || label;
+          if (!key || seenShot.has(key)) return;
+          seenShot.add(key);
+          shotEntries.push({
+            src,
+            fileName: basenameOf(src) || label,
+            isRenderable: isWebRenderableSrc(src),
+          });
+        };
+        if (Array.isArray(briefObj?.screenshots)) {
+          briefObj.screenshots.forEach(addShot);
+        }
+        evs
+          .filter((e) => e.kind === "artifact" && String(e.type || "").toLowerCase() === "screenshot")
+          .forEach((e) => addShot(e));
+
+        const tourSteps = evs
+          .filter((e) => e.kind === "tour")
+          .map((e) => ({
+            step: e.step || 1,
+            ok: e.ok !== false,
+            summary: e.summary || "",
+          }));
+
+        const storedOnMacOnly = !launchScript && !shotList.length && !palette.length && Boolean(briefPath);
+
+        marketingRuns.push({
+          runId: g.id,
+          agentRunId: targetNode.runId,
+          goal: g.goal,
+          agentName: targetNode.agentName,
+          agentPalette: targetNode.palette,
+          status: g.overallStatus,
+          elapsedText: g.elapsedText,
+          summary: targetNode.resultSummary || g.resultSummary,
+          briefFileName,
+          briefPath,
+          tagline,
+          launchScript,
+          shotList,
+          palette,
+          screenshots: shotEntries,
+          tourSteps,
+          storedOnMacOnly,
+        });
+      }
+
       return {
         connectionStatus,
         connectionError,
@@ -1475,6 +1854,8 @@
         activeAgentNode,
         filteredTranscriptRuns,
         searchedTranscriptRows: Array.isArray(searchedTranscriptRows) ? searchedTranscriptRows : null,
+        artifacts,
+        marketingRuns,
         stateMachine,
         rawActions: Array.isArray(rawActions) ? rawActions : [],
         replayRuns,
@@ -1559,6 +1940,8 @@
   let logStatusFilter = "all";
   let searchDebounceTimer = null;
   const expandedTranscriptRunIds = new Set();
+  const expandedArtifactIds = new Set();
+  let selectedMarketingRunId = null;
 
   let attachments = [];
   let sendErrorText = "";
@@ -1570,6 +1953,9 @@
     confirmForgetId: null,
     editingMemoryId: null,
     editingMemoryDraft: "",
+    memoryLive: false,
+    liveMemories: [],
+    memoryError: "",
     memories: [
       {
         id: "mem-1",
@@ -1610,6 +1996,8 @@
     if (v === "b1" || v === "graph" || v === "agent-graph") return "graph";
     if (v === "b1b" || v === "statemachine" || v === "state-machine" || v === "state") return "state-machine";
     if (v === "b2" || v === "logs" || v === "transcript" || v === "transcripts") return "logs";
+    if (v === "b6" || v === "artifacts" || v === "artifact") return "artifacts";
+    if (v === "b7" || v === "marketing" || v === "promo") return "marketing";
     if (v === "b3" || v === "analytics" || v === "cost") return "analytics";
     if (v === "b4" || v === "onboarding" || v === "setup") return "onboarding";
     if (v === "b5" || v === "history" || v === "settings" || v === "history-settings") return "history-settings";
@@ -1701,6 +2089,14 @@
     const countLogs = document.getElementById("nav-count-logs");
     if (countLogs) {
       countLogs.textContent = String(vm.taskGroups.length);
+    }
+    const countArtifacts = document.getElementById("nav-count-artifacts");
+    if (countArtifacts) {
+      countArtifacts.textContent = String((vm.artifacts || []).length);
+    }
+    const countMarketing = document.getElementById("nav-count-marketing");
+    if (countMarketing) {
+      countMarketing.textContent = String((vm.marketingRuns || []).length);
     }
 
     document.querySelectorAll("[data-view-tab]").forEach((btn) => {
@@ -1879,6 +2275,38 @@
           <div class="skeleton-line" style="width: 88%; height: 24px;"></div>
           <div class="skeleton-line" style="width: 84%; height: 24px;"></div>
           <div class="skeleton-line" style="width: 78%; height: 24px;"></div>
+        </div>
+      `;
+    }
+    if (viewKey === "artifacts") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Artifacts</h2>
+            <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading artifacts</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-line" style="width: 92%;"></div>
+          <div class="skeleton-line" style="width: 86%;"></div>
+          <div class="skeleton-line" style="width: 78%;"></div>
+        </div>
+      `;
+    }
+    if (viewKey === "marketing") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Marketing</h2>
+            <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading marketing</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-box" style="width: 100%; height: 64px;"></div>
+          <div class="skeleton-line" style="width: 90%;"></div>
+          <div class="skeleton-line" style="width: 82%;"></div>
         </div>
       `;
     }
@@ -2844,6 +3272,369 @@
     }
   }
 
+  /* ---------------- ARTIFACTS LIST VIEW ---------------- */
+  function renderArtifactsView(vm) {
+    const container = document.getElementById("b6-content");
+    if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("artifacts");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Artifacts",
+        subtitle: "Reports, patches, commits, and launch briefs produced by agents",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    const artifacts = Array.isArray(vm.artifacts) ? vm.artifacts : [];
+
+    if (!artifacts.length) {
+      container.innerHTML = `
+        ${renderViewStatusNoticesHtml(vm)}
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Artifacts</h2>
+            <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
+          </div>
+        </div>
+        ${renderEmptyViewHtml({
+          title: "Artifacts",
+          subtitle: "Reports, patches, commits, and launch briefs produced by agents",
+          message: "No artifacts produced yet. Bug reports, patches, commits, and launch briefs appear here as agents work.",
+          showSampleButton: !vm.isSampleData,
+        })}
+      `;
+      return;
+    }
+
+    const rowsHtml = artifacts
+      .map((item) => {
+        const isExpanded = expandedArtifactIds.has(item.id);
+        let detailHtml = "";
+        if (isExpanded) {
+          if (item.kind === "bug_report") {
+            const bugs = item.detail?.bugs || [];
+            detailHtml = bugs.length
+              ? bugs
+                  .map(
+                    (b) => `
+                    <div>
+                      <strong>${escapeHtml(sentenceCase(b.severity || "med"))}</strong> · ${escapeHtml(b.title || "Bug")}
+                      ${b.file_hint ? ` <span class="section-subtitle">(${escapeHtml(b.file_hint)})</span>` : ""}
+                      ${b.evidence ? `<div class="section-subtitle">${escapeHtml(b.evidence)}</div>` : ""}
+                    </div>
+                  `
+                  )
+                  .join("")
+              : `<div class="section-subtitle">No bugs found in this round.</div>`;
+          } else if (item.kind === "patch") {
+            const d = item.detail || {};
+            detailHtml = `
+              <div>
+                <span class="state-text ${d.applied ? "state-success" : "state-danger"}">${d.applied ? "✓ Applied" : "✕ Not applied"}</span>
+                ${d.explanation ? ` · ${escapeHtml(d.explanation)}` : ""}
+              </div>
+              ${d.files && d.files.length ? `<div class="section-subtitle">Files: ${escapeHtml(d.files.join(", "))}</div>` : ""}
+              ${d.error ? `<div class="state-text state-danger">Error: ${escapeHtml(d.error)}</div>` : ""}
+              ${d.diff ? `<pre class="artifact-diff-pre">${escapeHtml(d.diff)}</pre>` : ""}
+            `;
+          } else if (item.kind === "commit") {
+            const d = item.detail || {};
+            detailHtml = `
+              <div>
+                <span class="state-text ${d.ok ? "state-success" : "state-danger"}">${d.ok ? "✓ Committed" : "✕ Commit failed"}</span>
+                ${d.files && d.files.length ? ` · ${escapeHtml(d.files.join(", "))}` : ""}
+              </div>
+              ${d.out ? `<pre class="artifact-diff-pre">${escapeHtml(d.out)}</pre>` : ""}
+            `;
+          } else {
+            const d = item.detail || {};
+            const brief = d.brief;
+            detailHtml = `
+              ${d.fileName ? `<div>File: <strong>${escapeHtml(d.fileName)}</strong></div>` : ""}
+              ${d.tagline ? `<div>Tagline: ${escapeHtml(d.tagline)}</div>` : ""}
+              ${
+                brief
+                  ? `
+                    ${brief.launch_script ? `<div class="marketing-script-box">${escapeHtml(brief.launch_script)}</div>` : ""}
+                    ${
+                      Array.isArray(brief.shot_list) && brief.shot_list.length
+                        ? `<div class="section-subtitle">Shot list: ${escapeHtml(brief.shot_list.join(" · "))}</div>`
+                        : ""
+                    }
+                  `
+                  : d.path
+                    ? `<div class="section-subtitle">Stored on this Mac and cannot be opened directly from this page.</div>`
+                    : ""
+              }
+            `;
+          }
+        }
+
+        return `
+          <div class="artifact-row">
+            <button
+              type="button"
+              class="artifact-row-btn"
+              data-action="toggle-artifact-row"
+              data-artifact-id="${escapeHtml(item.id)}"
+              aria-expanded="${isExpanded ? "true" : "false"}"
+            >
+              <span class="artifact-row-main">
+                <span class="state-text ${escapeHtml(item.statusObj.colorClass)}">${escapeHtml(item.statusObj.symbolWord)}</span>
+                <strong>${escapeHtml(item.kindLabel)}</strong>
+                <span class="inline-badge">
+                  <span class="agent-color-dot" style="background:${escapeHtml(item.agentPalette?.body || "#767d8e")};"></span>
+                  <span>${escapeHtml(item.agentName)}</span>
+                </span>
+                <span class="section-subtitle">${escapeHtml(item.taskGoal)}</span>
+              </span>
+              <span class="artifact-row-meta">
+                <span>${escapeHtml(item.timeText || "")}</span>
+                <span>${isExpanded ? "Hide" : "Details"}</span>
+              </span>
+            </button>
+            ${
+              isExpanded
+                ? `
+                  <div class="artifact-detail-panel">
+                    ${detailHtml}
+                    <div>
+                      <button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(item.taskId)}">View task in graph</button>
+                    </div>
+                  </div>
+                `
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
+
+    container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">Artifacts</h2>
+          <p class="section-subtitle">Bug reports, patches, commits, and marketing briefs from run events</p>
+        </div>
+      </div>
+      <div class="artifact-list">
+        ${rowsHtml}
+      </div>
+    `;
+  }
+
+  /* ---------------- MARKETING VIEW ---------------- */
+  function renderMarketingView(vm) {
+    const container = document.getElementById("b7-content");
+    if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("marketing");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Marketing",
+        subtitle: "Launch briefs, voice-over scripts, shot lists, palettes, and screenshots",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    const runs = Array.isArray(vm.marketingRuns) ? vm.marketingRuns : [];
+    if (!runs.length) {
+      container.innerHTML = `
+        ${renderViewStatusNoticesHtml(vm)}
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Marketing</h2>
+            <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
+          </div>
+        </div>
+        ${renderEmptyViewHtml({
+          title: "Marketing",
+          subtitle: "Launch briefs, voice-over scripts, shot lists, palettes, and screenshots",
+          message: "No marketing runs yet. Ask your agents to create a launch brief or promo for an app or site.",
+          showSampleButton: !vm.isSampleData,
+        })}
+      `;
+      return;
+    }
+
+    const activeMkt = runs.find((r) => r.runId === selectedMarketingRunId) || runs[0];
+    selectedMarketingRunId = activeMkt.runId;
+
+    const selectorHtml =
+      runs.length > 1
+        ? `
+          <div class="filter-group">
+            <label for="marketing-run-select" class="filter-label">Marketing run</label>
+            <select id="marketing-run-select" class="inline-select" data-action="select-marketing-run">
+              ${runs
+                .map(
+                  (r) =>
+                    `<option value="${escapeHtml(r.runId)}" ${r.runId === activeMkt.runId ? "selected" : ""}>${escapeHtml(r.goal)}</option>`
+                )
+                .join("")}
+            </select>
+          </div>
+        `
+        : "";
+
+    const paletteHtml = activeMkt.palette.length
+      ? `
+        <div class="onboarding-block">
+          <h3 class="section-title">Palette</h3>
+          <div class="marketing-palette-row">
+            ${activeMkt.palette
+              .map(
+                (hex) => `
+                  <span class="marketing-swatch-chip">
+                    <span class="marketing-swatch-dot" style="background:${escapeHtml(hex)};"></span>
+                    <span>${escapeHtml(hex)}</span>
+                  </span>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+      `
+      : "";
+
+    const shotsListHtml = activeMkt.shotList.length
+      ? `
+        <div class="onboarding-block">
+          <h3 class="section-title">Shot list</h3>
+          <ol class="marketing-shot-list">
+            ${activeMkt.shotList.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}
+          </ol>
+        </div>
+      `
+      : "";
+
+    const screenshotsHtml = activeMkt.screenshots.length
+      ? `
+        <div class="onboarding-block">
+          <h3 class="section-title">Screenshots</h3>
+          <div class="marketing-screenshots-grid">
+            ${activeMkt.screenshots
+              .map((shot) =>
+                shot.isRenderable
+                  ? `
+                    <div class="marketing-screenshot-item">
+                      <img src="${escapeHtml(shot.src)}" alt="${escapeHtml(shot.fileName || "Marketing screenshot")}" class="marketing-screenshot-img" />
+                      <span class="section-subtitle">${escapeHtml(shot.fileName)}</span>
+                    </div>
+                  `
+                  : `
+                    <div class="marketing-screenshot-item">
+                      <strong>${escapeHtml(shot.fileName)}</strong>
+                      <span class="section-subtitle">Saved on this Mac and cannot be previewed from this page.</span>
+                    </div>
+                  `
+              )
+              .join("")}
+          </div>
+        </div>
+      `
+      : "";
+
+    const tourHtml = activeMkt.tourSteps.length
+      ? `
+        <div class="onboarding-block">
+          <h3 class="section-title">Product tour steps</h3>
+          <div class="history-list">
+            ${activeMkt.tourSteps
+              .map(
+                (st) => `
+                  <div class="history-list-row">
+                    <div class="history-list-main">
+                      <span class="state-text ${st.ok ? "state-success" : "state-warning"}">${st.ok ? "✓" : "◔"} Step ${escapeHtml(st.step)}</span>
+                      <span class="section-subtitle">${escapeHtml(st.summary || "Captured")}</span>
+                    </div>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
+      `
+      : "";
+
+    const macOnlyNoticeHtml = activeMkt.storedOnMacOnly
+      ? `
+        <div class="onboarding-block">
+          <h3 class="section-title">Launch brief file</h3>
+          ${activeMkt.briefFileName ? `<p>File: <strong>${escapeHtml(activeMkt.briefFileName)}</strong></p>` : ""}
+          <p class="section-subtitle">
+            The brief itself is stored on this Mac and is not readable through this page.
+          </p>
+        </div>
+      `
+      : "";
+
+    container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">${escapeHtml(activeMkt.goal)}</h2>
+          <p class="section-subtitle">
+            <span class="state-text ${escapeHtml(activeMkt.status.colorClass)}">${escapeHtml(activeMkt.status.symbolWord)}</span>
+            &middot; ${escapeHtml(activeMkt.agentName)} &middot; ${escapeHtml(activeMkt.elapsedText)}
+            ${activeMkt.summary ? ` &middot; ${escapeHtml(activeMkt.summary)}` : ""}
+          </p>
+        </div>
+        ${selectorHtml}
+      </div>
+
+      <div class="marketing-run-section">
+        ${
+          activeMkt.tagline
+            ? `
+              <div class="onboarding-block">
+                <div class="filter-label">Tagline</div>
+                <div class="marketing-tagline">${escapeHtml(activeMkt.tagline)}</div>
+              </div>
+            `
+            : ""
+        }
+        ${
+          activeMkt.launchScript
+            ? `
+              <div class="onboarding-block">
+                <h3 class="section-title">Launch script</h3>
+                <p class="marketing-script-box">${escapeHtml(activeMkt.launchScript)}</p>
+              </div>
+            `
+            : ""
+        }
+        ${shotsListHtml}
+        ${paletteHtml}
+        ${screenshotsHtml}
+        ${tourHtml}
+        ${macOnlyNoticeHtml}
+      </div>
+    `;
+
+    const selectEl = document.getElementById("marketing-run-select");
+    if (selectEl) {
+      selectEl.addEventListener("change", (e) => {
+        selectedMarketingRunId = e.target.value;
+        renderMarketingView(getViewModel());
+      });
+    }
+  }
+
   /* ---------------- B3: ANALYTICS VIEW ---------------- */
   function renderAnalyticsView(vm) {
     const container = document.getElementById("b3-content");
@@ -3375,7 +4166,7 @@
 
           <div class="onboarding-row" style="margin-top:12px;">
             <div class="onboarding-field">
-              <label for="onboarding-agent-name" class="filter-label">Primary agent alias (in-page preview)</label>
+              <label for="onboarding-agent-name" class="filter-label">Primary agent alias</label>
               <input type="text" id="onboarding-agent-name" class="inline-text-input" value="${escapeHtml(OnboardingState.agentName)}" placeholder="Mercury" maxlength="32" />
             </div>
             <div class="preview-stage">
@@ -3391,7 +4182,7 @@
                 data-glass-seed="${escapeHtml(previewSeed)}"
               >
                 <span class="glass-content">
-                  <span>${escapeHtml(OnboardingState.agentName || "Mercury")}</span>
+                  <span>${escapeHtml(getPrimaryAgentDisplayName("ComputerAnything"))}</span>
                   <span>✓ Ready</span>
                 </span>
               </div>
@@ -3401,6 +4192,7 @@
           <div>
             <div class="filter-label">Agent sea-glass color swatch:</div>
             <div class="swatches-stage" role="radiogroup" aria-label="Agent color swatches">${swatchesHtml}</div>
+            <p class="section-subtitle" style="margin-top:8px;">The agents it starts keep their own names and cursor colors.</p>
           </div>
         </div>
       `;
@@ -3731,7 +4523,7 @@
       </div>
 
       <p class="section-subtitle">
-        Note: Your name is saved to your backend profile. Other preferences and approval rules are kept in this page for this session until their backend endpoints are added. The on-screen cursor name and color still come from the backend.
+        Note: Your name is saved to your backend profile. Your primary agent name and color are saved in this browser. The agents it starts keep their own names and cursor colors.
       </p>
     `;
 
@@ -3741,10 +4533,12 @@
     if (nextAliasInput) {
       nextAliasInput.addEventListener("input", (e) => {
         OnboardingState.agentName = e.target.value;
+        savePrimaryAgentChoice();
         renderOnboardingView(getViewModel());
       });
       attachImeSafeEnter(nextAliasInput, () => {
-        OnboardingState.agentName = nextAliasInput.value.trim() || "Mercury";
+        OnboardingState.agentName = nextAliasInput.value.trim();
+        savePrimaryAgentChoice();
         renderNow();
       });
       if (aliasHadFocus) {
@@ -3930,10 +4724,14 @@
         </tr>
       `;
 
-    const memoriesHtml = HistorySettingsState.memories.length
-      ? HistorySettingsState.memories
+    const activeMemories = HistorySettingsState.memoryLive
+      ? HistorySettingsState.liveMemories
+      : HistorySettingsState.memories;
+
+    const memoriesHtml = activeMemories.length
+      ? activeMemories
           .map((mem) => {
-            const isEditing = HistorySettingsState.editingMemoryId === mem.id;
+            const isEditing = !HistorySettingsState.memoryLive && HistorySettingsState.editingMemoryId === mem.id;
             const isConfirming = HistorySettingsState.confirmForgetId === mem.id;
             const valueHtml = isEditing
               ? `
@@ -3964,7 +4762,7 @@
               `
               : `
                 <div class="filter-group">
-                  <button type="button" class="btn" data-action="edit-memory" data-memory-id="${escapeHtml(mem.id)}">Edit</button>
+                  ${HistorySettingsState.memoryLive ? "" : `<button type="button" class="btn" data-action="edit-memory" data-memory-id="${escapeHtml(mem.id)}">Edit</button>`}
                   <button type="button" class="btn" data-action="forget-memory" data-memory-id="${escapeHtml(mem.id)}">Forget</button>
                 </div>
               `;
@@ -4098,9 +4896,19 @@
         <div class="section-header-row">
           <div>
             <h3 id="history-memory-heading" class="section-title">Memory viewer</h3>
-            <p class="section-subtitle">Sample data — no backend memory endpoint yet. Changes apply to this session only.</p>
+            <p class="section-subtitle">${
+              HistorySettingsState.memoryLive
+                ? "Saved memories from the backend. Forgetting a memory deletes it."
+                : "Sample data — no backend memory endpoint yet. Changes apply to this session only."
+            }</p>
           </div>
+          ${HistorySettingsState.memoryLive ? "" : `<span class="provenance-tag">Sample</span>`}
         </div>
+        ${
+          HistorySettingsState.memoryError
+            ? `<p class="state-text state-danger">${escapeHtml(HistorySettingsState.memoryError)}</p>`
+            : ""
+        }
         <div class="history-list">
           ${memoriesHtml}
         </div>
@@ -4252,6 +5060,10 @@
       renderStateMachineView(vm);
     } else if (currentView === "logs") {
       renderTranscriptLogView(vm);
+    } else if (currentView === "artifacts") {
+      renderArtifactsView(vm);
+    } else if (currentView === "marketing") {
+      renderMarketingView(vm);
     } else if (currentView === "analytics") {
       renderAnalyticsView(vm);
     } else if (currentView === "onboarding") {
@@ -4594,6 +5406,30 @@
         OnboardingState.callMe = String(resultsByKey.profile.call_me || "");
       }
       OnboardingState.profileLoaded = true;
+    }
+
+    try {
+      const memResp = await Transport.request("GET", "/api/memory");
+      const memRows = Array.isArray(memResp)
+        ? memResp
+        : Array.isArray(memResp?.memories)
+          ? memResp.memories
+          : null;
+      if (memRows) {
+        HistorySettingsState.memoryLive = true;
+        HistorySettingsState.memoryError = "";
+        HistorySettingsState.liveMemories = memRows.map((m, idx) => ({
+          id: String(m.id ?? `mem-${idx}`),
+          key: m.key || (m.run ? `Memory · ${m.run}` : "Saved memory"),
+          value: String(m.text ?? m.value ?? ""),
+          source: m.run ? `Run ${m.run}` : (m.source || "Backend memory"),
+          updated: m.ts
+            ? new Date(m.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            : (m.updated || "Saved"),
+        }));
+      }
+    } catch {
+      HistorySettingsState.memoryLive = false;
     }
 
     if (wsState?.status === "partial") {
@@ -4966,6 +5802,7 @@
           const idx = Number(actionEl.dataset.swatchIdx);
           if (!Number.isNaN(idx) && idx >= 0 && idx < AGENT_SWATCHES.length) {
             OnboardingState.swatchIndex = idx;
+            savePrimaryAgentChoice();
             renderNow();
           }
           break;
@@ -5175,10 +6012,33 @@
           break;
         }
 
+        case "toggle-artifact-row": {
+          const aid = actionEl.dataset.artifactId;
+          if (aid) {
+            if (expandedArtifactIds.has(aid)) {
+              expandedArtifactIds.delete(aid);
+            } else {
+              expandedArtifactIds.add(aid);
+            }
+            renderNow();
+          }
+          break;
+        }
+
         case "confirm-forget-memory": {
           const mid = actionEl.dataset.memoryId;
           if (mid) {
-            HistorySettingsState.memories = HistorySettingsState.memories.filter((m) => m.id !== mid);
+            if (HistorySettingsState.memoryLive) {
+              try {
+                await Transport.request("DELETE", `/api/memory/${encodeURIComponent(mid)}`);
+                HistorySettingsState.liveMemories = HistorySettingsState.liveMemories.filter((m) => m.id !== mid);
+                HistorySettingsState.memoryError = "";
+              } catch (err) {
+                HistorySettingsState.memoryError = err.message || "Could not delete memory";
+              }
+            } else {
+              HistorySettingsState.memories = HistorySettingsState.memories.filter((m) => m.id !== mid);
+            }
             HistorySettingsState.confirmForgetId = null;
             renderNow();
           }

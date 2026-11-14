@@ -54,6 +54,28 @@
             type="button"
             role="tab"
             class="nav-tab"
+            data-view-tab="artifacts"
+            aria-selected="false"
+            aria-controls="panel-artifacts"
+          >
+            <span>Artifacts</span>
+            <span id="nav-count-artifacts" class="nav-count">0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="marketing"
+            aria-selected="false"
+            aria-controls="panel-marketing"
+          >
+            <span>Marketing</span>
+            <span id="nav-count-marketing" class="nav-count">0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
             data-view-tab="analytics"
             aria-selected="false"
             aria-controls="panel-analytics"
@@ -184,6 +206,28 @@
         aria-label="Transcript log"
       >
         <div id="b2-content"></div>
+      </section>
+
+      <!-- Artifacts List -->
+      <section
+        id="panel-artifacts"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="artifacts"
+        aria-label="Artifacts"
+      >
+        <div id="b6-content"></div>
+      </section>
+
+      <!-- Marketing View -->
+      <section
+        id="panel-marketing"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="marketing"
+        aria-label="Marketing"
+      >
+        <div id="b7-content"></div>
       </section>
 
       <!-- B3: Analytics -->

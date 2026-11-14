@@ -1,0 +1,274 @@
+{
+  "agents": {
+    "r-mkt-2": {
+      "name": "Sora",
+      "color": "#C0DED0",
+      "edge": "#E6FFF0",
+      "ink": "#396C5A",
+      "greeted": true
+    },
+    "r-mkt-mac-2": {
+      "name": "Iris",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C",
+      "greeted": true
+    },
+    "r-qa-2": {
+      "name": "Vega",
+      "color": "#E1CDE8",
+      "edge": "#FBE8F7",
+      "ink": "#71388B",
+      "greeted": true
+    },
+    "r-qa-3": {
+      "name": "Kestrel",
+      "color": "#EECED6",
+      "edge": "#FFF0F1",
+      "ink": "#963F59",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r-mkt-1",
+      "goal": "Create a launch brief and promo script for ComputerAnything",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 14.2,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Launch brief ready: One prompt, four Mac agents working together."
+      }
+    },
+    {
+      "id": "r-mkt-2",
+      "goal": "Tour the workspace and write a launch brief",
+      "role": "marketing",
+      "parent": "r-mkt-1",
+      "state": "done",
+      "elapsed": 13.8,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Launch brief ready: One prompt, four Mac agents working together.",
+        "brief": {
+          "tagline": "One prompt, four Mac agents working together.",
+          "launch_script": "Meet ComputerAnything. Type one request from the Mac notch, and watch specialized agents split the work across your real desktop apps—with live sea-glass cursors, inline approvals before anything risky, and a full replayable state machine.",
+          "shot_list": [
+            "Close-up of the Mac notch pill opening to accept a prompt and dropped screenshot",
+            "Split screen: Calculator and Safari driven simultaneously by named sea-glass cursors",
+            "Inline approval prompt pausing before a destructive action",
+            "Workspace Agent graph and State machine showing verified completion"
+          ],
+          "palette": ["#0C0D10", "#B5D0EB", "#C0DED0", "#EECED6", "#F2F4F8"],
+          "screenshots": [
+            "/Users/demo/.computeranything/marketing/r-mkt-2/shot1.png",
+            "/Users/demo/.computeranything/marketing/r-mkt-2/shot2.png"
+          ]
+        }
+      }
+    },
+    {
+      "id": "r-mkt-mac-1",
+      "goal": "Prepare launch brief for Notes Organizer on this Mac",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 9.6,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Launch brief saved on this Mac: Organize every note in one keystroke."
+      }
+    },
+    {
+      "id": "r-mkt-mac-2",
+      "goal": "Tour Notes Organizer and save launch brief",
+      "role": "marketing",
+      "parent": "r-mkt-mac-1",
+      "state": "done",
+      "elapsed": 9.1,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Launch brief saved on this Mac: Organize every note in one keystroke.",
+        "brief": "/Users/demo/.computeranything/marketing/r-mkt-mac-2/brief.json"
+      }
+    },
+    {
+      "id": "r-qa-1",
+      "goal": "Test shop cart total and fix rounding bug",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 16.4,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "QA clean after 2 rounds, 1 patch applied"
+      }
+    },
+    {
+      "id": "r-qa-2",
+      "goal": "Run tests and report bugs",
+      "role": "qa",
+      "parent": "r-qa-1",
+      "state": "done",
+      "elapsed": 8.0,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Clean after round 2"
+      }
+    },
+    {
+      "id": "r-qa-3",
+      "goal": "Patch rounding in cart.js",
+      "role": "dev",
+      "parent": "r-qa-1",
+      "state": "done",
+      "elapsed": 8.4,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "1 patch applied and committed"
+      }
+    }
+  ],
+  "details": {
+    "r-mkt-1": {
+      "id": "r-mkt-1",
+      "state": "done",
+      "events": [
+        { "kind": "route", "role": "marketing", "agent": "Sora", "goal": "Create a launch brief", "t": 0.4 }
+      ]
+    },
+    "r-mkt-2": {
+      "id": "r-mkt-2",
+      "state": "done",
+      "result": {
+        "ok": true,
+        "summary": "Launch brief ready: One prompt, four Mac agents working together.",
+        "brief": {
+          "tagline": "One prompt, four Mac agents working together.",
+          "launch_script": "Meet ComputerAnything. Type one request from the Mac notch, and watch specialized agents split the work across your real desktop apps—with live sea-glass cursors, inline approvals before anything risky, and a full replayable state machine.",
+          "shot_list": [
+            "Close-up of the Mac notch pill opening to accept a prompt and dropped screenshot",
+            "Split screen: Calculator and Safari driven simultaneously by named sea-glass cursors",
+            "Inline approval prompt pausing before a destructive action",
+            "Workspace Agent graph and State machine showing verified completion"
+          ],
+          "palette": ["#0C0D10", "#B5D0EB", "#C0DED0", "#EECED6", "#F2F4F8"],
+          "screenshots": [
+            "/Users/demo/.computeranything/marketing/r-mkt-2/shot1.png",
+            "/Users/demo/.computeranything/marketing/r-mkt-2/shot2.png"
+          ]
+        }
+      },
+      "events": [
+        { "kind": "tour", "step": 1, "ok": true, "summary": "Opened main workspace screen", "t": 2.1 },
+        { "kind": "artifact", "type": "screenshot", "path": "/Users/demo/.computeranything/marketing/r-mkt-2/shot1.png", "t": 3.0 },
+        { "kind": "tour", "step": 2, "ok": true, "summary": "Captured multi-agent graph view", "t": 6.4 },
+        { "kind": "artifact", "type": "screenshot", "path": "/Users/demo/.computeranything/marketing/r-mkt-2/shot2.png", "t": 7.2 },
+        { "kind": "artifact", "type": "brief", "path": "/Users/demo/.computeranything/marketing/r-mkt-2/brief.json", "tagline": "One prompt, four Mac agents working together.", "t": 13.5 }
+      ]
+    },
+    "r-mkt-mac-1": {
+      "id": "r-mkt-mac-1",
+      "state": "done",
+      "events": [
+        { "kind": "route", "role": "marketing", "agent": "Iris", "goal": "Prepare launch brief for Notes Organizer", "t": 0.3 }
+      ]
+    },
+    "r-mkt-mac-2": {
+      "id": "r-mkt-mac-2",
+      "state": "done",
+      "result": {
+        "ok": true,
+        "summary": "Launch brief saved on this Mac: Organize every note in one keystroke.",
+        "brief": "/Users/demo/.computeranything/marketing/r-mkt-mac-2/brief.json"
+      },
+      "events": [
+        { "kind": "tour", "step": 1, "ok": true, "summary": "Opened Notes Organizer main window", "t": 2.4 },
+        { "kind": "artifact", "type": "screenshot", "path": "/Users/demo/.computeranything/marketing/r-mkt-mac-2/shot1.png", "t": 3.2 },
+        { "kind": "artifact", "type": "brief", "path": "/Users/demo/.computeranything/marketing/r-mkt-mac-2/brief.json", "tagline": "Organize every note in one keystroke.", "t": 9.0 }
+      ]
+    },
+    "r-qa-1": {
+      "id": "r-qa-1",
+      "state": "done",
+      "events": [
+        { "kind": "route", "role": "qa", "agent": "Vega", "goal": "Test shop cart total", "t": 0.3 }
+      ]
+    },
+    "r-qa-2": {
+      "id": "r-qa-2",
+      "state": "done",
+      "events": [
+        {
+          "kind": "bug_report",
+          "round": 1,
+          "bugs": [
+            {
+              "id": "B1",
+              "title": "Cart total concatenates strings instead of adding numbers",
+              "severity": "high",
+              "evidence": "addTotal('10', '20') returned '1020'",
+              "file_hint": "cart.js"
+            }
+          ],
+          "t": 3.1
+        },
+        {
+          "kind": "bug_report",
+          "round": 2,
+          "bugs": [],
+          "t": 7.9
+        }
+      ]
+    },
+    "r-qa-3": {
+      "id": "r-qa-3",
+      "state": "done",
+      "events": [
+        {
+          "kind": "patch",
+          "round": 1,
+          "attempt": 1,
+          "applied": false,
+          "files": ["cart.js"],
+          "explanation": "Initial patch attempt",
+          "error": "hunk #1 FAILED at line 12",
+          "t": 4.2
+        },
+        {
+          "kind": "patch",
+          "round": 1,
+          "attempt": 2,
+          "applied": true,
+          "files": ["cart.js"],
+          "explanation": "Parse item prices with Number() before summing",
+          "diff": "--- a/cart.js\n+++ b/cart.js\n@@ -10,1 +10,1 @@\n-  return items.reduce((a, b) => a + b.price, 0);\n+  return items.reduce((a, b) => a + Number(b.price), 0);",
+          "t": 5.5
+        },
+        {
+          "kind": "commit",
+          "files": ["cart.js"],
+          "ok": true,
+          "out": "[main 4a1b2c3] fix(qa round 1): Parse item prices with Number() before summing",
+          "t": 6.1
+        }
+      ]
+    }
+  },
+  "help": [],
+  "transcripts": [],
+  "actions": [],
+  "graph": { "screens": 0, "transitions": 0, "skills": 0, "apps": [], "mean_edge_p": null, "destructive_edges": 0, "actions_logged": 0, "agents": [] },
+  "analytics": { "tasks": 3, "llm_calls": 9, "cost_usd": 0.0412, "by_role": [], "by_purpose": [], "by_app": [] },
+  "costs": {},
+  "profile": { "call_me": "Ryosuke" }
+}

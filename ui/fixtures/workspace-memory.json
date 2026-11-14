@@ -1,0 +1,26 @@
+{
+  "agents": {},
+  "runs": [],
+  "details": {},
+  "help": [],
+  "transcripts": [],
+  "actions": [],
+  "graph": { "screens": 0, "transitions": 0, "skills": 0, "apps": [], "mean_edge_p": null, "destructive_edges": 0, "actions_logged": 0, "agents": [] },
+  "analytics": { "tasks": 0, "llm_calls": 0, "cost_usd": 0.0, "by_role": [], "by_purpose": [], "by_app": [] },
+  "costs": {},
+  "profile": { "call_me": "Ryosuke" },
+  "memory": [
+    {
+      "id": "live-mem-1",
+      "text": "Prefer Safari when opening localhost previews",
+      "ts": 1763140500,
+      "run": "r1763140100-1"
+    },
+    {
+      "id": "live-mem-2",
+      "text": "Keep Calculator on the secondary display lane",
+      "ts": 1763140800,
+      "run": "r1763140500-1"
+    }
+  ]
+}
