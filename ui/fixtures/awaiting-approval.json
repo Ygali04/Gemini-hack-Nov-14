@@ -49,6 +49,8 @@
         { "t": 0.1, "kind": "state", "state": "planning" },
         { "t": 1.4, "kind": "app_ready", "app": "Safari", "method": "finder", "seconds": 1.3 },
         { "t": 2.0, "kind": "state", "state": "acting" },
+        { "t": 2.4, "kind": "help", "id": "h10", "help_kind": "destructive", "question": "Clear cached Safari cart cookies before ordering?", "options": ["approve", "deny"] },
+        { "t": 302.4, "kind": "help_answer", "id": "h10", "answer": null, "timed_out": true },
         { "t": 4.8, "kind": "act", "step": 1, "source": "memory", "action": "click:Add to bag", "act_ms": 140 },
         { "t": 7.9, "kind": "decide", "ms": 1120, "thought": "Checkout button will submit payment of $24.00", "action": "click" },
         { "t": 8.2, "kind": "help", "id": "h12", "help_kind": "money", "question": "Let the agent click Place Order ($24.00)?", "options": ["approve", "deny"] }
@@ -58,6 +60,16 @@
   },
   "help": [
     {
+      "id": "h10",
+      "run": "r1763140200-11",
+      "kind": "destructive",
+      "question": "Clear cached Safari cart cookies before ordering?",
+      "options": ["approve", "deny"],
+      "detail": "Safari · Blue Bottle · Clear site data",
+      "answer": null,
+      "asked_age_s": 310
+    },
+    {
       "id": "h12",
       "run": "r1763140200-11",
       "kind": "money",
@@ -65,7 +77,11 @@
       "options": ["approve", "deny"],
       "detail": "Safari · Blue Bottle Checkout · Total $24.00",
       "answer": null,
-      "asked": 1763140208
+      "asked_age_s": 12
     }
-  ]
+  ],
+  "agents": {
+    "r1763140200-10": { "name": "Orchestrator", "color": "#E1CDE8", "edge": "#FBE8F7", "ink": "#71388B" },
+    "r1763140200-11": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+  }
 }

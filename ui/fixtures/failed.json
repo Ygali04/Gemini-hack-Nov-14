@@ -132,5 +132,10 @@
       }
     }
   },
-  "help": []
+  "help": [],
+  "agents": {
+    "r1763140300-20": { "name": "Orchestrator", "color": "#E1CDE8", "edge": "#FBE8F7", "ink": "#71388B" },
+    "r1763140300-21": { "name": "QA 1", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" },
+    "r1763140300-22": { "name": "Dev 1", "color": "#F0D9BE", "edge": "#FFFCE0", "ink": "#865733" }
+  }
 }
