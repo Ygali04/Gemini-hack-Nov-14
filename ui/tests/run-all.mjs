@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Runs adapter-check, workspace-check, copy-check, demo-check, bridge-check, and a11y-check.
+ * Runs syntax-check, adapter-check, workspace-check, copy-check,
+ * demo-check, bridge-check, and a11y-check.
  * a11y-check is evaluated per file: files already at 0 findings must stay at 0
  * (FAIL on regression), while files still being fixed are reported as WARN with count.
  * Prints summary lines per check and a final PASS/FAIL line.
@@ -14,6 +15,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const CHECKS = [
+  { name: "syntax-check", file: "syntax-check.mjs" },
   { name: "adapter-check", file: "adapter-check.mjs" },
   { name: "workspace-check", file: "workspace-check.mjs" },
   { name: "copy-check", file: "copy-check.mjs" },
