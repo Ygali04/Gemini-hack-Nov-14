@@ -5,6 +5,7 @@
  *   - ui/workspace.html
  *   - ui/workspace/app.js
  *   - ui/workspace/styles.css
+ *   - ui/demo/index.html
  *
  * Node built-ins only; no browser.
  * Exits 0 on CHECK PASS, 1 on CHECK FAIL.
@@ -32,6 +33,7 @@ const TARGET_FILES = [
   "ui/workspace.html",
   "ui/workspace/app.js",
   "ui/workspace/styles.css",
+  "ui/demo/index.html",
 ];
 
 const findings = [];
