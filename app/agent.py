@@ -8,11 +8,11 @@ Usage:
   python3 agent.py --selftest       # offline checks
 Stdlib only.
 """
-import base64, json, os, re, shutil, subprocess, sys, tempfile, urllib.request
+import base64, json, os, re, shutil, stat, subprocess, sys, tempfile, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_BIN = os.path.join(HERE, "overlay", "overlay")
-FIFO = os.environ.get("CA_FIFO", os.path.join(tempfile.gettempdir(), "computeranything.fifo"))
+FIFO = os.environ.get("CA_FIFO", "")  # set by run.sh to a FIFO in a private 0700 dir
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
 VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
@@ -150,10 +150,14 @@ def listen():
 
 def send_overlay(ops):
     """Write ops to the running overlay's FIFO (started by run.sh)."""
-    if not os.path.exists(FIFO):
-        print("overlay not running (no FIFO at %s); ops: %s" % (FIFO, ops), file=sys.stderr)
+    try:
+        st = os.lstat(FIFO) if FIFO else None
+    except OSError:
+        st = None
+    if not st or not stat.S_ISFIFO(st.st_mode) or st.st_uid != os.getuid():
+        print("overlay not running (no own FIFO at %r); ops: %s" % (FIFO, ops), file=sys.stderr)
         return
-    with open(FIFO, "w") as f:
+    with os.fdopen(os.open(FIFO, os.O_WRONLY | os.O_NOFOLLOW), "w") as f:
         for o in ops:
             f.write(json.dumps(o) + "\n")
 
