@@ -259,7 +259,7 @@
           ? parsed.actions
           : [];
       fixtureState = {
-        sampleLabel: parsed.sample_label || `Sample data (${safe}.json)`,
+        sampleLabel: "Sample data",
         agents: parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {},
         runs: Array.isArray(parsed.runs) ? parsed.runs : [],
         details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
@@ -386,7 +386,7 @@
         const agentFilter = q.get("agent") || "";
         const all = fixtureState.actions || [];
         const filtered = agentFilter
-          ? all.filter((a) => a.agent === agentFilter || a.agent_id === agentFilter || a.run === agentFilter)
+          ? all.filter((a) => a.agent === agentFilter || a.run === agentFilter)
           : all;
         return JSON.parse(JSON.stringify({ total: all.length, actions: filtered }));
       }
@@ -482,25 +482,20 @@
         const promptText = options.prompt || options.jsonBody?.prompt || "New task";
         const newId = "r-sample-" + Date.now();
         const childId = newId + "-cu-1";
-        const primaryName = OnboardingState.agentName || "Mercury";
         const parentRun = {
           id: newId,
           goal: promptText,
           role: "orchestrator",
-          agent: primaryName,
           parent: null,
           state: "acting",
           elapsed: 0.4,
           n_events: 2,
-          attachments: options.attachedNames || [],
           result: null,
         };
         const childRun = {
           id: childId,
           goal: promptText,
           role: "cu",
-          agent: "Iris · Safari",
-          agent_id: "cu-safari",
           parent: newId,
           state: "acting",
           elapsed: 0.3,
@@ -509,10 +504,11 @@
         };
         const chosenPal = AGENT_SWATCHES[OnboardingState.swatchIndex % AGENT_SWATCHES.length];
         fixtureState.agents[childId] = {
-          name: "Iris · Safari",
+          name: "Iris",
           color: chosenPal.color,
           edge: chosenPal.edge,
           ink: chosenPal.rawInk,
+          greeted: true,
         };
         fixtureState.runs.unshift(parentRun, childRun);
         fixtureState.details[newId] = {
@@ -534,7 +530,7 @@
           ts: Date.now() / 1000,
           run: newId,
           role: "user",
-          agent: "user",
+          agent: "ComputerAnything",
           kind: "prompt",
           text: promptText,
           meta: { attachments: options.attachedNames || [] },
@@ -551,7 +547,7 @@
     }
 
     function getSampleLabel() {
-      return fixtureState?.sampleLabel || (activeFixtureName ? `Sample data (${activeFixtureName}.json)` : "");
+      return fixtureState?.sampleLabel || (activeFixtureName ? "Sample data" : "");
     }
 
     return {
@@ -743,23 +739,19 @@
      * Join /api/agents colors per Section 1B (B1) & Section 3:
      * - /api/agents is keyed by the child run id (overlay.claim(run.id, name)) with {name, color, edge, ink}.
      * - The orchestrator (parent) run has no cursor; draw it without glass, in the UI's muted text color.
-     * - If /api/agents is empty or has no entry for a node, draw it the same way (without glass, muted text).
+     * - Entries vanish when a computer-use run ends and other roles never have one: keep a neutral fallback.
      */
     function lookupNodeGlassRecord(runItem, rawAgentsMap, isPrimary) {
       if (isPrimary || !rawAgentsMap || typeof rawAgentsMap !== "object") {
         return null;
       }
-      const direct =
-        rawAgentsMap[runItem.id] ||
-        (runItem.agent_id ? rawAgentsMap[runItem.agent_id] : null) ||
-        (runItem.agent ? rawAgentsMap[runItem.agent] : null) ||
-        null;
+      const direct = rawAgentsMap[runItem.id] || null;
       if (!direct || (!direct.color && !direct.body)) {
         return null;
       }
       const resolved = SharedGlass.resolveAgentPalette(direct);
       return {
-        name: direct.name || runItem.agent || "",
+        name: direct.name || "",
         body: resolved.body,
         edge: resolved.edge,
         ink: resolved.ink,
@@ -873,7 +865,6 @@
         if (selectedAgentFilter) {
           const matchAgent =
             r.agent === selectedAgentFilter ||
-            r.agent_id === selectedAgentFilter ||
             r.run === selectedAgentFilter;
           if (!matchAgent) return false;
         }
@@ -893,32 +884,30 @@
         if (r.agent) agentsSet.add(r.agent);
       }
 
-      function ensureScreen(id, titleHint, appName) {
+      function ensureScreen(id, appName) {
         const key = id || `${appName || "App"}:screen`;
         if (!screensMap.has(key)) {
           const fallbackTitle = String(key).includes(":") ? String(key).split(":").slice(1).join(":") : String(key);
           screensMap.set(key, {
             id: key,
             app: appName || "App",
-            title: titleHint || sentenceCase(fallbackTitle.replace(/[-_]/g, " ")),
+            title: sentenceCase(fallbackTitle.replace(/[-_]/g, " ")) || String(key),
             visits: 0,
             agents: new Set(),
           });
         }
         const node = screensMap.get(key);
         node.visits += 1;
-        if (titleHint && (!node.title || node.title === node.id)) {
-          node.title = titleHint;
-        }
         return node;
       }
 
       for (const row of filteredRows) {
         const app = row.app || "Desktop";
         const fromId = row.from || `${app}:start`;
-        const toId = row.to || `${app}:next`;
-        const fromNode = ensureScreen(fromId, row.from_title, app);
-        const toNode = ensureScreen(toId, row.to_title, app);
+        const actionVerb = String(row.action || "act").split(":")[0] || "next";
+        const toId = row.to || `${app}:${actionVerb}`;
+        const fromNode = ensureScreen(fromId, app);
+        const toNode = ensureScreen(toId, app);
         if (row.agent) {
           fromNode.agents.add(row.agent);
           toNode.agents.add(row.agent);
@@ -1112,8 +1101,8 @@
 
           const glassRecord = lookupNodeGlassRecord(runItem, rawAgents, isPrimary);
           const displayName = isPrimary
-            ? OnboardingState.agentName || runItem.agent || "Primary orchestrator"
-            : glassRecord?.name || runItem.agent || `${roleLabel(runItem.role)} ${idx}`;
+            ? OnboardingState.agentName || "Primary orchestrator"
+            : glassRecord?.name || roleLabel(runItem.role);
 
           if (glassRecord) {
             agentPaletteByName.set(runItem.id, glassRecord);
@@ -1176,13 +1165,11 @@
         }
 
         const uiSentFiles = sentAttachmentsByRunId.get(parent.id) || [];
-        const backendAttachments = Array.isArray(parent.attachments)
-          ? parent.attachments
-          : Array.isArray(detailsById[parent.id]?.attachments)
-            ? detailsById[parent.id].attachments
-            : Array.isArray(parent.files)
-              ? parent.files
-              : [];
+        const backendAttachments = Array.isArray(parent.files)
+          ? parent.files
+          : Array.isArray(detailsById[parent.id]?.files)
+            ? detailsById[parent.id].files
+            : [];
         const attachments = Array.from(new Set([...uiSentFiles, ...backendAttachments]));
 
         const transcriptRows = transcriptsByRunId[parent.id] || [];
@@ -1477,16 +1464,14 @@
       banner.classList.remove("hidden");
       banner.innerHTML = `
         <div class="filter-group">
-          <span class="state-text state-warning">◔ Sample data</span>
-          <span class="section-subtitle">${escapeHtml(
-            vm.sampleLabel || "Showing sample fixture data. Numbers and runs are labeled sample data, never live metrics."
-          )}</span>
+          <span class="state-text state-warning">◔ Preview mode</span>
+          <span class="section-subtitle">Showing preview runs and metrics, never live runs.</span>
         </div>
         <div class="filter-group">
-          <button type="button" class="btn ${activeFixtureName === "workspace-demo" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-demo">Multi-agent sample</button>
-          <button type="button" class="btn ${activeFixtureName === "qa-loop-verified" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="qa-loop-verified">QA verified sample</button>
-          <button type="button" class="btn ${activeFixtureName === "awaiting-approval" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="awaiting-approval">Approval sample</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-empty" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-empty">Empty sample</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-demo" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-demo">Multi-agent preview</button>
+          <button type="button" class="btn ${activeFixtureName === "qa-loop-verified" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="qa-loop-verified">QA verified preview</button>
+          <button type="button" class="btn ${activeFixtureName === "awaiting-approval" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="awaiting-approval">Approval preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-empty" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-empty">Empty preview</button>
         </div>
       `;
       return;
@@ -1723,7 +1708,6 @@
           <p class="section-subtitle">
             <span class="state-text ${escapeHtml(group.overallStatus.colorClass)}">${escapeHtml(group.overallStatus.symbolWord)}</span>
             &middot; ${escapeHtml(group.resultSummary)} &middot; Elapsed ${escapeHtml(group.elapsedText)}
-            ${vm.isSampleData ? " &middot; Sample data" : ""}
           </p>
         </div>
         ${runSelectorHtml}
@@ -1753,7 +1737,7 @@
               data-action="filter-sm-by-agent"
               data-agent-name="${escapeHtml(selectedNode.isPrimary ? "" : selectedNode.agentName)}"
             >
-              ${selectedNode.isPrimary ? "View all trails in B1b" : "Filter B1b trail"}
+              ${selectedNode.isPrimary ? "View all trails" : "Filter trail"}
             </button>
           </div>
           <div class="agent-steps-list">
@@ -1921,8 +1905,7 @@
         <div>
           <h2 class="section-title">State machine graph</h2>
           <p class="section-subtitle">
-            Screens as nodes and actions as directed edges with agent color trails &middot; Source: /api/actions &amp; /api/graph
-            ${vm.isSampleData ? " &middot; Sample data" : ""}
+            Screens as nodes and actions as directed edges with agent color trails
           </p>
         </div>
         <div class="filter-group">
@@ -1955,7 +1938,7 @@
 
       <div class="sm-legend-row">
         <div class="filter-group">
-          <span class="filter-label">Agent trail filter (synced with B1):</span>
+          <span class="filter-label">Agent trail filter:</span>
           ${agentPillsHtml}
         </div>
       </div>
@@ -2053,7 +2036,7 @@
                   </div>
                   <div class="transcript-badges">
                     ${attachBadges}
-                    <button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(g.id)}">View in B1</button>
+                    <button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(g.id)}">View graph</button>
                   </div>
                 </div>
                 ${eventsHtml}
@@ -2081,11 +2064,11 @@
         <div>
           <h2 class="section-title">Transcript log</h2>
           <p class="section-subtitle">
-            Every run newest first: prompt, attachments, agents, status, result, and time &middot;
+            Every run newest first: prompt, attachments, agents, status, result, and time
             ${
               vm.isSampleData
-                ? "Sample data from fixture (not live backend history)"
-                : "Search powered by /api/transcripts?q= &amp; /api/runs/&lt;id&gt;/transcript (run list from /api/runs)"
+                ? " &middot; Preview runs (not live backend history)"
+                : " &middot; History resets when backend restarts"
             }
           </p>
         </div>
@@ -2098,7 +2081,7 @@
             type="search"
             id="log-search-input"
             class="search-input"
-            placeholder="Search transcripts (/api/transcripts?q=)…"
+            placeholder="Search prompts, results, agents, or events…"
             value="${escapeHtml(logSearchQuery)}"
           />
         </div>
@@ -2145,10 +2128,10 @@
     const gs = vm.graphStats;
 
     const provenanceDescription = vm.isSampleData
-      ? `Sample data · Loaded from fixture ui/fixtures/${activeFixtureName || "workspace-demo"}.json. Shown as sample preview; never reported as live runs.`
+      ? "Preview metrics shown from sample runs, never live runs."
       : vm.connectionStatus === "connected"
-        ? "Live backend data · Source: SQLite store (~/.computeranything/ca.sqlite) via /api/analytics, /api/runs/<id>/cost, and /api/graph."
-        : "Not connected · Connect to the backend or load a sample fixture to inspect analytics.";
+        ? "Live metrics from the local backend store."
+        : "Not connected. Connect to the backend or load preview data to inspect analytics.";
 
     const hasRecordedAnalytics = Boolean(an && (an.tasks > 0 || an.llm_calls > 0));
 
@@ -2158,12 +2141,12 @@
           <div class="metric-item">
             <span class="metric-label">Recorded tasks</span>
             <span class="metric-value">${escapeHtml(an.tasks)}</span>
-            <span class="metric-note">${vm.isSampleData ? "Sample fixture tasks" : "From SQLite runs table"}</span>
+            <span class="metric-note">${vm.isSampleData ? "Preview tasks" : "From local store"}</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Total model calls</span>
             <span class="metric-value">${escapeHtml(an.llm_calls)}</span>
-            <span class="metric-note">${vm.isSampleData ? "Sample LLM calls" : "From SQLite llm_calls"}</span>
+            <span class="metric-note">${vm.isSampleData ? "Preview model calls" : "From local store"}</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Total token spend</span>
@@ -2291,8 +2274,8 @@
       ${summaryStripHtml}
 
       <div class="section-header-row">
-        <h3 class="section-title">Per-task tokens, calls, cost, and time (/api/runs/&lt;id&gt;/cost)</h3>
-        <span class="section-subtitle">${vm.isSampleData ? "Sample data" : "Live store"}</span>
+        <h3 class="section-title">Per-task cost and time</h3>
+        <span class="section-subtitle">${vm.isSampleData ? "Preview" : "Live store"}</span>
       </div>
       <div class="data-table-wrap">
         <table class="data-table">
@@ -2317,7 +2300,7 @@
       <div class="b1-layout">
         <div>
           <div class="section-header-row">
-            <h3 class="section-title">By agent role (/api/analytics)</h3>
+            <h3 class="section-title">By agent role</h3>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
@@ -2338,7 +2321,7 @@
 
         <div>
           <div class="section-header-row">
-            <h3 class="section-title">By model purpose (/api/analytics)</h3>
+            <h3 class="section-title">By model purpose</h3>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
@@ -2361,7 +2344,7 @@
       <div class="b1-layout">
         <div>
           <div class="section-header-row">
-            <h3 class="section-title">By application (/api/analytics)</h3>
+            <h3 class="section-title">By application</h3>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
@@ -2383,7 +2366,7 @@
 
         <div>
           <div class="section-header-row">
-            <h3 class="section-title">Memory &amp; tool graph stats (/api/graph)</h3>
+            <h3 class="section-title">Memory and tool graph stats</h3>
           </div>
           <div class="data-table-wrap">
             <table class="data-table">
