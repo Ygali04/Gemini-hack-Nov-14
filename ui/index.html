@@ -168,13 +168,30 @@
     .pill-status-line {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
       max-width: 256px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       font-size: 12px;
       line-height: 16px;
+    }
+
+    .pill-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .pill-agent-dot,
+    .agent-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      background: var(--dot-bg, #5c6b7a);
+      border: 1px solid var(--dot-edge, rgba(255, 255, 255, 0.25));
     }
 
     .pill-sub {
@@ -586,12 +603,148 @@
       line-height: 20px;
       font-weight: 600;
       color: var(--text-primary);
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
       word-break: break-word;
     }
 
     .run-elapsed {
       font-size: 12px;
       line-height: 16px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    .run-app-line {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .live-step-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+      min-width: 0;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-primary);
+      opacity: 1;
+      transition: opacity var(--dur-enter) ease;
+    }
+
+    .live-step-line.is-faded {
+      opacity: 0.35;
+    }
+
+    .live-step-text {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .digest-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px 8px;
+      min-height: 28px;
+    }
+
+    .digest-metrics {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      min-width: 0;
+    }
+
+    .act-replay-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line-divider);
+    }
+
+    .act-replay-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 28px;
+    }
+
+    .act-replay-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .act-replay-list::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    .act-replay-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 4px;
+    }
+
+    .act-replay-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      transition: background-color var(--dur-enter) ease, color var(--dur-enter) ease;
+    }
+
+    .act-replay-row.is-replaying {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .act-replay-index {
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 18px;
+      flex-shrink: 0;
+    }
+
+    .act-replay-agent {
+      font-weight: 600;
+      color: var(--text-primary);
+      flex-shrink: 0;
+    }
+
+    .act-replay-action {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .act-replay-meta {
       color: var(--text-muted);
       font-variant-numeric: tabular-nums;
       flex-shrink: 0;
@@ -681,6 +834,13 @@
       word-break: break-word;
     }
 
+    .help-countdown {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
     .help-block.is-expired .help-question {
       color: var(--text-secondary);
     }
@@ -732,6 +892,7 @@
       gap: 8px;
       min-width: 0;
       flex: 1;
+      overflow: hidden;
     }
 
     .step-actor {
@@ -853,6 +1014,7 @@
       gap: 8px;
       min-width: 0;
       flex: 1;
+      overflow: hidden;
     }
 
     .past-run-instr {
@@ -1181,6 +1343,7 @@
             details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
             help: normalizedHelp,
             agents: parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {},
+            costs: parsed.costs && typeof parsed.costs === "object" ? parsed.costs : {},
           };
         }
 
@@ -1248,8 +1411,17 @@
             return JSON.parse(JSON.stringify(fixtureState.runs));
           }
           if (method === "GET" && path.startsWith("/api/runs/")) {
-            const idPart = path.slice("/api/runs/".length).split("?")[0];
-            const detail = fixtureState.details[idPart] || fixtureState.runs.find((r) => r.id === idPart);
+            const subPath = path.slice("/api/runs/".length).split("?")[0];
+            if (subPath.endsWith("/cost")) {
+              const runId = subPath.slice(0, -"/cost".length);
+              const cost =
+                fixtureState.costs?.[runId] ||
+                fixtureState.details?.[runId]?.result?.digest?.task_cost ||
+                fixtureState.runs.find((r) => r.id === runId)?.result?.digest?.task_cost ||
+                {};
+              return JSON.parse(JSON.stringify(cost));
+            }
+            const detail = fixtureState.details[subPath] || fixtureState.runs.find((r) => r.id === subPath);
             if (!detail) throw new Error("Run not found");
             return JSON.parse(JSON.stringify(detail));
           }
@@ -1439,8 +1611,11 @@
           return h >>> 0;
         }
 
-        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex) {
-          const record = agentsMap && runObj?.id ? agentsMap[runObj.id] : null;
+        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex, rememberedMap) {
+          const record =
+            (agentsMap && (agentsMap[runObj?.id] || (runObj?.agent_id ? agentsMap[runObj.agent_id] : null))) ||
+            (rememberedMap && (rememberedMap[runObj?.id] || (runObj?.agent_id ? rememberedMap[runObj.agent_id] : null))) ||
+            null;
           const seed = hashString(String(runObj?.id || actorLabelForRole(runObj?.role) || "agent")) % 10000;
           const baseColor = normalizeHex(record?.color || record?.body, NEUTRAL_AGENT_COLOR);
           const body = mixHex(baseColor, "#FFFFFF", 0.70);
@@ -1454,6 +1629,86 @@
             palette: { body, edge, ink },
             seed,
           };
+        }
+
+        function formatCountdown(sec) {
+          const total = Math.max(0, Math.ceil(Number(sec) || 0));
+          const mins = Math.floor(total / 60);
+          const rem = total % 60;
+          return `${mins}:${String(rem).padStart(2, "0")}`;
+        }
+
+        function formatCostUsd(costUsd) {
+          if (costUsd == null || costUsd === "" || Number.isNaN(Number(costUsd))) return "";
+          const n = Math.max(0, Number(costUsd));
+          if (n === 0) return "$0.00";
+          if (n < 0.01) return `$${n.toFixed(4)}`;
+          return `$${n.toFixed(2)}`;
+        }
+
+        function parseActionParts(rawAction) {
+          const raw = String(rawAction || "").trim();
+          if (!raw) return { verb: "", target: "" };
+          const idx = raw.indexOf(":");
+          if (idx === -1) return { verb: raw.toLowerCase(), target: "" };
+          return {
+            verb: raw.slice(0, idx).trim().toLowerCase(),
+            target: raw.slice(idx + 1).trim(),
+          };
+        }
+
+        function summarizeActPlain(ev) {
+          const { verb, target } = parseActionParts(ev?.action);
+          if (!verb) return "performed action";
+          switch (verb) {
+            case "click":
+              return target ? `clicked ${target}` : "clicked element";
+            case "double_click":
+              return target ? `double-clicked ${target}` : "double-clicked element";
+            case "type":
+              return target ? `typed in ${target}` : "typed text";
+            case "set_value":
+              return target ? `set ${target}` : "set value";
+            case "press":
+              return target ? `pressed ${target}` : "pressed key";
+            case "scroll":
+              return target ? `scrolled ${target}` : "scrolled";
+            case "open_app":
+              return target ? `opened ${target}` : "opened app";
+            case "run_applescript":
+              return "ran app script";
+            default:
+              return target ? `${verb.replace(/_/g, " ")} ${target}` : verb.replace(/_/g, " ");
+          }
+        }
+
+        function summarizeDecidePlain(ev) {
+          if (ev?.thought) return String(ev.thought).trim();
+          if (ev?.action === "done") return "checking if done";
+          return "deciding...";
+        }
+
+        function extractRunApp(runObj, events, parentRouteEvent, childIndex) {
+          if (runObj?.app) return String(runObj.app).trim();
+          const list = Array.isArray(events) ? events : [];
+          for (let i = list.length - 1; i >= 0; i--) {
+            if (list[i]?.kind === "app_ready" && list[i].app) {
+              return String(list[i].app).trim();
+            }
+          }
+          if (parentRouteEvent && Array.isArray(parentRouteEvent.subtasks) && parentRouteEvent.subtasks.length) {
+            const byGoal = parentRouteEvent.subtasks.find((s) => s && s.goal === runObj?.goal && s.app);
+            if (byGoal) return String(byGoal.app).trim();
+            const byIdx = parentRouteEvent.subtasks[childIndex];
+            if (byIdx?.app) return String(byIdx.app).trim();
+          }
+          if (parentRouteEvent?.app) return String(parentRouteEvent.app).trim();
+          for (let i = list.length - 1; i >= 0; i--) {
+            const node = list[i]?.kind === "graph" ? String(list[i].node || "") : "";
+            const prefix = node.split(":")[0].trim();
+            if (prefix && prefix !== "?") return prefix;
+          }
+          return "";
         }
 
         function pluralizeUnits(text) {
@@ -1504,9 +1759,9 @@
             case "memory":
               return ev.msg ? sentenceCase(ev.msg) : "Replaying saved steps";
             case "decide":
-              return ev.thought ? sentenceCase(ev.thought) : (ev.action ? `Next action: ${ev.action}` : "Choosing next step");
+              return ev.thought ? sentenceCase(ev.thought) : (ev.action === "done" ? "Checking if done" : "Deciding next step");
             case "act":
-              return ev.action ? `Action: ${String(ev.action).replace(":", " ")}` : "Performed action";
+              return ev.action ? sentenceCase(summarizeActPlain(ev)) : "Performed action";
             case "verify":
               if (ev.achieved) {
                 return ev.evidence ? `Verified: ${ev.evidence}` : "Verified goal on screen";
@@ -1651,10 +1906,20 @@
           return (lastSpace > 8 ? cut.slice(0, lastSpace) : cut).trim();
         }
 
-        function mapStep(childRun, detail, pendingHelpForChild, agentsMap, fallbackIndex, isMockContext) {
+        function mapStep(
+          childRun,
+          detail,
+          pendingHelpForChild,
+          agentsMap,
+          fallbackIndex,
+          isMockContext,
+          rememberedMap,
+          parentRouteEvent
+        ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role);
-          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex);
+          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex, rememberedMap);
+          const app = extractRunApp(childRun, events, parentRouteEvent, fallbackIndex);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
           const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
           const isMockStep = Boolean(isMockContext || childRun.mock || childRun.ca_mock || childRun.result?.mock || childRun.result?.ca_mock);
@@ -1712,6 +1977,7 @@
 
           return {
             id: childRun.id,
+            app,
             actorLabel,
             agentIdentity,
             stateSymbolWord,
@@ -1723,11 +1989,169 @@
           };
         }
 
+        function buildLiveStepForRun(parent, runsForStep, detailsById, stepById) {
+          let best = null;
+          for (let rIdx = 0; rIdx < runsForStep.length; rIdx++) {
+            const r = runsForStep[rIdx];
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            let latestIdx = -1;
+            for (let i = evs.length - 1; i >= 0; i--) {
+              if (evs[i]?.kind === "act" || evs[i]?.kind === "decide") {
+                latestIdx = i;
+                break;
+              }
+            }
+            if (latestIdx === -1) continue;
+            const latestEv = evs[latestIdx];
+            const tVal = Number(latestEv.t) || 0;
+            const isRunActive =
+              r.state === "acting" ||
+              r.state === "planning" ||
+              r.state === "queued" ||
+              r.state === "awaiting_human";
+            if (!best || (isRunActive && !best.isRunActive) || (isRunActive === best.isRunActive && tVal >= best.tVal)) {
+              best = { r, evs, latestIdx, latestEv, tVal, isRunActive };
+            }
+          }
+          if (!best) return null;
+
+          const { r, evs, latestIdx, latestEv } = best;
+          const stepInfo = stepById.get(r.id);
+          const agentName = stepInfo?.agentIdentity?.name || actorLabelForRole(r.role);
+          const agentColor = stepInfo?.agentIdentity?.color || NEUTRAL_AGENT_COLOR;
+          const agentEdge = stepInfo?.agentIdentity?.palette?.edge || "#E0E3E6";
+          const app = stepInfo?.app || "";
+
+          let phrase = "";
+          if (latestEv.kind === "act") {
+            let prevAct = null;
+            for (let j = latestIdx - 1; j >= 0; j--) {
+              if (evs[j]?.kind === "act") {
+                prevAct = evs[j];
+                break;
+              }
+            }
+            const curParts = parseActionParts(latestEv.action);
+            const prevParts = prevAct ? parseActionParts(prevAct.action) : null;
+            if (
+              prevParts &&
+              curParts.verb &&
+              prevParts.verb === curParts.verb &&
+              curParts.target &&
+              prevParts.target &&
+              curParts.target.length <= 16 &&
+              prevParts.target.length <= 16
+            ) {
+              const verbWord =
+                curParts.verb === "click"
+                  ? "clicked"
+                  : curParts.verb === "double_click"
+                  ? "double-clicked"
+                  : curParts.verb === "press"
+                  ? "pressed"
+                  : "";
+              if (verbWord) {
+                phrase = `${verbWord} ${prevParts.target}, then ${curParts.target}`;
+              }
+            }
+            if (!phrase) {
+              phrase = summarizeActPlain(latestEv);
+            }
+          } else {
+            phrase = summarizeDecidePlain(latestEv);
+          }
+
+          const prefix = app ? `${agentName} in ${app}` : agentName;
+          return {
+            key: `${parent.id}:${r.id}`,
+            fingerprint: `${r.id}:${evs.length}:${latestEv.t}:${latestEv.kind}:${latestEv.action || ""}:${latestEv.thought || ""}`,
+            agentName,
+            agentColor,
+            agentEdge,
+            app,
+            text: `${prefix}: ${phrase}`,
+          };
+        }
+
+        function buildDigestForRun(parent, rawChildren, detailsById, stepById, costData) {
+          const rawDigest = parent.result?.digest || null;
+          const childRuns = rawChildren.length ? rawChildren : [parent];
+          const actEvents = [];
+          let seq = 0;
+
+          for (const r of childRuns) {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            const stepInfo = stepById.get(r.id);
+            const agentName = stepInfo?.agentIdentity?.name || actorLabelForRole(r.role);
+            const agentColor = stepInfo?.agentIdentity?.color || NEUTRAL_AGENT_COLOR;
+            const agentEdge = stepInfo?.agentIdentity?.palette?.edge || "#E0E3E6";
+            const app = stepInfo?.app || "";
+
+            for (const ev of evs) {
+              if (ev?.kind !== "act") continue;
+              actEvents.push({
+                seq: seq++,
+                t: Number(ev.t) || 0,
+                runId: r.id,
+                agentName,
+                agentColor,
+                agentEdge,
+                app,
+                action: ev.action || "",
+                plainText: sentenceCase(summarizeActPlain(ev)),
+                fromMemory: ev.source === "memory",
+                actMs: ev.act_ms != null ? Number(ev.act_ms) : null,
+              });
+            }
+          }
+
+          actEvents.sort((a, b) => (a.t !== b.t ? a.t - b.t : a.seq - b.seq));
+          actEvents.forEach((item, idx) => {
+            item.index = idx + 1;
+          });
+
+          const seconds = rawDigest?.seconds != null ? Number(rawDigest.seconds) : Number(parent.elapsed) || 0;
+          const totalSteps =
+            actEvents.length > 0
+              ? actEvents.length
+              : rawDigest?.steps != null
+              ? Number(rawDigest.steps)
+              : rawChildren.reduce((sum, c) => sum + (Number(c.result?.steps) || 0), 0);
+          const memorySteps =
+            actEvents.length > 0
+              ? actEvents.filter((a) => a.fromMemory).length
+              : Number(rawDigest?.memory_steps || 0);
+
+          let costUsd = null;
+          if (costData && typeof costData.cost_usd === "number") {
+            costUsd = costData.cost_usd;
+          } else if (rawDigest?.task_cost && typeof rawDigest.task_cost.cost_usd === "number") {
+            costUsd = rawDigest.task_cost.cost_usd;
+          } else if (rawDigest?.llm && typeof rawDigest.llm.cost === "number" && rawDigest.llm.calls > 0) {
+            costUsd = rawDigest.llm.cost;
+          }
+
+          return {
+            timeText: formatSeconds(seconds),
+            totalSteps,
+            memorySteps,
+            costUsd,
+            costText: formatCostUsd(costUsd),
+            actEvents,
+            hasActEvents: actEvents.length > 0,
+          };
+        }
+
         function mapRuns(rawRuns, detailsById, pendingHelpList, meta) {
           const runsList = Array.isArray(rawRuns) ? rawRuns : [];
           const helpList = Array.isArray(pendingHelpList) ? pendingHelpList : [];
           const agentsMap = meta && meta.agentsById && typeof meta.agentsById === "object" ? meta.agentsById : {};
-          const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : (Date.now() / 1000);
+          const rememberedMap =
+            meta && meta.rememberedAgentsById && typeof meta.rememberedAgentsById === "object"
+              ? meta.rememberedAgentsById
+              : {};
+          const costsById = meta && meta.costsById && typeof meta.costsById === "object" ? meta.costsById : {};
+          const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : Date.now() / 1000;
           const byId = new Map(runsList.map((r) => [r.id, r]));
 
           /* Group child runs under parent orchestrator runs */
@@ -1740,10 +2164,29 @@
             }
           }
 
+          /* Live cursor agents for collapsed notch pill dots */
+          const liveAgents = [];
+          for (const [agentId, entry] of Object.entries(agentsMap)) {
+            if (!entry || typeof entry !== "object") continue;
+            const runObj = byId.get(agentId);
+            if (runObj && (runObj.state === "done" || runObj.state === "failed")) continue;
+            if (runObj && runObj.role === "orchestrator" && childrenByParent.has(runObj.id)) continue;
+            liveAgents.push({
+              id: agentId,
+              name: String(entry.name || actorLabelForRole(runObj?.role)).trim(),
+              color: normalizeHex(entry.color || entry.body, NEUTRAL_AGENT_COLOR),
+              edge: normalizeHex(entry.edge, "#E0E3E6"),
+              ink: normalizeHex(entry.ink, "#323B43"),
+            });
+          }
+
           const mappedRuns = parents.map((parent) => {
             const rawChildren = [...(childrenByParent.get(parent.id) || [])].reverse();
             const groupRuns = [parent, ...rawChildren];
             const groupRunIds = new Set(groupRuns.map((r) => r.id));
+
+            const parentEvents = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
+            const parentRouteEvent = [...parentEvents].reverse().find((e) => e?.kind === "route") || null;
 
             const timedOutHelpIds = new Set();
             const helpEventsById = new Map();
@@ -1783,21 +2226,32 @@
               const helpEv = helpEventsById.get(h.id);
               const kind = h.kind || helpEv?.help_kind || "";
               const kindWarning = APPROVAL_KIND_WARNINGS[kind] || "";
-              const ageExpired =
-                (h.asked != null && (nowSec - Number(h.asked)) >= 300) ||
-                (h.asked_age_s != null && Number(h.asked_age_s) >= 300);
-              const isExpired = Boolean(h.timed_out || timedOutHelpIds.has(h.id) || ageExpired);
+              const askedAtSec =
+                h.asked != null
+                  ? Number(h.asked)
+                  : h.asked_age_s != null
+                  ? nowSec - Number(h.asked_age_s)
+                  : nowSec;
+              const elapsedSec = Math.max(0, nowSec - askedAtSec);
+              const remainingSec = Math.max(0, Math.ceil(300 - elapsedSec));
+              const isExpired = Boolean(h.timed_out || timedOutHelpIds.has(h.id) || remainingSec <= 0);
+              const countdownText = isExpired ? "0:00" : formatCountdown(remainingSec);
               return {
                 id: h.id,
                 run: h.run,
                 kind,
                 kindWarning,
+                askedAtSec,
+                remainingSec: isExpired ? 0 : remainingSec,
+                countdownText,
                 isExpired,
                 statusText: isExpired ? "Expired" : "",
                 question: h.question || "Approval needed",
                 options: Array.isArray(h.options) ? h.options : [],
                 detail: h.detail ? String(h.detail) : "",
-                timeoutNote: isExpired ? "No answer received within 5m." : "No answer in 5m declines this.",
+                timeoutNote: isExpired
+                  ? "No answer received within 5m · Declined."
+                  : `Denies in ${countdownText} · Silence means no.`,
               };
             });
 
@@ -1814,8 +2268,37 @@
 
             const steps = (rawChildren.length ? rawChildren : [parent]).map((child, idx) => {
               const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
-              return mapStep(child, detailsById[child.id], childHelp, agentsMap, idx, isMockRun);
+              return mapStep(
+                child,
+                detailsById[child.id],
+                childHelp,
+                agentsMap,
+                idx,
+                isMockRun,
+                rememberedMap,
+                parentRouteEvent
+              );
             });
+            const stepById = new Map(steps.map((s) => [s.id, s]));
+
+            const apps = [];
+            const seenApps = new Set();
+            const addAppName = (name) => {
+              const clean = String(name || "").trim();
+              if (clean && !seenApps.has(clean)) {
+                seenApps.add(clean);
+                apps.push(clean);
+              }
+            };
+            if (parentRouteEvent?.app) addAppName(parentRouteEvent.app);
+            if (Array.isArray(parentRouteEvent?.subtasks)) {
+              for (const sub of parentRouteEvent.subtasks) {
+                if (sub?.app) addAppName(sub.app);
+              }
+            }
+            for (const s of steps) {
+              if (s.app) addAppName(s.app);
+            }
 
             const evidenceText = extractVerificationEvidence(groupRuns, detailsById);
             const speakText = extractSpeakText(groupRuns, detailsById);
@@ -1824,7 +2307,7 @@
             /* Truth rules (Requirement 4 & A5):
                Check mark (✓) ONLY when parent run is done AND parent.result.ok === true.
                Under CA_MOCK / sample data, label clearly that mock verification is not evidence. */
-            let state = "working"; // "working" | "waiting" | "verified" | "failed"
+            let state = "working"; // "working" | "waiting" | "verified" | "failed" | "unverified"
             let stateSymbolWord = "▶ Running";
             let stateFact = "";
             let pillFact = "";
@@ -1874,11 +2357,20 @@
               stateColorClass = "state-danger";
             }
 
+            const isFinished = state === "verified" || state === "failed" || state === "unverified";
+            const liveStep = !isFinished
+              ? buildLiveStepForRun(parent, rawChildren.length ? rawChildren : [parent], detailsById, stepById)
+              : null;
+            const digest = buildDigestForRun(parent, rawChildren, detailsById, stepById, costsById[parent.id], state);
+
             return {
               id: parent.id,
               goal: parent.goal || "Untitled run",
+              apps,
+              appLabel: apps.join(", "),
               elapsedText: formatSeconds(parent.elapsed),
               state,
+              isFinished,
               isMock: isMockRun,
               mockNote: isMockRun ? "Mock verification is not real evidence" : "",
               stateSymbolWord,
@@ -1887,6 +2379,8 @@
               stateColorClass,
               evidenceText,
               speakText,
+              liveStep,
+              digest,
               steps,
               pendingHelp,
             };
@@ -1896,6 +2390,7 @@
             connectionStatus: meta.connectionStatus,
             connectionError: meta.connectionError || "",
             isSampleData: Boolean(meta.isSampleData),
+            liveAgents,
             runs: mappedRuns,
           };
         }
@@ -1932,6 +2427,8 @@
       let detailsById = {};
       let pendingHelp = [];
       let agentsById = {};
+      let rememberedAgentsById = {};
+      let costsById = {};
       let optimisticRuns = [];
       let sendErrorText = "";
       let connectionStatus = "loading"; // "loading" | "disconnected" | "stale" | "connected"
@@ -1941,10 +2438,48 @@
       let selectedRunId = null;
       let latestSeenRunId = null;
       const expandedStepIds = new Set();
+      const openReplayRunIds = new Set();
       const knownStepFingerprints = new Map();
       const highlightedStepIds = new Set();
+      const liveStepTimers = new Map();
       const mountedAgentChips = new Map();
+      let replayCursor = { runId: null, stepIndex: -1, timerId: null };
+      let lastPanelStructureKey = "";
+      let lastViewModel = null;
       let lastPostedResize = { width: 0, height: 0, state: "" };
+
+      const prefersReducedMotion = () =>
+        Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+      function stopStepReplay() {
+        if (replayCursor.timerId) {
+          clearInterval(replayCursor.timerId);
+        }
+        replayCursor = { runId: null, stepIndex: -1, timerId: null };
+      }
+
+      function startStepReplay(runId, totalSteps) {
+        stopStepReplay();
+        if (!runId || !totalSteps || prefersReducedMotion()) {
+          renderNow();
+          return;
+        }
+        replayCursor = { runId, stepIndex: 0, timerId: null };
+        renderNow();
+        replayCursor.timerId = setInterval(() => {
+          if (replayCursor.runId !== runId || !openReplayRunIds.has(runId)) {
+            stopStepReplay();
+            return;
+          }
+          if (replayCursor.stepIndex + 1 >= totalSteps) {
+            stopStepReplay();
+            renderNow();
+            return;
+          }
+          replayCursor.stepIndex += 1;
+          renderNow();
+        }, 420);
+      }
 
       let sharedAgentGlassPromise = null;
 
@@ -2369,6 +2904,8 @@
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
           if (err.code === "AUTH") {
             Transport.clearConnection();
+            rememberedAgentsById = {};
+            costsById = {};
             connectionStatus = "disconnected";
             connectionError = "Token rejected · Paste the address again";
           } else {
@@ -2400,6 +2937,16 @@
       });
 
       /* ---------------- VIEW RENDERING (Reads ONLY WorkspaceAdapter ViewModel) ---------------- */
+      function isLiveStepFaded(liveStep, nowMs = Date.now()) {
+        if (!liveStep) return false;
+        const prev = liveStepTimers.get(liveStep.key);
+        if (!prev || prev.fingerprint !== liveStep.fingerprint) {
+          liveStepTimers.set(liveStep.key, { fingerprint: liveStep.fingerprint, updatedAt: nowMs });
+          return false;
+        }
+        return nowMs - prev.updatedAt >= 3000;
+      }
+
       function renderPill(vm) {
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
           pillStatusLine.innerHTML = `<span class="state-text state-working">&hellip; Loading</span>`;
@@ -2417,19 +2964,107 @@
           return;
         }
 
+        const dotsHtml = vm.liveAgents.length
+          ? `<span class="pill-dots" aria-label="${escapeHtml(String(vm.liveAgents.length))} active agent${vm.liveAgents.length === 1 ? "" : "s"}">${vm.liveAgents
+              .map(
+                (a) =>
+                  `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
+              )
+              .join("")}</span>`
+          : "";
+
         /* F2 & F3: No fake "Run again" action in pill; only symbol + word get state color */
         const pillDetail = latest.pillFact || latest.stateFact;
         const fact = pillDetail ? `<span class="pill-sub">&middot; ${escapeHtml(pillDetail)}</span>` : "";
         pillStatusLine.innerHTML = `
+          ${dotsHtml}
           <span class="state-text ${escapeHtml(latest.stateColorClass)}">${escapeHtml(latest.stateSymbolWord)}</span>
           ${fact}
         `;
       }
 
+      function updateLiveTicksInPlace(vm) {
+        const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
+        if (!activeRun) return false;
+
+        const elapsedEl = timelineScroll.querySelector(`[data-run-elapsed="${CSS.escape(activeRun.id)}"]`);
+        if (elapsedEl) {
+          elapsedEl.textContent = activeRun.elapsedText;
+        }
+
+        let expiryCrossed = false;
+        for (const h of activeRun.pendingHelp) {
+          const el = timelineScroll.querySelector(`[data-help-note="${CSS.escape(h.id)}"]`);
+          if (h.isExpired) {
+            if (el && !el.closest(".help-block")?.classList.contains("is-expired")) {
+              expiryCrossed = true;
+            }
+          } else if (el) {
+            el.innerHTML = `<span class="help-countdown" data-help-countdown="${escapeHtml(h.id)}">Denies in ${escapeHtml(h.countdownText)}</span> &middot; Silence means no.`;
+          }
+        }
+
+        if (activeRun.liveStep) {
+          const liveEl = timelineScroll.querySelector(`[data-live-step-key="${CSS.escape(activeRun.liveStep.key)}"]`);
+          if (liveEl) {
+            liveEl.classList.toggle("is-faded", isLiveStepFaded(activeRun.liveStep));
+          }
+        }
+
+        return !expiryCrossed;
+      }
+
+      function buildPanelStructureKey(vm, activeRun) {
+        if (vm.connectionStatus === "loading" && !hasLoadedOnce) return "loading";
+        if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}`;
+        if (!activeRun) return `empty:${vm.connectionStatus}:${sendErrorText}`;
+
+        const helpKey = activeRun.pendingHelp
+          .map((h) => `${h.id}:${h.isExpired ? "exp" : "act"}:${h.kindWarning}`)
+          .join(",");
+        const stepsKey = activeRun.steps
+          .map(
+            (s) =>
+              `${s.id}:${s.stateSymbolWord}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.app}:${s.latestSummary}:${expandedStepIds.has(s.id) ? 1 : 0}:${s.detailLines.length}`
+          )
+          .join("|");
+        const replayOpen = openReplayRunIds.has(activeRun.id) ? 1 : 0;
+        const replayIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
+        const otherKey = vm.runs
+          .filter((r) => r.id !== activeRun.id)
+          .map((r) => `${r.id}:${r.stateSymbolWord}:${r.goal}`)
+          .join("|");
+
+        return [
+          vm.connectionStatus,
+          vm.isSampleData ? 1 : 0,
+          sendErrorText,
+          activeRun.id,
+          activeRun.goal,
+          activeRun.appLabel,
+          activeRun.state,
+          activeRun.stateSymbolWord,
+          activeRun.stateFact,
+          activeRun.speakText,
+          activeRun.evidenceText,
+          activeRun.liveStep ? activeRun.liveStep.fingerprint : "",
+          activeRun.digest.totalSteps,
+          activeRun.digest.memorySteps,
+          activeRun.digest.costText,
+          helpKey,
+          stepsKey,
+          replayOpen,
+          replayIdx,
+          otherKey,
+        ].join("::");
+      }
+
       function renderPanel(vm) {
+        lastViewModel = vm;
         sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
 
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+          lastPanelStructureKey = "loading";
           destroyAllAgentChips();
           timelineScroll.innerHTML = `
             <div class="timeline-row">
@@ -2442,6 +3077,7 @@
         }
 
         if (vm.connectionStatus === "disconnected") {
+          lastPanelStructureKey = `disconnected:${vm.connectionError}`;
           destroyAllAgentChips();
           const prevInput = document.getElementById("connect-url-input")?.value || "";
           timelineScroll.innerHTML = `
@@ -2487,6 +3123,7 @@
         }
 
         if (!vm.runs.length) {
+          lastPanelStructureKey = `empty:${vm.connectionStatus}:${sendErrorText}`;
           destroyAllAgentChips();
           blocks.push(`
             <div class="timeline-row">
@@ -2502,16 +3139,43 @@
         if (newestId !== latestSeenRunId) {
           latestSeenRunId = newestId;
           selectedRunId = newestId;
+          stopStepReplay();
         }
         const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
         selectedRunId = activeRun.id;
+
+        const nextStructureKey = buildPanelStructureKey(vm, activeRun);
+        if (nextStructureKey === lastPanelStructureKey) {
+          if (updateLiveTicksInPlace(vm)) {
+            return;
+          }
+        }
+        lastPanelStructureKey = nextStructureKey;
 
         const savedScroll = new Map();
         timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
           savedScroll.set(el.dataset.detailScroll, el.scrollTop);
         });
 
-        /* Inline pending help rows inside timeline (Requirement 5 & A4) */
+        /* Inline live step line from act/decide events, fading after 3s */
+        let liveStepHtml = "";
+        if (activeRun.liveStep) {
+          const faded = isLiveStepFaded(activeRun.liveStep);
+          liveStepHtml = `
+            <div
+              class="live-step-line ${faded ? "is-faded" : ""}"
+              data-live-step-key="${escapeHtml(activeRun.liveStep.key)}"
+            >
+              <span
+                class="agent-dot"
+                style="--dot-bg: ${escapeHtml(activeRun.liveStep.agentColor)}; --dot-edge: ${escapeHtml(activeRun.liveStep.agentEdge)};"
+              ></span>
+              <span class="live-step-text" title="${escapeHtml(activeRun.liveStep.text)}">${escapeHtml(activeRun.liveStep.text)}</span>
+            </div>
+          `;
+        }
+
+        /* Inline pending help rows inside timeline (Requirement 5, A4, countdown to 5m deny) */
         const helpHtml = activeRun.pendingHelp
           .map(
             (h) => `
@@ -2539,17 +3203,21 @@
                 </div>
                 ${h.kindWarning ? `<div class="help-warning">${escapeHtml(h.kindWarning)}</div>` : ""}
                 ${h.detail ? `<div class="help-meta">${escapeHtml(h.detail)}</div>` : ""}
-                <div class="help-meta">${escapeHtml(h.timeoutNote)}</div>
+                <div class="help-meta" data-help-note="${escapeHtml(h.id)}">${
+                  h.isExpired
+                    ? escapeHtml(h.timeoutNote)
+                    : `<span class="help-countdown" data-help-countdown="${escapeHtml(h.id)}">Denies in ${escapeHtml(h.countdownText)}</span> &middot; Silence means no.`
+                }</div>
               </div>
             `
           )
           .join("");
 
-        /* Steps (F5: NO elapsed duplicated on child steps; A3: agent sea-glass chip + current step) */
+        /* Steps (one row per agent with its color; A3 & After a task) */
         const stepsHtml = activeRun.steps
           .map((step) => {
             const isExpanded = expandedStepIds.has(step.id);
-            const fingerprint = `${step.stateSymbolWord}:${step.agentIdentity.name}:${step.latestSummary}`;
+            const fingerprint = `${step.stateSymbolWord}:${step.agentIdentity.name}:${step.app}:${step.latestSummary}`;
             const prev = knownStepFingerprints.get(step.id);
             if (prev && prev !== fingerprint) {
               highlightedStepIds.add(step.id);
@@ -2559,6 +3227,9 @@
 
             const highlightClass = highlightedStepIds.has(step.id) ? "changed-highlight" : "";
             const enterClass = !prev && hasLoadedOnce ? "step-enter" : "";
+            const stepSummaryText = step.app && step.latestSummary
+              ? `${step.app} · ${step.latestSummary}`
+              : step.latestSummary || step.app;
 
             let detailHtml = "";
             if (isExpanded) {
@@ -2590,7 +3261,7 @@
                       data-agent-name="${escapeHtml(step.agentIdentity.name)}"
                       data-agent-color="${escapeHtml(step.agentIdentity.color)}"
                     ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
-                    <span class="step-event-text">${escapeHtml(step.latestSummary)}</span>
+                    <span class="step-event-text">${escapeHtml(stepSummaryText)}</span>
                   </span>
                 </button>
                 ${detailHtml}
@@ -2599,13 +3270,83 @@
           })
           .join("");
 
+        /* After-a-task digest metrics & "Show steps" replay toggle */
+        let digestRowHtml = "";
+        if (activeRun.isFinished) {
+          const metricParts = [
+            activeRun.digest.timeText,
+            `${activeRun.digest.totalSteps} step${activeRun.digest.totalSteps === 1 ? "" : "s"}`,
+          ];
+          if (activeRun.digest.memorySteps > 0) {
+            metricParts.push(`${activeRun.digest.memorySteps} from memory`);
+          }
+          if (activeRun.digest.costText) {
+            metricParts.push(activeRun.digest.costText);
+          }
+          const isReplayOpen = openReplayRunIds.has(activeRun.id);
+          const showStepsBtn = activeRun.digest.hasActEvents
+            ? `<button type="button" class="btn" data-action="toggle-steps" data-run-id="${escapeHtml(activeRun.id)}" aria-expanded="${isReplayOpen ? "true" : "false"}">${isReplayOpen ? "Hide steps" : "Show steps"}</button>`
+            : "";
+
+          digestRowHtml = `
+            <div class="digest-row">
+              <div class="digest-metrics">${metricParts.map((p) => `<span>${escapeHtml(p)}</span>`).join("<span>&middot;</span>")}</div>
+              ${showStepsBtn}
+            </div>
+          `;
+        }
+
+        let replayHtml = "";
+        if (activeRun.isFinished && activeRun.digest.hasActEvents && openReplayRunIds.has(activeRun.id)) {
+          const activeIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
+          const rowsHtml = activeRun.digest.actEvents
+            .map((act, idx) => {
+              const isCurrent = idx === activeIdx;
+              const metaParts = [];
+              if (act.app) metaParts.push(act.app);
+              if (act.fromMemory) metaParts.push("from memory");
+              if (act.actMs != null) metaParts.push(`${act.actMs}ms`);
+              return `
+                <div class="act-replay-row ${isCurrent ? "is-replaying" : ""}">
+                  <span class="act-replay-index">${isCurrent ? "▶" : `${act.index}.`}</span>
+                  <span
+                    class="agent-dot"
+                    style="--dot-bg: ${escapeHtml(act.agentColor)}; --dot-edge: ${escapeHtml(act.agentEdge)};"
+                  ></span>
+                  <span class="act-replay-agent">${escapeHtml(act.agentName)}</span>
+                  <span class="act-replay-action" title="${escapeHtml(act.plainText)}">${escapeHtml(act.plainText)}</span>
+                  ${metaParts.length ? `<span class="act-replay-meta">${escapeHtml(metaParts.join(" · "))}</span>` : ""}
+                </div>
+              `;
+            })
+            .join("");
+
+          replayHtml = `
+            <div class="act-replay-section">
+              <div class="act-replay-header">
+                <span class="section-heading" style="padding: 0;">Action steps (${activeRun.digest.actEvents.length})</span>
+                <button type="button" class="btn" data-action="replay-steps" data-run-id="${escapeHtml(activeRun.id)}">Replay</button>
+              </div>
+              <div class="act-replay-list" data-detail-scroll="replay-${escapeHtml(activeRun.id)}">
+                ${rowsHtml}
+              </div>
+            </div>
+          `;
+        }
+
         const runAgainHtml =
           activeRun.state === "failed"
             ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
             : "";
 
+        const appLineHtml = activeRun.appLabel
+          ? `<div class="run-app-line">${activeRun.apps.length > 1 ? "Apps" : "App"}: ${escapeHtml(activeRun.appLabel)}</div>`
+          : "";
+
         const speakHtml =
-          activeRun.speakText && activeRun.speakText !== activeRun.evidenceText
+          activeRun.speakText &&
+          activeRun.speakText !== activeRun.evidenceText &&
+          activeRun.speakText !== activeRun.stateFact
             ? `<div class="run-evidence-line">${escapeHtml(activeRun.speakText)}</div>`
             : "";
 
@@ -2623,8 +3364,9 @@
             <div class="run-header">
               <div class="run-title-row">
                 <span class="run-title">${escapeHtml(activeRun.goal)}</span>
-                <span class="run-elapsed">${escapeHtml(activeRun.elapsedText)}</span>
+                <span class="run-elapsed" data-run-elapsed="${escapeHtml(activeRun.id)}">${escapeHtml(activeRun.elapsedText)}</span>
               </div>
+              ${appLineHtml}
               <div class="run-outcome-row">
                 <div class="run-outcome-copy">
                   <span class="state-text ${escapeHtml(activeRun.stateColorClass)}">${escapeHtml(activeRun.stateSymbolWord)}</span>
@@ -2632,14 +3374,17 @@
                 </div>
                 ${runAgainHtml}
               </div>
+              ${digestRowHtml}
               ${mockBannerHtml}
               ${speakHtml}
               ${evidenceHtml}
             </div>
+            ${liveStepHtml}
             ${helpHtml}
             <div class="steps-list">
               ${stepsHtml}
             </div>
+            ${replayHtml}
           </div>
         `);
 
@@ -2685,6 +3430,8 @@
           connectionError,
           isSampleData,
           agentsById,
+          rememberedAgentsById,
+          costsById,
         });
         renderPill(vm);
         renderPanel(vm);
@@ -2733,6 +3480,28 @@
             if (p) submitTask(p, []);
             return;
           }
+          if (action === "toggle-steps") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            if (!runId) return;
+            if (openReplayRunIds.has(runId)) {
+              openReplayRunIds.delete(runId);
+              if (replayCursor.runId === runId) stopStepReplay();
+              renderNow();
+            } else {
+              openReplayRunIds.add(runId);
+              const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+              startStepReplay(runId, runVm?.digest?.actEvents?.length || 0);
+            }
+            return;
+          }
+          if (action === "replay-steps") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            if (!runId) return;
+            openReplayRunIds.add(runId);
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            startStepReplay(runId, runVm?.digest?.actEvents?.length || 0);
+            return;
+          }
           if (action === "answer-help") {
             const hid = actionBtn.dataset.helpId;
             const choice = actionBtn.dataset.choice;
@@ -2769,6 +3538,7 @@
         const runBtn = e.target.closest("[data-run-id]");
         if (runBtn) {
           selectedRunId = runBtn.dataset.runId;
+          stopStepReplay();
           renderNow();
         }
       });
@@ -2825,6 +3595,33 @@
             })
           );
 
+          const finishedParents = parents.filter(
+            (p) => (p.state === "done" || p.state === "failed") && !costsById[p.id]
+          );
+          if (finishedParents.length) {
+            await Promise.all(
+              finishedParents.map(async (p) => {
+                try {
+                  const costResp = await Transport.request(
+                    "GET",
+                    `/api/runs/${encodeURIComponent(p.id)}/cost`
+                  );
+                  if (costResp && typeof costResp === "object") {
+                    costsById[p.id] = costResp;
+                  }
+                } catch {
+                  // Ignore missing cost endpoint or transient errors
+                }
+              })
+            );
+          }
+
+          for (const [aid, info] of Object.entries(nextAgents)) {
+            if (info && typeof info === "object") {
+              rememberedAgentsById[aid] = info;
+            }
+          }
+
           rawRuns = nextRuns;
           pendingHelp = nextHelp;
           agentsById = nextAgents;
@@ -2835,6 +3632,8 @@
         } catch (err) {
           if (err.code === "AUTH") {
             Transport.clearConnection();
+            rememberedAgentsById = {};
+            costsById = {};
             connectionStatus = "disconnected";
             connectionError = "Paste the address the backend printed";
           } else {
@@ -2866,6 +3665,27 @@
           renderNow();
         }
         setInterval(pollAll, 1000);
+        setInterval(() => {
+          if (getCurrentState() !== "expanded") return;
+          if (!lastViewModel) return;
+          const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
+          if (!activeRun) return;
+          const hasActiveHelp = activeRun.pendingHelp.some((h) => !h.isExpired);
+          const hasLiveStep = Boolean(activeRun.liveStep);
+          if (!hasActiveHelp && !hasLiveStep) return;
+          const vmNow = WorkspaceAdapter.mapRuns([...optimisticRuns, ...rawRuns], detailsById, pendingHelp, {
+            connectionStatus,
+            connectionError,
+            isSampleData,
+            agentsById,
+            rememberedAgentsById,
+            costsById,
+          });
+          lastViewModel = vmNow;
+          if (!updateLiveTicksInPlace(vmNow)) {
+            renderPanel(vmNow);
+          }
+        }, 250);
       }
 
       boot();
