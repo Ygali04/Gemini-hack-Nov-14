@@ -99,7 +99,8 @@ def _chat(system, user, images, json_mode, max_tokens, temperature, model):
         raise RuntimeError("OPENROUTER_API_KEY is not set (put it in backend/.env)")
     content = [{"type": "text", "text": user}]
     for p in images:
-        mime = "image/png" if p.endswith(".png") else "image/jpeg"
+        ext = os.path.splitext(p)[1].lower()
+        mime = {".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}.get(ext, "image/jpeg")
         content.append(
             {
                 "type": "image_url",

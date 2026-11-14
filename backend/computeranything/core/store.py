@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, agent TEXT, app TEXT, from_node TEXT,
   action TEXT, to_node TEXT, outcome TEXT, ms INTEGER, source TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, role TEXT, agent TEXT, kind TEXT, text TEXT,
+  meta TEXT);
+CREATE INDEX IF NOT EXISTS msg_run ON messages(run);
 CREATE INDEX IF NOT EXISTS llm_run ON llm_calls(run);
 CREATE INDEX IF NOT EXISTS act_run ON actions(run);
 CREATE INDEX IF NOT EXISTS runs_parent ON runs(parent);
@@ -112,6 +116,37 @@ def action(row):
             json.dumps(row.get("detail"), default=str),
         ),
     )
+
+
+def message(run_id, role, agent, kind, text, meta=None):
+    """One chat-transcript turn. role: user | assistant | agent. kind: prompt | plan | step | ask | answer |
+    result | error."""
+    _x(
+        "INSERT INTO messages (ts,run,role,agent,kind,text,meta) VALUES (?,?,?,?,?,?,?)",
+        (time.time(), run_id, role, agent, kind, text, json.dumps(meta or {}, default=str)),
+    )
+
+
+def _msg_rows(rows):
+    keys = ("id", "ts", "run", "role", "agent", "kind", "text", "meta")
+    return [dict(zip(keys, r[:7] + (json.loads(r[7] or "{}"),), strict=True)) for r in rows]
+
+
+def transcript(run_id):
+    """The whole conversation of a task: the parent run and every child agent, in time order."""
+    ids = _tree(run_id)
+    q = "SELECT * FROM messages WHERE run IN (%s) ORDER BY ts, id" % ",".join("?" * len(ids))
+    return _msg_rows(_x(q, ids).fetchall())
+
+
+def search_messages(q, limit=50):
+    """Substring search over every transcript, newest first."""
+    # ponytail: LIKE scan; switch to an FTS5 table when transcripts reach ~100k rows
+    rows = _x(
+        "SELECT * FROM messages WHERE text LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?",
+        ("%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%", int(limit)),
+    ).fetchall()
+    return _msg_rows(rows)
 
 
 def _tree(run_id):

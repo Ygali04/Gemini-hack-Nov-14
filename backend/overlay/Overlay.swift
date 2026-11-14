@@ -157,8 +157,8 @@ final class Cursor {
         text.foregroundColor = g.ink.cgColor
     }
 
-    func setTag(_ s: String?) {
-        let parts = [name, s ?? ""].filter { !$0.isEmpty }
+    func setTag(_ s: String?, bare: Bool = false) {  // bare: the label alone, e.g. a greeting
+        let parts = (bare ? [s ?? ""] : [name, s ?? ""]).filter { !$0.isEmpty }
         guard !parts.isEmpty else { tag.isHidden = true; return }
         let t = parts.joined(separator: ": ")
         let w = (t as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]).width
@@ -229,7 +229,7 @@ final class Overlay {
         CGPoint(x: p.x - panel.frame.minX, y: p.y - panel.frame.minY)
     }
 
-    func point(_ c: Cursor, _ x: Double, _ y: Double, _ label: String?) {
+    func point(_ c: Cursor, _ x: Double, _ y: Double, _ label: String?, bare: Bool = false) {
         let target = appKit(x, y)
         guard let (panel, view) = host(for: target), let root = view.layer else { return }
         let fresh = c.root.superlayer !== root
@@ -238,7 +238,7 @@ final class Overlay {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         c.root.position = to
-        c.setTag(label)
+        c.setTag(label, bare: bare)
         CATransaction.commit()
         if reduceMotion || fresh {
             // no travel: the cursor appears at the target, so the change is still visible without motion
@@ -344,7 +344,7 @@ final class Overlay {
         if op == "quit" { NSApp.terminate(nil); return }
         let c = cursor(id, j)
         switch op {
-        case "point": point(c, d("x"), d("y"), j["label"] as? String)
+        case "point": point(c, d("x"), d("y"), j["label"] as? String, bare: j["bare"] as? Bool ?? false)
         case "draw": shape(j["shape"] as? String ?? "rect", d("x"), d("y"), d("w"), d("h"), fill: false, glass: c.glass)
         case "highlight": shape("rect", d("x"), d("y"), d("w"), d("h"), fill: true, glass: c.glass)
         case "click": point(c, d("x"), d("y"), nil); DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.click(d("x"), d("y")) }

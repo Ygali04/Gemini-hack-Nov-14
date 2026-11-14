@@ -67,8 +67,15 @@ def point_at(bounds, label, cursor="main"):
     if not bounds:
         return False
     x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+    me = CURSORS.get(cursor) or {}
+    hello = bool(me) and not me.get("greeted")  # the first time this agent shows up, it says hi
+    if hello:
+        me["greeted"] = True
+    pt = {"op": "point", "cursor": cursor, "x": x, "y": y, "label": label[:40]}
+    if hello and me.get("name"):
+        pt.update(label="Hi, I'm %s!" % me["name"], bare=True)
     return send(
-        {"op": "point", "cursor": cursor, "x": x, "y": y, "label": label[:40]},
+        pt,
         {
             "op": "draw",
             "cursor": cursor,
