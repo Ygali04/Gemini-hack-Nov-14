@@ -112,7 +112,8 @@
     }
 
     body[data-state="expanded"] .notch-shell {
-      width: 580px;
+      width: min(480px, 100vw);
+      max-width: 100%;
       height: var(--panel-height, 220px);
       max-height: 600px;
       border-radius: 0 0 16px 16px;
@@ -191,7 +192,8 @@
 
     /* ---------------- EXPANDED PANEL ---------------- */
     .panel-view {
-      width: 580px;
+      width: 100%;
+      max-width: 480px;
       max-height: 600px;
       display: flex;
       flex-direction: column;
@@ -390,7 +392,14 @@
       font-size: 12px;
       line-height: 16px;
       color: var(--text-muted);
-      white-space: nowrap;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    @media (max-width: 465px) {
+      .enter-action-hint {
+        display: none;
+      }
     }
 
     /* Inline Link attachment or Connect input row */
@@ -630,10 +639,12 @@
 
     .help-row {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
       min-height: 32px;
+      width: 100%;
     }
 
     .help-question {
@@ -642,14 +653,17 @@
       font-weight: 600;
       color: var(--text-primary);
       min-width: 0;
-      flex: 1;
+      flex: 1 1 220px;
+      word-break: break-word;
     }
 
     .help-actions {
       display: inline-flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       flex-shrink: 0;
+      max-width: 100%;
     }
 
     .help-meta {
@@ -959,8 +973,17 @@
             <span>Send</span>
           </button>
 
-          <button type="button" id="open-workspace-btn" class="btn" aria-label="Open workspace">
-            <span>Open workspace</span>
+          <button
+            type="button"
+            id="open-workspace-btn"
+            class="btn btn-icon"
+            aria-label="Open workspace"
+            title="Open workspace"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M6.5 3V13" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
           </button>
 
           <button type="button" id="collapse-btn" class="btn" aria-label="Collapse workspace">
@@ -1998,7 +2021,7 @@
         let height = 36;
 
         if (state === "expanded") {
-          width = 580;
+          width = hasShellBridge() ? 480 : Math.min(480, Math.max(320, window.innerWidth || 480));
           const naturalHeight = panelView.scrollHeight;
           height = Math.min(600, Math.max(150, Math.ceil(naturalHeight)));
           notchShell.style.setProperty("--panel-height", `${height}px`);
