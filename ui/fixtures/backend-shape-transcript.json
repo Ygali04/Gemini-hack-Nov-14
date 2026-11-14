@@ -1,0 +1,100 @@
+[
+  {
+    "id": 1,
+    "ts": 1763149000.01,
+    "run": "r1763149000-1-a1b2",
+    "role": "user",
+    "agent": "ComputerAnything",
+    "kind": "prompt",
+    "text": "Sample: open Calculator and compute 8 * 31",
+    "meta": {
+      "attachments": [
+        "sample-quote.csv"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "ts": 1763149000.3,
+    "run": "r1763149000-1-a1b2",
+    "role": "assistant",
+    "agent": "ComputerAnything",
+    "kind": "plan",
+    "text": "One agent will do this in Calculator.",
+    "meta": {
+      "route": {
+        "role": "cu",
+        "app": "Calculator",
+        "repo": null,
+        "url": null,
+        "goal": "compute 8 * 31 in Calculator",
+        "subtasks": [],
+        "names": [
+          "Iris"
+        ]
+      }
+    }
+  },
+  {
+    "id": 3,
+    "ts": 1763149000.31,
+    "run": "r1763149000-2-c3d4",
+    "role": "agent",
+    "agent": "Iris",
+    "kind": "hello",
+    "text": "Hi, I'm Iris! I'll compute 8 * 31 in Calculator.",
+    "meta": {
+      "agent_role": "cu"
+    }
+  },
+  {
+    "id": 4,
+    "ts": 1763149000.82,
+    "run": "r1763149000-2-c3d4",
+    "role": "agent",
+    "agent": "Iris",
+    "kind": "step",
+    "text": "Enter 8 * 31 into Calculator [type:textfield:display]",
+    "meta": {
+      "step": 0,
+      "source": "llm",
+      "app": "Calculator"
+    }
+  },
+  {
+    "id": 5,
+    "ts": 1763149000.96,
+    "run": "r1763149000-2-c3d4",
+    "role": "agent",
+    "agent": "Iris",
+    "kind": "step",
+    "text": "[press:return]",
+    "meta": {
+      "step": 1,
+      "source": "memory",
+      "app": "Calculator"
+    }
+  },
+  {
+    "id": 6,
+    "ts": 1763149001.71,
+    "run": "r1763149000-2-c3d4",
+    "role": "agent",
+    "agent": "Iris",
+    "kind": "result",
+    "text": "Calculator display reads 248 for 8 * 31",
+    "meta": {
+      "ok": true
+    }
+  },
+  {
+    "id": 7,
+    "ts": 1763149001.8,
+    "run": "r1763149000-1-a1b2",
+    "role": "assistant",
+    "agent": "ComputerAnything",
+    "kind": "result",
+    "text": "Calculator display reads 248 for 8 * 31",
+    "meta": {}
+  }
+]

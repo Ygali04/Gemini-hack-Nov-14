@@ -1,0 +1,70 @@
+{
+  "total": 5,
+  "actions": [
+    {
+      "ts": 1763149000.25,
+      "run": "r1763149000-2-c3d4",
+      "agent": "Iris",
+      "app": "Calculator",
+      "from": "Calculator:?",
+      "action": "open_app:running:calculator",
+      "to": null,
+      "outcome": "ok",
+      "ms": 200,
+      "source": "system",
+      "detail": {
+        "seconds": 0.2,
+        "path": "/Applications/SampleCalculator.app"
+      }
+    },
+    {
+      "ts": 1763149000.84,
+      "run": "r1763149000-2-c3d4",
+      "agent": "Iris",
+      "app": "Calculator",
+      "from": "Calculator:a1b2c3d4e5",
+      "action": "type:textfield:display",
+      "to": "Calculator:f6a7b8c9d0",
+      "outcome": "ok",
+      "ms": 135,
+      "source": "llm"
+    },
+    {
+      "ts": 1763149000.98,
+      "run": "r1763149000-2-c3d4",
+      "agent": "Iris",
+      "app": "Calculator",
+      "from": "Calculator:f6a7b8c9d0",
+      "action": "press:return",
+      "to": "Calculator:c0ffee1234",
+      "outcome": "ok",
+      "ms": 95,
+      "source": "memory"
+    },
+    {
+      "ts": 1763149001.68,
+      "run": "r1763149000-2-c3d4",
+      "agent": "Iris",
+      "app": "Calculator",
+      "from": "Calculator:c0ffee1234",
+      "action": "done",
+      "to": null,
+      "outcome": "done_verified",
+      "ms": 0,
+      "source": "llm",
+      "detail": "Calculator display reads 248"
+    },
+    {
+      "ts": 1763149012.4,
+      "run": "r1763149010-4-b7d8",
+      "agent": "Leo",
+      "app": "Safari",
+      "from": "Safari:1122334455",
+      "action": "click:button:review cart",
+      "to": "Safari:6677889900",
+      "outcome": "ok",
+      "ms": 180,
+      "source": "llm"
+    }
+  ]
+}

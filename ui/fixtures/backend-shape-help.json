@@ -1,0 +1,15 @@
+[
+  {
+    "id": "h1",
+    "run": "r1763149010-4-b7d8",
+    "kind": "money",
+    "question": "This may move money. Allow click Place Sample Order in Safari? (matched \"order\")",
+    "options": [
+      "approve",
+      "deny"
+    ],
+    "detail": null,
+    "answer": null,
+    "asked": 1763149014.2
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "screens": 5,
+  "transitions": 5,
+  "skills": 1,
+  "apps": [
+    "Calculator",
+    "Safari"
+  ],
+  "mean_edge_p": 0.633,
+  "destructive_edges": 0,
+  "actions_logged": 5,
+  "agents": [
+    "Iris",
+    "Leo"
+  ]
+}

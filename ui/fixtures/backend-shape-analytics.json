@@ -1,0 +1,56 @@
+{
+  "tasks": 2,
+  "cost_usd": 0.0074,
+  "llm_calls": 6,
+  "mean_cost_per_task": 0.0037,
+  "by_role": [
+    {
+      "role": "orchestrator",
+      "runs": 1,
+      "ok": 1,
+      "mean_seconds": 1.8
+    },
+    {
+      "role": "cu",
+      "runs": 1,
+      "ok": 1,
+      "mean_seconds": 1.7
+    }
+  ],
+  "by_purpose": [
+    {
+      "purpose": "route",
+      "calls": 2,
+      "cost_usd": 0.0022,
+      "mean_ms": 300.0
+    },
+    {
+      "purpose": "decide",
+      "calls": 3,
+      "cost_usd": 0.004,
+      "mean_ms": 380.0
+    },
+    {
+      "purpose": "verify",
+      "calls": 1,
+      "cost_usd": 0.0012,
+      "mean_ms": 350.0
+    }
+  ],
+  "by_app": [
+    {
+      "app": "Calculator",
+      "actions": 4,
+      "ok": 3,
+      "failed": 0,
+      "denied": 0
+    },
+    {
+      "app": "Safari",
+      "actions": 1,
+      "ok": 1,
+      "failed": 0,
+      "denied": 0
+    }
+  ]
+}

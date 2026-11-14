@@ -1,0 +1,27 @@
+{
+  "run": "r1763149000-1-a1b2",
+  "agents": 2,
+  "llm_calls": 4,
+  "prompt_tokens": 1820,
+  "completion_tokens": 345,
+  "cost_usd": 0.0049,
+  "model_seconds": 1.4,
+  "actions": {
+    "ok": 3,
+    "done_verified": 1
+  },
+  "by_agent": [
+    {
+      "agent": "Iris",
+      "calls": 3,
+      "cost": 0.0038,
+      "ms": 1090
+    },
+    {
+      "agent": "orchestrator",
+      "calls": 1,
+      "cost": 0.0011,
+      "ms": 290
+    }
+  ]
+}
