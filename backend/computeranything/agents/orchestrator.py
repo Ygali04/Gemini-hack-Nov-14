@@ -167,6 +167,9 @@ def cu(parent, goal, app=None, subtasks=None):
         _finish(child, bool(res.get("ok")), res.get("summary", ""), steps=res.get("steps", 0))
         results[i] = res
 
+    from ..cu import desk
+
+    desk.plan(len(tasks))  # one lane per agent on the stage display, so windows never cover each other
     for i, t in enumerate(tasks):
         child = runs.Run(t["goal"], role="cu", parent=parent.id)
         child.agent_name = "CU %d" % (i + 1)

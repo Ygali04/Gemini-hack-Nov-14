@@ -12,7 +12,7 @@ import tempfile
 import time
 
 from ..core import llm, runs
-from . import desktop, graph, overlay
+from . import apps, desk, desktop, graph, overlay
 
 SENSITIVE_APP = re.compile(
     r"bank|chase|wells|schwab|fidelity|vanguard|robinhood|coinbase|venmo|paypal|"
@@ -21,24 +21,37 @@ SENSITIVE_APP = re.compile(
 )
 MONEY = re.compile(r"\b(pay|buy|purchase|checkout|transfer|withdraw|wire|place order|trade|sell)\b", re.I)
 SIGN_IN = re.compile(r"\b(sign in|log in|login|password|passkey|verification code|2fa)\b", re.I)
+RISKY_SCRIPT = re.compile(
+    r"do shell script|delete|remove|erase|send|pay|password|keychain|sudo|administrator|"
+    r"empty trash|quit application|shut down|restart|log out",
+    re.I,
+)
 CAPTCHA = re.compile(r"captcha|i'?m not a robot|verify you are human", re.I)
 
-SYSTEM = """You operate a macOS app for the user through its accessibility tree. Each turn you get the goal,
-the current screen as a numbered element table, your recent steps, and remembered actions from earlier runs
-(with reliability P). Reply with ONE JSON object:
+SYSTEM = """You operate a Mac for the user, inside ONE app window that is yours (other agents work in other
+windows at the same time; never touch theirs). Each turn you get the goal, your window's elements as a numbered
+table, your recent steps, and remembered actions from earlier runs (with reliability P). Reply with ONE JSON object:
 {"thought": "<one short sentence>",
- "action": "click|double_click|type|set_value|press|scroll|launch|done|ask_human",
+ "action": "click|double_click|type|set_value|press|scroll|open_app|run_applescript|done|ask_human",
  "index": <element number for click/double_click/type/set_value/scroll>,
  "target": "<that element's exact label, as a cross-check>",
- "text": "<text to type, or app name for launch>",
+ "text": "<text to type | app name for open_app | AppleScript source for run_applescript>",
+ "method": "auto|spotlight|finder (open_app only: spotlight = cmd+space and type the name; finder = open the .app
+            from /Applications; auto tries the file system, then Spotlight)",
  "key": "<key combo for press, e.g. return, cmd+l, cmd+t>",
  "help": "captcha|sign_in|money|clarify (only with ask_human)",
  "summary": "<with done: what you achieved, with the key values you read off the screen>"}
-Rules: one action per turn; prefer elements by their label; type into a field by its index, then press return
-if needed; use done only when the screen shows the goal is met; use ask_human for captchas, sign-ins,
-payments or real ambiguity. Never invent an index that is not in the table."""
+Rules: one action per turn; to work in a different app, use open_app (you will be switched to its window once it
+is open and usable); prefer elements by their label; type into a field by its index, then press return if needed;
+run_applescript is for things an app's script dictionary does better than clicking (it is logged, and risky
+scripts need the user's approval); use done only when the screen shows the goal is met; use ask_human for
+captchas, sign-ins, payments or real ambiguity. Never invent an index that is not in the table.
+Apps often reopen showing leftovers from earlier sessions: when the goal asks you to DO something (compute,
+create, change, send), do it yourself in this run; an old result already on screen does not count."""
 
-VERIFY = """Given a goal and the app's current screen (element table), decide if the goal is achieved.
+VERIFY = """Given a goal, the steps the agent took in THIS run, and the app's current screen (element table),
+decide if the goal is achieved. If the goal asks the agent to do something (compute, create, change, send) and its
+steps did not do it, the goal is NOT achieved, even if a matching result is on screen from before.
 Reply JSON {"achieved": true|false, "evidence": "<the exact on-screen values that show it>"}"""
 
 
@@ -58,6 +71,11 @@ def _gate(run, app, kind, el, text, els=()):
         # Any key can submit the focused form (return, space, shift+return...), so fail closed: judge
         # every key press by what is on screen, not by the key name.
         label += " " + " ".join(e["name"] for e in els if e.get("ref"))
+    if kind == "run_applescript" and RISKY_SCRIPT.search(text or ""):
+        return (
+            runs.ask_human(run, "destructive", "Run this AppleScript in %s?" % app, detail=(text or "")[:1500])
+            == "approve"
+        )
     if CAPTCHA.search(label):
         return (
             runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app, ("done", "cancel"))
@@ -86,13 +104,14 @@ def _decide(goal, app, title, els, history, hints, shot):
     return llm.chat(SYSTEM, user, images=[shot] if shot else (), json_mode=True, max_tokens=600)
 
 
-def _verify(goal, app, title, els):
+def _verify(goal, app, title, els, history=()):
     if os.environ.get("CA_MOCK") == "1":
         return True, "mock"
     try:
         v = llm.chat(
             VERIFY,
-            "Goal: %s\nApp: %s  Window: %s\n\nScreen:\n%s" % (goal, app, title, desktop.table(els, 200)),
+            "Goal: %s\nApp: %s  Window: %s\n\nSteps this run:\n%s\n\nScreen:\n%s"
+            % (goal, app, title, "\n".join(history) or "(none)", desktop.table(els, 200)),
             json_mode=True,
             max_tokens=300,
         )
@@ -115,6 +134,7 @@ def run_task(run, goal, app=None, max_steps=25):
         return _run(run, goal, app, max_steps, me)
     finally:
         overlay.release(run.id)
+        desk.release(me)
 
 
 def _run(run, goal, app, max_steps, me):
@@ -134,10 +154,49 @@ def _run(run, goal, app, max_steps, me):
         run.result = {"ok": False, "summary": "You declined access to %s." % app, "steps": 0}
         run.set("failed")
         return run.result
+    lane = desk.lane(me)
+    ctx = {"app": app, "wid": None}
+
+    def switch(name, method="auto"):
+        """Lease the app (one agent per app), open it visibly, wait until usable, pin to its window."""
+        nonlocal app
+        t0 = time.time()
+        if ctx["app"] and ctx["app"].lower() != name.lower():
+            desk.unlease(ctx["app"], me)
+        desk.lease(name, me)
+        info = apps.open_app(me, name, method=method, lane=lane)
+        if info["app"].lower() != name.lower():  # Spotlight resolved a different real name
+            desk.unlease(name, me)
+            desk.lease(info["app"], me)
+        app, ctx["app"], ctx["wid"] = info["app"], info["app"], info["window"]["id"]
+        run.emit(
+            "app_ready",
+            app=app,
+            method=info["method"],
+            seconds=info["seconds"],
+            ready_after=info["ready_after"],
+            window=ctx["wid"],
+            lane=lane,
+        )
+        log(
+            "open_app:%s:%s" % (info["method"], app.lower()),
+            "ok",
+            ms=(time.time() - t0) * 1000,
+            source="system",
+            detail={"seconds": info["seconds"], "path": info["path"]},
+        )
+        b = info["window"].get("bounds")
+        if b:
+            overlay.point_at(b, "%s is open" % app, cursor=run.id)
+
     try:
-        desktop.act("launch", app=app)
-    except desktop.DesktopError as e:
-        run.emit("warn", msg="launch: %s" % e)
+        switch(app)
+    except Exception as e:  # noqa: BLE001 - could not open: report, don't crash siblings
+        log("open_app:auto:%s" % app.lower(), "failed", source="system", detail=str(e)[:200])
+        run.result = {"ok": False, "summary": "Could not open %s: %s" % (app, e), "steps": 0}
+        run.emit("result", **run.result)
+        run.set("failed")
+        return run.result
     skill = g.find_skill(app, goal)
     replay = list(skill["steps"]) if skill else []
     if skill:
@@ -148,9 +207,15 @@ def _run(run, goal, app, max_steps, me):
     for step in range(max_steps):
         t_obs = time.time()
         try:
-            _, title, els = desktop.snapshot(app, interactive=False)
+            _, title, els = desktop.snapshot(app, interactive=False, window_id=ctx["wid"])
         except desktop.DesktopError as e:
             run.emit("error", msg="observe: %s" % e)
+            if e.code in ("WINDOW_NOT_FOUND", "APP_NOT_FOUND", "AMBIGUOUS_TARGET", "INVALID_ARGS"):
+                try:  # our window closed or moved: find the app's window again
+                    switch(app)
+                except Exception as e2:  # noqa: BLE001
+                    run.emit("error", msg="reopen: %s" % e2)
+                    break
             time.sleep(0.5)
             continue
         nid = g.identify(app, title, els)
@@ -183,7 +248,7 @@ def _run(run, goal, app, max_steps, me):
             run.emit("decide", ms=int((time.time() - t0) * 1000), thought=d.get("thought"), action=d.get("action"))
         kind = d.get("action")
         if kind == "done":
-            achieved, evidence = _verify(goal, app, title, els)
+            achieved, evidence = _verify(goal, app, title, els, history)
             run.emit("verify", achieved=achieved, evidence=evidence)
             log("done", "done_verified" if achieved else "done_rejected", source=source, detail=evidence[:200])
             if achieved:
@@ -200,6 +265,47 @@ def _run(run, goal, app, max_steps, me):
             if ans != "done":
                 summary = "Stopped: you cancelled at a %s step." % d.get("help")
                 break
+            continue
+        if kind in ("open_app", "launch"):
+            name = (d.get("text") or "").strip()
+            if not name:
+                log("open_app:no-name", "failed", source=source)
+                history.append("step %d FAILED: open_app needs an app name in text" % step)
+                continue
+            if not _gate(run, app, "launch", None, name, els):
+                log("open_app:%s" % name.lower(), "denied", source=source)
+                summary = "Stopped: you denied opening %s." % name
+                break
+            try:
+                switch(name, d.get("method") or "auto")
+                history.append("step %d: opened %s, now working in it" % (step, app))
+                trail.append("open_app:%s" % app.lower())
+            except Exception as e:  # noqa: BLE001
+                log(
+                    "open_app:%s:%s" % (d.get("method") or "auto", name.lower()),
+                    "failed",
+                    source=source,
+                    detail=str(e)[:200],
+                )
+                history.append("step %d FAILED: open %s -> %s" % (step, name, e))
+            continue
+        if kind == "run_applescript":
+            script = d.get("text") or ""
+            akey = "run_applescript:%s" % re.sub(r"\s+", " ", script)[:50].lower()
+            if not _gate(run, app, kind, None, script, els):
+                log(akey, "denied", source=source, detail=script[:500])
+                summary = "Stopped: you denied an AppleScript."
+                break
+            t_act = time.time()
+            ok_s, out = apps.run_applescript(script)
+            log(
+                akey,
+                "ok" if ok_s else "failed",
+                ms=(time.time() - t_act) * 1000,
+                source=source,
+                detail={"script": script[:1000], "output": out[:500]},
+            )
+            history.append("step %d: AppleScript %s -> %s" % (step, "ok" if ok_s else "FAILED", out[:200]))
             continue
         idx = d.get("index")
         el = els[idx] if isinstance(idx, int) and 0 <= idx < len(els) else None
