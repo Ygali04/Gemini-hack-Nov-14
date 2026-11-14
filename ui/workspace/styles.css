@@ -80,12 +80,19 @@ select:focus-visible,
 
 /* ---------------- WORKSPACE SHELL LAYOUT ---------------- */
 .workspace-app {
-  max-width: 1180px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 16px 24px 40px;
+  padding: 16px 24px 32px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
+}
+
+@media (max-width: 640px) {
+  .workspace-app {
+    padding: 12px 14px 24px;
+    gap: 14px;
+  }
 }
 
 /* Top bar: title, view navigation, provenance badge, connection status */
@@ -110,6 +117,14 @@ select:focus-visible,
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex-wrap: wrap;
+}
+
+.stop-all-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .workspace-title {
@@ -1371,12 +1386,93 @@ select:focus-visible,
   content: "▼";
 }
 
-/* ---------------- ONBOARDING 9-STEP FLOW (Issue #2) ---------------- */
-.onboarding-step-pills {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-bottom: 10px;
+/* ---------------- ONBOARDING CHAT FLOW (Section 5a) ---------------- */
+.onboarding-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.onboarding-chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line-divider);
+}
+
+.onboarding-chat-turn.is-past {
+  opacity: 0.9;
+}
+
+.onboarding-agent-msg {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.onboarding-agent-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.onboarding-agent-question {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.onboarding-user-reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 16px;
+  flex-wrap: wrap;
+}
+
+.onboarding-reply-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.onboarding-reply-chips {
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+@media (max-width: 640px) {
+  .settings-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-user-reply,
+  .onboarding-reply-chips {
+    padding-left: 8px;
+  }
+}
+
+.settings-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 .onboarding-field {

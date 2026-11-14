@@ -718,5 +718,11 @@
         { "agent": "Iris", "calls": 1, "cost": 0.0032, "ms": 590 }
       ]
     }
+  },
+  "profile": {
+    "call_me": "Ryosuke",
+    "voice_id": "2X7h8q4r8pMNZ7zRmpiF",
+    "model": "google/gemini-4-argon",
+    "decide_model": "google/gemini-3.5-flash-lite"
   }
 }

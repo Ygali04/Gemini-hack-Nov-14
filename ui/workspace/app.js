@@ -271,7 +271,13 @@
         graph: parsed.graph && typeof parsed.graph === "object" ? parsed.graph : null,
         analytics: parsed.analytics && typeof parsed.analytics === "object" ? parsed.analytics : null,
         costs: parsed.costs && typeof parsed.costs === "object" ? parsed.costs : {},
-        profile: parsed.profile && typeof parsed.profile === "object" ? parsed.profile : { call_me: "" },
+        profile: {
+          call_me: String(parsed.profile?.call_me || ""),
+          voice_id: String(parsed.profile?.voice_id || ""),
+          model: String(parsed.profile?.model || ""),
+          decide_model: String(parsed.profile?.decide_model || ""),
+        },
+        supportsStop: parsed.supportsStop !== false,
         memory: Array.isArray(parsed.memory) ? parsed.memory : null,
       };
       activeFixtureName = safe;
@@ -421,14 +427,69 @@
         };
       }
       if (method === "GET" && cleanPath === "/api/profile") {
-        return JSON.parse(JSON.stringify(fixtureState.profile || { call_me: "" }));
+        const p = fixtureState.profile || {};
+        return {
+          call_me: String(p.call_me || ""),
+          voice_id: String(p.voice_id || ""),
+          model: String(p.model || ""),
+          decide_model: String(p.decide_model || ""),
+        };
       }
       if (method === "POST" && cleanPath === "/api/profile") {
+        const updates = options.jsonBody || {};
+        const allowedKeys = ["call_me", "voice_id", "model", "decide_model"];
+        const badKeys = Object.keys(updates).filter((k) => !allowedKeys.includes(k));
+        if (badKeys.length) {
+          throw Object.assign(new Error(`unknown setting(s): ${badKeys.join(", ")}`), { status: 400, code: "HTTP" });
+        }
+        const nextProfile = { ...(fixtureState.profile || {}) };
+        for (const k of allowedKeys) {
+          if (k in updates) {
+            const val = String(updates[k] ?? "").trim();
+            if (val.length > 200 || /[\r\n]/.test(val)) {
+              throw Object.assign(new Error(`${k}: one line, at most 200 characters`), { status: 400, code: "HTTP" });
+            }
+            nextProfile[k] = val;
+          }
+        }
         fixtureState.profile = {
-          ...(fixtureState.profile || {}),
-          ...(options.jsonBody || {}),
+          call_me: String(nextProfile.call_me || ""),
+          voice_id: String(nextProfile.voice_id || ""),
+          model: String(nextProfile.model || ""),
+          decide_model: String(nextProfile.decide_model || ""),
         };
-        return { ok: true, profile: fixtureState.profile };
+        return JSON.parse(JSON.stringify(fixtureState.profile));
+      }
+      if (method === "POST" && cleanPath.startsWith("/api/runs/") && cleanPath.endsWith("/stop")) {
+        if (!fixtureState.supportsStop) {
+          throw Object.assign(new Error("not found"), { status: 404, code: "HTTP" });
+        }
+        const rid = decodeURIComponent(cleanPath.slice("/api/runs/".length, -"/stop".length));
+        const target = fixtureState.runs.find((r) => r.id === rid);
+        if (!target) {
+          throw Object.assign(new Error("no such run"), { status: 404, code: "HTTP" });
+        }
+        const toStop = fixtureState.runs.filter((r) => r.id === rid || r.parent === rid);
+        for (const r of toStop) {
+          if (r.state !== "done" && r.state !== "failed") {
+            r.state = "failed";
+            r.result = { ok: false, summary: "Stopped by you" };
+            const d = fixtureState.details[r.id];
+            if (d) {
+              d.state = "failed";
+              d.result = { ok: false, summary: "Stopped by you" };
+              d.events = Array.isArray(d.events) ? d.events : [];
+              d.events.push({
+                t: Number(((d.elapsed || 0) + 0.1).toFixed(1)),
+                kind: "result",
+                ok: false,
+                summary: "Stopped by you",
+              });
+              d.n_events = d.events.length;
+            }
+          }
+        }
+        return { ok: true };
       }
       if (method === "GET" && cleanPath === "/api/memory") {
         if (!Array.isArray(fixtureState.memory)) {
@@ -2085,6 +2146,79 @@
 
   let attachments = [];
   let sendErrorText = "";
+  let stopRouteSupported = false;
+  let stopRouteProbed = false;
+  let stopAllBusy = false;
+  let stopAllStatus = "";
+  let stopAllStatusTone = "state-neutral";
+  let stopAllStatusTimer = null;
+
+  let copyFeedbackKey = "";
+  let copyFeedbackTimer = null;
+  const copyPayloadsByKey = new Map();
+
+  function renderCopyButton(copyKey, label, textToCopy) {
+    const clean = String(textToCopy || "").trim();
+    if (!clean) return "";
+    copyPayloadsByKey.set(copyKey, clean);
+    const isCopied = copyFeedbackKey === copyKey;
+    return `<button type="button" class="btn" data-action="copy-text" data-copy-key="${escapeHtml(copyKey)}">${
+      isCopied ? "✓ Copied" : escapeHtml(label || "Copy")
+    }</button>`;
+  }
+
+  async function copyTextToClipboard(text, feedbackKey) {
+    const clean = String(text || "");
+    if (!clean) return false;
+    let copied = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(clean);
+        copied = true;
+      }
+    } catch {
+      // Fallback below
+    }
+    if (!copied) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = clean;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        copied = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        copied = false;
+      }
+    }
+    if (copied && feedbackKey) {
+      copyFeedbackKey = feedbackKey;
+      if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = setTimeout(() => {
+        if (copyFeedbackKey === feedbackKey) {
+          copyFeedbackKey = "";
+          renderNow();
+        }
+      }, 2000);
+      renderNow();
+    }
+    return copied;
+  }
+
+  function isReachableUrl(urlStr) {
+    const s = String(urlStr || "").trim();
+    if (!s) return false;
+    return (
+      s.startsWith("https://") ||
+      s.startsWith("http://") ||
+      s.startsWith("data:") ||
+      s.startsWith("./") ||
+      s.startsWith("/")
+    ) && !s.startsWith("/Users/") && !s.startsWith("/var/") && !s.startsWith("/tmp/");
+  }
 
   const HistorySettingsState = {
     searchQuery: "",
@@ -2119,16 +2253,23 @@
         updated: "Yesterday",
       },
     ],
-    appPermissions: [
-      { app: "Calculator", standard: "allow" },
-      { app: "Safari", standard: "ask" },
-      { app: "Finder", standard: "ask" },
-      { app: "Terminal", standard: "ask" },
-    ],
-    dailyCapUsd: 5.0,
-    dailyCapDraft: "5.00",
-    dailyCapSavedNote: "",
-    sampleTodaySpendUsd: 0.08,
+    profile: {
+      call_me: "",
+      voice_id: "",
+      model: "",
+      decide_model: "",
+    },
+    profileDraft: {
+      call_me: "",
+      voice_id: "",
+      model: "",
+      decide_model: "",
+    },
+    profileLoaded: false,
+    profileDirty: false,
+    profileSaving: false,
+    profileSaveStatus: "",
+    profileSaveError: "",
   };
 
   function normalizeViewName(raw) {
@@ -2237,6 +2378,28 @@
     const countMarketing = document.getElementById("nav-count-marketing");
     if (countMarketing) {
       countMarketing.textContent = String((vm.marketingRuns || []).length);
+    }
+
+    const activeRunCount = (rawRuns || []).filter(
+      (r) => !r.parent && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
+    ).length;
+    const stopWrapEl = document.getElementById("stop-all-wrap");
+    const stopBtnEl = document.getElementById("stop-all-btn");
+    const stopStatusEl = document.getElementById("stop-all-status");
+    const showStopBtn = stopRouteSupported && activeRunCount > 0 && vm.connectionStatus !== "disconnected";
+    const showStopStatus = Boolean(stopAllStatus);
+    if (stopWrapEl) {
+      stopWrapEl.classList.toggle("hidden", !showStopBtn && !showStopStatus);
+    }
+    if (stopBtnEl) {
+      stopBtnEl.classList.toggle("hidden", !showStopBtn);
+      stopBtnEl.disabled = stopAllBusy;
+      stopBtnEl.textContent = stopAllBusy ? "Stopping…" : "Stop all";
+    }
+    if (stopStatusEl) {
+      stopStatusEl.classList.toggle("hidden", !showStopStatus);
+      stopStatusEl.className = `state-text ${stopAllStatusTone}${showStopStatus ? "" : " hidden"}`;
+      stopStatusEl.textContent = stopAllStatus;
     }
 
     document.querySelectorAll("[data-view-tab]").forEach((btn) => {
@@ -2764,6 +2927,10 @@
           .join("")
       : `<div class="section-subtitle">No decide, act, verify, help, or result events recorded yet.</div>`;
 
+    const copyResultHtml = group.resultSummary
+      ? renderCopyButton(`result:${group.id}`, "Copy result", group.resultSummary)
+      : "";
+
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
@@ -2776,7 +2943,10 @@
             }
           </p>
         </div>
-        ${runSelectorHtml}
+        <div class="filter-group">
+          ${copyResultHtml}
+          ${runSelectorHtml}
+        </div>
       </div>
 
       <div class="b1-layout">
@@ -3522,6 +3692,11 @@
               ? `
                 <div class="transcript-events-panel">
                   ${
+                    g.resultSummary
+                      ? `<div class="filter-group" style="margin-bottom:8px;">${renderCopyButton(`log-result:${g.id}`, "Copy result", g.resultSummary)}</div>`
+                      : ""
+                  }
+                  ${
                     g.combinedEvents.length
                       ? g.combinedEvents
                           .map(
@@ -3689,9 +3864,23 @@
       .map((item) => {
         const isExpanded = expandedArtifactIds.has(item.id);
         let detailHtml = "";
+        let artifactCopyText = "";
+        let artifactCopyLabel = "Copy";
+        let artifactOpenUrl = "";
         if (isExpanded) {
           if (item.kind === "bug_report") {
             const bugs = item.detail?.bugs || [];
+            if (bugs.length) {
+              artifactCopyLabel = "Copy report";
+              artifactCopyText = bugs
+                .map((b) => {
+                  const head = `${sentenceCase(b.severity || "med")} · ${b.title || "Bug"}${
+                    b.file_hint ? ` (${b.file_hint})` : ""
+                  }`;
+                  return b.evidence ? `${head}\n${b.evidence}` : head;
+                })
+                .join("\n\n");
+            }
             detailHtml = bugs.length
               ? bugs
                   .map(
@@ -3707,6 +3896,8 @@
               : `<div class="section-subtitle">No bugs found in this round.</div>`;
           } else if (item.kind === "patch") {
             const d = item.detail || {};
+            artifactCopyLabel = "Copy patch";
+            artifactCopyText = String(d.diff || d.explanation || "").trim();
             detailHtml = `
               <div>
                 <span class="state-text ${d.applied ? "state-success" : "state-danger"}">${d.applied ? "✓ Applied" : "✕ Not applied"}</span>
@@ -3718,6 +3909,8 @@
             `;
           } else if (item.kind === "commit") {
             const d = item.detail || {};
+            artifactCopyLabel = "Copy output";
+            artifactCopyText = String(d.out || (Array.isArray(d.files) ? d.files.join("\n") : "")).trim();
             detailHtml = `
               <div>
                 <span class="state-text ${d.ok ? "state-success" : "state-danger"}">${d.ok ? "✓ Committed" : "✕ Commit failed"}</span>
@@ -3728,6 +3921,21 @@
           } else {
             const d = item.detail || {};
             const brief = d.brief;
+            if (isReachableUrl(d.src)) artifactOpenUrl = d.src;
+            else if (isReachableUrl(d.url)) artifactOpenUrl = d.url;
+            if (brief) {
+              artifactCopyLabel = "Copy brief";
+              const parts = [];
+              if (d.tagline) parts.push(`Tagline: ${d.tagline}`);
+              if (brief.launch_script) parts.push(`Launch script:\n${brief.launch_script}`);
+              if (Array.isArray(brief.shot_list) && brief.shot_list.length) {
+                parts.push(`Shot list:\n${brief.shot_list.map((s, idx) => `${idx + 1}. ${s}`).join("\n")}`);
+              }
+              artifactCopyText = parts.join("\n\n");
+            } else if (d.tagline) {
+              artifactCopyLabel = "Copy brief";
+              artifactCopyText = d.tagline;
+            }
             detailHtml = `
               ${d.fileName ? `<div>File: <strong>${escapeHtml(d.fileName)}</strong></div>` : ""}
               ${d.tagline ? `<div>Tagline: ${escapeHtml(d.tagline)}</div>` : ""}
@@ -3741,13 +3949,20 @@
                         : ""
                     }
                   `
-                  : d.path
+                  : d.path && !artifactOpenUrl
                     ? `<div class="section-subtitle">Stored on this Mac and cannot be opened directly from this page.</div>`
                     : ""
               }
             `;
           }
         }
+
+        const copyBtnHtml = artifactCopyText
+          ? renderCopyButton(`artifact:${item.id}`, artifactCopyLabel, artifactCopyText)
+          : "";
+        const openLinkHtml = artifactOpenUrl
+          ? `<a href="${escapeHtml(artifactOpenUrl)}" target="_blank" rel="noopener noreferrer" class="btn">Open</a>`
+          : "";
 
         return `
           <div class="artifact-row">
@@ -3777,7 +3992,9 @@
                 ? `
                   <div class="artifact-detail-panel">
                     ${detailHtml}
-                    <div>
+                    <div class="filter-group">
+                      ${copyBtnHtml}
+                      ${openLinkHtml}
                       <button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(item.taskId)}">View task in graph</button>
                     </div>
                   </div>
@@ -3901,11 +4118,14 @@
           <div class="marketing-screenshots-grid">
             ${activeMkt.screenshots
               .map((shot) =>
-                shot.isRenderable
+                shot.isRenderable && isReachableUrl(shot.src)
                   ? `
                     <div class="marketing-screenshot-item">
                       <img src="${escapeHtml(shot.src)}" alt="${escapeHtml(shot.fileName || "Marketing screenshot")}" class="marketing-screenshot-img" />
-                      <span class="section-subtitle">${escapeHtml(shot.fileName)}</span>
+                      <div class="section-header-row">
+                        <span class="section-subtitle">${escapeHtml(shot.fileName)}</span>
+                        <a href="${escapeHtml(shot.src)}" target="_blank" rel="noopener noreferrer" class="btn">Open</a>
+                      </div>
                     </div>
                   `
                   : `
@@ -3955,6 +4175,23 @@
       `
       : "";
 
+    const briefParts = [];
+    if (activeMkt.tagline) briefParts.push(`Tagline: ${activeMkt.tagline}`);
+    if (activeMkt.launchScript) briefParts.push(`Launch script:\n${activeMkt.launchScript}`);
+    if (activeMkt.shotList.length) {
+      briefParts.push(`Shot list:\n${activeMkt.shotList.map((s, idx) => `${idx + 1}. ${s}`).join("\n")}`);
+    }
+    if (activeMkt.palette.length) {
+      briefParts.push(`Palette: ${activeMkt.palette.join(", ")}`);
+    }
+    const fullBriefText = briefParts.join("\n\n");
+    const copyBriefBtn = fullBriefText
+      ? renderCopyButton(`marketing-brief:${activeMkt.runId}`, "Copy brief", fullBriefText)
+      : "";
+    const copyScriptBtn = activeMkt.launchScript
+      ? renderCopyButton(`marketing-script:${activeMkt.runId}`, "Copy script", activeMkt.launchScript)
+      : "";
+
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
@@ -3966,7 +4203,10 @@
             ${activeMkt.summary ? ` &middot; ${escapeHtml(activeMkt.summary)}` : ""}
           </p>
         </div>
-        ${selectorHtml}
+        <div class="filter-group">
+          ${copyBriefBtn}
+          ${selectorHtml}
+        </div>
       </div>
 
       <div class="marketing-run-section">
@@ -3984,7 +4224,10 @@
           activeMkt.launchScript
             ? `
               <div class="onboarding-block">
-                <h3 class="section-title">Launch script</h3>
+                <div class="section-header-row">
+                  <h3 class="section-title">Launch script</h3>
+                  ${copyScriptBtn}
+                </div>
                 <p class="marketing-script-box">${escapeHtml(activeMkt.launchScript)}</p>
               </div>
             `
@@ -4454,33 +4697,67 @@
     const chosenSwatch = AGENT_SWATCHES[OnboardingState.swatchIndex % AGENT_SWATCHES.length];
     const previewSeed = stableSeed("preview:" + OnboardingState.agentName + ":" + chosenSwatch.name);
 
-    const stepTitles = [
-      "Name",
-      "Voice",
-      "Look and accessibility",
-      "Permissions",
-      "Where agents work",
-      "What needs approval",
-      "Off-limits apps",
-      "Memory",
-      "First task",
+    const stepQuestions = [
+      "Hi — what should I call you, and what name and color would you like for me?",
+      "Which voice should I use for spoken replies?",
+      "How should text, motion, contrast, and agent cursors look?",
+      "Before I operate apps, let's check the three macOS permissions I need.",
+      "Which display should hold the agent stage while I work?",
+      "Sensitive actions always ask first. Here is the approval gate:",
+      "Which apps should stay off-limits?",
+      "Should I remember preferences across tasks?",
+      "Ready to run your first task? Pick a starter prompt below.",
     ];
 
-    const stepNavHtml = stepTitles
-      .map((label, idx) => {
-        const sNum = idx + 1;
-        const active = sNum === step;
-        return `
-          <button
-            type="button"
-            class="btn ${active ? "btn-active" : ""}"
-            data-action="goto-onboarding-step"
-            data-step="${sNum}"
-            aria-current="${active ? "step" : "false"}"
-          >${sNum}. ${escapeHtml(label)}</button>
-        `;
-      })
-      .join("");
+    function getStepReplySummary(sNum) {
+      if (sNum === 1) {
+        const who = OnboardingState.callMe.trim() || "No name set";
+        const alias = getPrimaryAgentDisplayName("ComputerAnything");
+        return `Call me: ${who} · Agent: ${alias} (${chosenSwatch.name})`;
+      }
+      if (sNum === 2) {
+        const v = ONBOARDING_VOICES.find((item) => item.id === OnboardingState.voiceId);
+        return v ? `Voice: ${v.name}` : "Voice: Default";
+      }
+      if (sNum === 3) {
+        const a = OnboardingState.a11y;
+        return `Text: ${sentenceCase(a.text_size.replace("_", " "))} · Palette: ${
+          a.cursor_palette === "okabe_ito" ? "Okabe-Ito" : "Default"
+        } · ${a.cursor_scale}x`;
+      }
+      if (sNum === 4) {
+        const p = OnboardingState.permissions;
+        const count = [p.accessibility, p.screen_recording, p.app_scripting].filter(Boolean).length;
+        return count === 3 ? "✓ All 3 permissions granted" : `${count} of 3 permissions granted`;
+      }
+      if (sNum === 5) {
+        if (OnboardingState.stageDisplay === "primary") return "Primary display";
+        if (OnboardingState.stageDisplay === "ask") return "Ask each time";
+        return "Secondary display";
+      }
+      if (sNum === 6) return "Sensitive categories ask first";
+      if (sNum === 7) return `Blocked: ${OnboardingState.blockedApps.join(", ")}`;
+      if (sNum === 8) return OnboardingState.memoryEnabled ? "Memory allowed" : "Not now";
+      return "Ready for first task";
+    }
+
+    const primaryAgentName = getPrimaryAgentDisplayName("ComputerAnything");
+    const historyTurnsHtml = Array.from({ length: step - 1 }, (_, idx) => {
+      const sNum = idx + 1;
+      return `
+        <div class="onboarding-chat-turn is-past">
+          <div class="onboarding-agent-msg">
+            <span class="agent-color-dot" style="background:${escapeHtml(chosenSwatch.body)};"></span>
+            <span class="onboarding-agent-name">${escapeHtml(primaryAgentName)}</span>
+            <span class="section-subtitle">${escapeHtml(stepQuestions[sNum - 1])}</span>
+          </div>
+          <div class="onboarding-user-reply">
+            <span class="onboarding-reply-chip">${escapeHtml(getStepReplySummary(sNum))}</span>
+            <button type="button" class="btn" data-action="goto-onboarding-step" data-step="${sNum}">Change</button>
+          </div>
+        </div>
+      `;
+    }).join("");
 
     let stepBodyHtml = "";
 
@@ -4866,7 +5143,7 @@
         <div>
           <h2 class="section-title">Meet your agent</h2>
           <p class="section-subtitle">
-            Step ${step} of ${OnboardingState.totalSteps}: ${escapeHtml(stepTitles[step - 1])}
+            Step ${step} of ${OnboardingState.totalSteps}: ${escapeHtml(stepQuestions[step - 1])}
           </p>
         </div>
         <div class="filter-group">
@@ -4874,28 +5151,35 @@
         </div>
       </div>
 
-      <div class="filter-bar onboarding-step-pills" role="navigation" aria-label="Onboarding steps">
-        ${stepNavHtml}
-      </div>
-
-      ${stepBodyHtml}
-
-      <div class="section-header-row onboarding-footer">
-        <div class="filter-group">
-          <button type="button" class="btn" data-action="prev-onboarding-step" ${step <= 1 ? "disabled" : ""}>Back</button>
-          ${step !== 4 && step < OnboardingState.totalSteps ? `<button type="button" class="btn" data-action="skip-onboarding-step">Skip</button>` : ""}
-        </div>
-        <div class="filter-group">
-          ${
-            step < OnboardingState.totalSteps
-              ? `<button type="button" class="btn btn-primary" data-action="next-onboarding-step" ${!canAdvanceFromPerms ? "disabled" : ""}>Continue</button>`
-              : `<button type="button" class="btn" data-action="switch-view" data-target-view="graph">Open agent graph</button>`
-          }
+      <div class="onboarding-chat" aria-label="Onboarding conversation">
+        ${historyTurnsHtml}
+        <div class="onboarding-chat-turn is-current">
+          <div class="onboarding-agent-msg">
+            <span class="agent-color-dot" style="background:${escapeHtml(chosenSwatch.body)};"></span>
+            <span class="onboarding-agent-name">${escapeHtml(primaryAgentName)}</span>
+            <span class="onboarding-agent-question">${escapeHtml(stepQuestions[step - 1])}</span>
+          </div>
+          <div class="onboarding-reply-chips">
+            ${stepBodyHtml}
+          </div>
+          <div class="section-header-row onboarding-footer">
+            <div class="filter-group">
+              <button type="button" class="btn" data-action="prev-onboarding-step" ${step <= 1 ? "disabled" : ""}>Back</button>
+              ${step !== 4 && step < OnboardingState.totalSteps ? `<button type="button" class="btn" data-action="skip-onboarding-step">Skip</button>` : ""}
+            </div>
+            <div class="filter-group">
+              ${
+                step < OnboardingState.totalSteps
+                  ? `<button type="button" class="btn btn-primary" data-action="next-onboarding-step" ${!canAdvanceFromPerms ? "disabled" : ""}>Continue</button>`
+                  : `<button type="button" class="btn" data-action="switch-view" data-target-view="graph">Open agent graph</button>`
+              }
+            </div>
+          </div>
         </div>
       </div>
 
       <p class="section-subtitle">
-        Note: Your name is saved to your backend profile. Your primary agent name and color are saved in this browser. The agents it starts keep their own names and cursor colors.
+        Note: Your name and voice are saved to your backend profile. Your primary agent name and color are saved in this browser. The agents it starts keep their own names and cursor colors.
       </p>
     `;
 
@@ -5155,52 +5439,97 @@
           .join("")
       : `<p class="section-subtitle">No saved memories in this session.</p>`;
 
-    const permsHtml = HistorySettingsState.appPermissions
-      .map((perm) => {
-        return `
-          <tr>
-            <td><strong>${escapeHtml(perm.app)}</strong></td>
-            <td>
-              <div class="filter-group" role="group" aria-label="Standard actions for ${escapeHtml(perm.app)}">
-                <button
-                  type="button"
-                  class="btn ${perm.standard === "ask" ? "btn-active" : ""}"
-                  aria-pressed="${perm.standard === "ask" ? "true" : "false"}"
-                  data-action="set-app-perm"
-                  data-app="${escapeHtml(perm.app)}"
-                  data-mode="ask"
-                >Ask first</button>
-                <button
-                  type="button"
-                  class="btn ${perm.standard === "allow" ? "btn-active" : ""}"
-                  aria-pressed="${perm.standard === "allow" ? "true" : "false"}"
-                  data-action="set-app-perm"
-                  data-app="${escapeHtml(perm.app)}"
-                  data-mode="allow"
-                >Allow automatically</button>
-              </div>
-            </td>
-            <td class="section-subtitle">Money, sign-in, and destructive actions are locked to ask first.</td>
-          </tr>
-        `;
-      })
-      .join("");
-
-    const hasLiveSpend = typeof vm.analytics?.cost_usd === "number";
-    const todaySpend = hasLiveSpend
-      ? vm.analytics.cost_usd
-      : vm.isSampleData
-        ? HistorySettingsState.sampleTodaySpendUsd
+    const activeProfileFieldId = document.activeElement?.id || "";
+    const activeProfileCursor =
+      activeProfileFieldId.startsWith("settings-") && document.activeElement?.selectionStart != null
+        ? document.activeElement.selectionStart
         : null;
+
+    const draft = HistorySettingsState.profileDraft;
+    const settingsStatusHtml = HistorySettingsState.profileSaveError
+      ? `<span class="state-text state-danger">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
+      : HistorySettingsState.profileSaveStatus
+        ? `<span class="state-text state-success">${escapeHtml(HistorySettingsState.profileSaveStatus)}</span>`
+        : "";
 
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">History and settings</h2>
-          <p class="section-subtitle">Search past tasks, review what the agent knows, and set app permissions and spend limits</p>
+          <p class="section-subtitle">Manage your profile settings, search past tasks, and review what the agent remembers</p>
         </div>
       </div>
+
+      <section class="onboarding-block" aria-labelledby="settings-profile-heading">
+        <div class="section-header-row">
+          <div>
+            <h3 id="settings-profile-heading" class="section-title">Settings</h3>
+            <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
+          </div>
+        </div>
+
+        <form id="workspace-settings-form" class="settings-form-grid">
+          <div class="onboarding-field">
+            <label for="settings-call-me" class="filter-label">What should agents call you?</label>
+            <input
+              type="text"
+              id="settings-call-me"
+              name="call_me"
+              class="inline-text-input"
+              maxlength="200"
+              placeholder="Your name"
+              value="${escapeHtml(draft.call_me)}"
+            />
+          </div>
+
+          <div class="onboarding-field">
+            <label for="settings-voice-id" class="filter-label">Voice</label>
+            <input
+              type="text"
+              id="settings-voice-id"
+              name="voice_id"
+              class="inline-text-input"
+              maxlength="200"
+              placeholder="Default voice"
+              value="${escapeHtml(draft.voice_id)}"
+            />
+          </div>
+
+          <div class="onboarding-field">
+            <label for="settings-model" class="filter-label">Primary model</label>
+            <input
+              type="text"
+              id="settings-model"
+              name="model"
+              class="inline-text-input"
+              maxlength="200"
+              placeholder="Default model"
+              value="${escapeHtml(draft.model)}"
+            />
+          </div>
+
+          <div class="onboarding-field">
+            <label for="settings-decide-model" class="filter-label">Faster step model</label>
+            <input
+              type="text"
+              id="settings-decide-model"
+              name="decide_model"
+              class="inline-text-input"
+              maxlength="200"
+              placeholder="Uses primary model when blank"
+              value="${escapeHtml(draft.decide_model)}"
+            />
+          </div>
+
+          <div class="settings-form-actions">
+            <button type="submit" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
+              ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
+            </button>
+            <span aria-live="polite">${settingsStatusHtml}</span>
+          </div>
+        </form>
+      </section>
 
       <section class="onboarding-block" aria-labelledby="history-tasks-heading">
         <div class="section-header-row">
@@ -5285,66 +5614,38 @@
           ${memoriesHtml}
         </div>
       </section>
-
-      <section class="onboarding-block" aria-labelledby="history-perms-heading">
-        <div class="section-header-row">
-          <div>
-            <h3 id="history-perms-heading" class="section-title">Per-app permissions</h3>
-            <p class="section-subtitle">Sample data — no backend permissions endpoint yet. Saved in this session only.</p>
-          </div>
-        </div>
-        <div class="data-table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>App</th>
-                <th>Standard actions</th>
-                <th>Protected actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${permsHtml}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="onboarding-block" aria-labelledby="history-cap-heading">
-        <div class="section-header-row">
-          <div>
-            <h3 id="history-cap-heading" class="section-title">Daily spend cap</h3>
-            <p class="section-subtitle">Sample setting. No backend cap yet. Agents are not paused.</p>
-          </div>
-        </div>
-
-        <div class="filter-bar">
-          <div class="filter-group">
-            <span class="section-subtitle">${vm.isSampleData && !hasLiveSpend ? "Sample today's spend:" : "Today's spend:"}</span>
-            <strong>${todaySpend != null ? `$${todaySpend.toFixed(4)}` : "—"}</strong>
-            <span class="state-text state-neutral">&cir; Sample setting &middot; Agents are not paused</span>
-          </div>
-
-          <div class="inline-input-row">
-            <label for="daily-cap-input" class="section-subtitle">Daily cap ($)</label>
-            <input
-              type="number"
-              id="daily-cap-input"
-              class="inline-text-input"
-              style="width: 110px;"
-              min="0.50"
-              step="0.50"
-              value="${escapeHtml(HistorySettingsState.dailyCapDraft)}"
-            />
-            <button type="button" class="btn" data-action="save-daily-cap">Save cap</button>
-          </div>
-        </div>
-        ${
-          HistorySettingsState.dailyCapSavedNote
-            ? `<p class="section-subtitle">${escapeHtml(HistorySettingsState.dailyCapSavedNote)}</p>`
-            : ""
-        }
-      </section>
     `;
+
+    const settingsForm = document.getElementById("workspace-settings-form");
+    if (settingsForm) {
+      ["call_me", "voice_id", "model", "decide_model"].forEach((key) => {
+        const inputEl = settingsForm.querySelector(`[name="${key}"]`);
+        if (!inputEl) return;
+        inputEl.addEventListener("input", (e) => {
+          HistorySettingsState.profileDraft[key] = e.target.value;
+          HistorySettingsState.profileDirty = true;
+          HistorySettingsState.profileSaveStatus = "";
+          HistorySettingsState.profileSaveError = "";
+        });
+      });
+      if (activeProfileFieldId && activeProfileFieldId.startsWith("settings-")) {
+        const refocused = document.getElementById(activeProfileFieldId);
+        if (refocused) {
+          refocused.focus();
+          if (activeProfileCursor != null) {
+            try {
+              refocused.setSelectionRange(activeProfileCursor, activeProfileCursor);
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      }
+      settingsForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await saveWorkspaceProfileSettings();
+      });
+    }
 
     const nextSearchInput = document.getElementById("history-search-input");
     if (nextSearchInput) {
@@ -5363,22 +5664,6 @@
           }
         }
       }
-    }
-
-    const capInput = document.getElementById("daily-cap-input");
-    if (capInput) {
-      capInput.addEventListener("input", (e) => {
-        HistorySettingsState.dailyCapDraft = e.target.value;
-      });
-      attachImeSafeEnter(capInput, () => {
-        const val = parseFloat(HistorySettingsState.dailyCapDraft);
-        if (!Number.isNaN(val) && val > 0) {
-          HistorySettingsState.dailyCapUsd = val;
-          HistorySettingsState.dailyCapDraft = val.toFixed(2);
-          HistorySettingsState.dailyCapSavedNote = `Daily cap set to $${val.toFixed(2)} for this session.`;
-          renderNow();
-        }
-      });
     }
 
     if (HistorySettingsState.editingMemoryId) {
@@ -5627,6 +5912,109 @@
   /* ============================================================================
      8. POLLING (/api/runs, /api/help, /api/agents, /api/actions, /api/graph, /api/analytics, /api/runs/<id>/cost)
      ============================================================================ */
+  async function probeStopRoute() {
+    if (stopRouteProbed || !Transport.isConnected()) return;
+    stopRouteProbed = true;
+    try {
+      await Transport.request("POST", "/api/runs/__probe__/stop");
+      stopRouteSupported = true;
+    } catch (err) {
+      const msg = String(err?.message || "").toLowerCase();
+      stopRouteSupported = msg.includes("no such run");
+    }
+  }
+
+  async function stopAllRunningAgents() {
+    if (stopAllBusy || !stopRouteSupported) return;
+    const activeParents = (rawRuns || []).filter(
+      (r) => !r.parent && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
+    );
+    if (!activeParents.length) return;
+    stopAllBusy = true;
+    stopAllStatus = "";
+    renderHeaderAndProvenance(getViewModel());
+
+    let stoppedCount = 0;
+    let failedCount = 0;
+    await Promise.all(
+      activeParents.map(async (r) => {
+        try {
+          await Transport.request("POST", `/api/runs/${encodeURIComponent(r.id)}/stop`);
+          stoppedCount += 1;
+        } catch {
+          failedCount += 1;
+        }
+      })
+    );
+
+    stopAllBusy = false;
+    if (failedCount === 0) {
+      stopAllStatusTone = "state-success";
+      stopAllStatus =
+        stoppedCount === 1
+          ? "✓ Stopped 1 running task"
+          : `✓ Stopped ${stoppedCount} running tasks`;
+    } else if (stoppedCount > 0) {
+      stopAllStatusTone = "state-warning";
+      stopAllStatus = `◔ Stopped ${stoppedCount} of ${activeParents.length} tasks`;
+    } else {
+      stopAllStatusTone = "state-danger";
+      stopAllStatus = "✕ Could not stop running tasks";
+    }
+    if (stopAllStatusTimer) clearTimeout(stopAllStatusTimer);
+    stopAllStatusTimer = setTimeout(() => {
+      stopAllStatus = "";
+      renderHeaderAndProvenance(getViewModel());
+    }, 6000);
+    await pollAll();
+  }
+
+  async function saveWorkspaceProfileSettings() {
+    HistorySettingsState.profileSaveStatus = "";
+    HistorySettingsState.profileSaveError = "";
+    if (!Transport.isConnected()) {
+      HistorySettingsState.profileSaveError = "Not connected to backend";
+      renderNow();
+      return;
+    }
+    const payload = {
+      call_me: String(HistorySettingsState.profileDraft.call_me || "").trim(),
+      voice_id: String(HistorySettingsState.profileDraft.voice_id || "").trim(),
+      model: String(HistorySettingsState.profileDraft.model || "").trim(),
+      decide_model: String(HistorySettingsState.profileDraft.decide_model || "").trim(),
+    };
+    for (const [k, v] of Object.entries(payload)) {
+      if (v.length > 200 || /[\r\n]/.test(v)) {
+        HistorySettingsState.profileSaveError = `${k}: one line, at most 200 characters`;
+        renderNow();
+        return;
+      }
+    }
+    HistorySettingsState.profileSaving = true;
+    renderNow();
+    try {
+      const saved = await Transport.request("POST", "/api/profile", { jsonBody: payload });
+      const next = {
+        call_me: String(saved?.call_me ?? payload.call_me),
+        voice_id: String(saved?.voice_id ?? payload.voice_id),
+        model: String(saved?.model ?? payload.model),
+        decide_model: String(saved?.decide_model ?? payload.decide_model),
+      };
+      HistorySettingsState.profile = next;
+      HistorySettingsState.profileDraft = { ...next };
+      HistorySettingsState.profileDirty = false;
+      HistorySettingsState.profileLoaded = true;
+      HistorySettingsState.profileSaveStatus = "✓ Saved";
+      OnboardingState.callMe = next.call_me;
+      if (next.voice_id) OnboardingState.voiceId = next.voice_id;
+    } catch (err) {
+      HistorySettingsState.profileSaveError = err.message || "Could not save settings";
+    } finally {
+      HistorySettingsState.profileSaving = false;
+    }
+    renderNow();
+  }
+
   async function pollAll() {
     if (!Transport.isConnected()) {
       connectionStatus = "disconnected";
@@ -5780,11 +6168,30 @@
       rawAnalytics = resultsByKey.analytics;
     }
     if (resultsByKey.profile && typeof resultsByKey.profile === "object") {
+      const p = resultsByKey.profile;
+      const nextProfile = {
+        call_me: String(p.call_me || ""),
+        voice_id: String(p.voice_id || ""),
+        model: String(p.model || ""),
+        decide_model: String(p.decide_model || ""),
+      };
+      HistorySettingsState.profile = nextProfile;
+      HistorySettingsState.profileLoaded = true;
       const activeId = document.activeElement?.id || "";
+      if (!HistorySettingsState.profileDirty && !activeId.startsWith("settings-")) {
+        HistorySettingsState.profileDraft = { ...nextProfile };
+      }
       if (activeId !== "onboarding-call-me") {
-        OnboardingState.callMe = String(resultsByKey.profile.call_me || "");
+        OnboardingState.callMe = nextProfile.call_me;
+      }
+      if (nextProfile.voice_id && !OnboardingState.voiceDirty) {
+        OnboardingState.voiceId = nextProfile.voice_id;
       }
       OnboardingState.profileLoaded = true;
+    }
+
+    if (!stopRouteProbed) {
+      await probeStopRoute();
     }
 
     try {
@@ -6590,24 +6997,10 @@
           break;
         }
 
-        case "set-app-perm": {
-          const appName = actionEl.dataset.app;
-          const mode = actionEl.dataset.mode;
-          const perm = HistorySettingsState.appPermissions.find((p) => p.app === appName);
-          if (perm && (mode === "ask" || mode === "allow")) {
-            perm.standard = mode;
-            renderNow();
-          }
-          break;
-        }
-
-        case "save-daily-cap": {
-          const val = parseFloat(HistorySettingsState.dailyCapDraft);
-          if (!Number.isNaN(val) && val > 0) {
-            HistorySettingsState.dailyCapUsd = val;
-            HistorySettingsState.dailyCapDraft = val.toFixed(2);
-            HistorySettingsState.dailyCapSavedNote = `Daily cap set to $${val.toFixed(2)} for this session.`;
-            renderNow();
+        case "copy-text": {
+          const key = actionEl.dataset.copyKey;
+          if (key && copyPayloadsByKey.has(key)) {
+            await copyTextToClipboard(copyPayloadsByKey.get(key), key);
           }
           break;
         }
@@ -6616,6 +7009,13 @@
           break;
       }
     });
+
+    const stopAllBtn = document.getElementById("stop-all-btn");
+    if (stopAllBtn) {
+      stopAllBtn.addEventListener("click", () => {
+        stopAllRunningAgents();
+      });
+    }
 
     document.addEventListener("change", (e) => {
       const target = e.target;
@@ -6747,6 +7147,16 @@
         requestAnimationFrame(() => {
           document.querySelector(`[data-action="toggle-transcript-run"][data-run-id="${lastId}"]`)?.focus();
         });
+        return;
+      }
+
+      if (hasShellBridge()) {
+        e.preventDefault();
+        try {
+          window.webkit.messageHandlers.shell.postMessage({ type: "closeWindow" });
+        } catch {
+          // Ignore shell errors
+        }
       }
     });
   }

@@ -1,0 +1,76 @@
+{
+  "supportsStop": false,
+  "profile": {
+    "call_me": "Ryosuke",
+    "voice_id": "2X7h8q4r8pMNZ7zRmpiF",
+    "model": "google/gemini-4-argon",
+    "decide_model": ""
+  },
+  "agents": {
+    "r-nostop-2": {
+      "name": "Mira",
+      "color": "#E1CDE8",
+      "edge": "#FBE8F7",
+      "ink": "#71388B",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r-nostop-1",
+      "goal": "Check system settings without stop route",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 3.4,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-nostop-2",
+      "goal": "Open System Settings",
+      "role": "cu",
+      "parent": "r-nostop-1",
+      "state": "acting",
+      "elapsed": 3.1,
+      "n_events": 2,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-nostop-1": {
+      "id": "r-nostop-1",
+      "goal": "Check system settings without stop route",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 3.4,
+      "n_events": 2,
+      "result": null,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "decide", "thought": "Route to computer-use agent", "action": "route:cu" }
+      ]
+    },
+    "r-nostop-2": {
+      "id": "r-nostop-2",
+      "goal": "Open System Settings",
+      "role": "cu",
+      "parent": "r-nostop-1",
+      "state": "acting",
+      "elapsed": 3.1,
+      "n_events": 2,
+      "result": null,
+      "events": [
+        { "t": 0.5, "kind": "state", "state": "acting" },
+        { "t": 1.8, "kind": "act", "app": "System Settings", "action": "open_app", "outcome": "ok" }
+      ]
+    }
+  },
+  "help": [],
+  "transcripts": [],
+  "actions": [],
+  "graph": { "screens": 1, "transitions": 1, "skills": 0, "mean_reliability": 1.0 },
+  "analytics": { "tasks": 1, "cost_usd": 0, "llm_calls": 2, "mean_cost_per_task": 0, "by_role": [], "by_purpose": [], "by_app": [] },
+  "costs": {}
+}
