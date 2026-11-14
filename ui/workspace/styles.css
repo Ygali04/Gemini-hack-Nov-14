@@ -397,6 +397,10 @@ select:focus-visible,
   color: var(--text-muted);
 }
 
+.prompt-section.drag-over .prompt-field-wrap {
+  outline: 1px solid rgba(255, 255, 255, 0.36);
+}
+
 .attachments-list {
   display: flex;
   flex-wrap: wrap;
@@ -410,21 +414,36 @@ select:focus-visible,
 .attachment-token {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 8px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 6px 2px 8px;
   border-radius: 8px;
   background: var(--bg-raised);
   font-size: 12px;
   line-height: 16px;
   color: var(--text-secondary);
-  max-width: 260px;
+  max-width: 420px;
+}
+
+.attachment-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .attachment-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.attachment-note {
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .attachment-remove {

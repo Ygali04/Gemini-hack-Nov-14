@@ -136,6 +136,7 @@
         sessionToken = "shell-session";
         pollAll();
       }
+      window.dispatchEvent(new CustomEvent("shell-event", { detail: msg }));
     };
 
     function callShell(type, payload) {
@@ -286,6 +287,7 @@
         if (options.filePaths && options.filePaths.length) {
           payload.filePaths = options.filePaths;
           payload.prompt = options.prompt || "";
+          if (options.thread) payload.thread = options.thread;
         } else if (options.jsonBody !== undefined) {
           payload.body = JSON.stringify(options.jsonBody);
         }
@@ -567,9 +569,12 @@
           agent: "ComputerAnything",
           kind: "prompt",
           text: promptText,
-          meta: { attachments: options.attachedNames || [] },
+          meta: {
+            attachments: options.attachedNames || [],
+            ...(options.thread ? { thread: options.thread } : {}),
+          },
         });
-        return { run: newId };
+        return { run: newId, ...(options.thread ? { thread: options.thread } : {}) };
       }
       throw new Error(`Unsupported path in sample data: ${cleanPath}`);
     }
@@ -1042,6 +1047,80 @@
       }
     }
 
+    function truncateAtWord(text, maxLen = 28) {
+      const s = String(text || "").trim();
+      if (s.length <= maxLen) return s;
+      const slice = s.slice(0, maxLen);
+      const lastSpace = slice.lastIndexOf(" ");
+      if (lastSpace > Math.floor(maxLen * 0.45)) {
+        return slice.slice(0, lastSpace).trimEnd() + "…";
+      }
+      return slice.trimEnd() + "…";
+    }
+
+    function isHashOrUnknownScreenToken(token) {
+      const t = String(token || "").trim();
+      if (!t || t === "?" || /^(unknown|none|null|screen|start)$/i.test(t)) return true;
+      if (/^[0-9a-f]{6,}$/i.test(t)) return true;
+      if (/^(?=.*\d)[a-z0-9]{8,}$/i.test(t)) return true;
+      return false;
+    }
+
+    function extractReadableScreenSuffix(screenId) {
+      const raw = String(screenId || "").trim();
+      const suffix = raw.includes(":") ? raw.split(":").slice(1).join(":").trim() : raw;
+      if (isHashOrUnknownScreenToken(suffix)) return "";
+      let cleaned = suffix;
+      const prefixMatch = /^([0-9a-f]{4})([a-z][a-z0-9_-]*)$/i.exec(cleaned);
+      if (prefixMatch && /\d/.test(prefixMatch[1])) {
+        cleaned = prefixMatch[2];
+      }
+      cleaned = cleaned
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/([a-zA-Z])(\d+)/g, "$1 $2")
+        .replace(/[-_]+/g, " ")
+        .trim();
+      if (!cleaned || isHashOrUnknownScreenToken(cleaned)) return "";
+      return sentenceCase(cleaned);
+    }
+
+    function formatActionTargetForScreen(action) {
+      const parts = String(action || "")
+        .split(":")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      if (!parts.length) return "action";
+      const verb = parts[0].toLowerCase();
+      const uiKinds = new Set(["button", "textfield", "radio", "sidebar", "menu", "link", "checkbox", "tab", "running", "item"]);
+      const rest = parts.slice(1).filter((p) => !uiKinds.has(p.toLowerCase()));
+      const target = rest.join(" ") || parts.slice(1).join(" ") || verb;
+      return target.replace(/[-_]+/g, " ").trim();
+    }
+
+    function formatActionAsScreenTitle(action, detail, app, direction) {
+      const raw = String(action || "").trim();
+      const verb = raw.split(":")[0].toLowerCase();
+      const target = formatActionTargetForScreen(raw);
+      if (direction === "to") {
+        if (verb === "open_app") {
+          return `${app || sentenceCase(target)} opened`;
+        }
+        if (verb === "done") {
+          if (typeof detail === "string" && detail.trim()) {
+            return `Result: ${truncateAtWord(detail.trim(), 28)}`;
+          }
+          return `${app || "Task"} completed`;
+        }
+        if (verb === "type") return `After typing ${target}`;
+        if (verb === "press") return `After pressing ${target}`;
+        if (verb === "key") return `After ${target}`;
+        return `After ${target}`;
+      }
+      if (verb === "open_app") return `Before opening ${app || sentenceCase(target)}`;
+      if (verb === "done") return `${app || "App"} ready`;
+      return `Before ${target}`;
+    }
+
     function buildStateMachine(rawActions, agentPaletteByName, selectedAgentFilter, selectedAppFilter) {
       const rows = Array.isArray(rawActions) ? rawActions : [];
       const filteredRows = rows.filter((r) => {
@@ -1061,20 +1140,59 @@
       const edgesMap = new Map();
       const appsSet = new Set();
       const agentsSet = new Set();
+      const incomingByScreen = new Map();
+      const outgoingByScreen = new Map();
+      const explicitTitleByScreen = new Map();
 
       for (const r of rows) {
         if (r.app) appsSet.add(r.app);
         if (r.agent) agentsSet.add(r.agent);
       }
 
+      for (const row of filteredRows) {
+        const app = row.app || "Desktop";
+        const fromId = row.from || `${app}:start`;
+        const actionVerb = String(row.action || "act").split(":")[0] || "next";
+        const toId = row.to || `${app}:${actionVerb}`;
+        if (row.from_title || row.window_title || row.screen_title) {
+          explicitTitleByScreen.set(fromId, String(row.from_title || row.window_title || row.screen_title).trim());
+        }
+        if (row.to_title) {
+          explicitTitleByScreen.set(toId, String(row.to_title).trim());
+        }
+        if (!outgoingByScreen.has(fromId)) outgoingByScreen.set(fromId, []);
+        outgoingByScreen.get(fromId).push({ action: row.action, detail: row.detail, app });
+        if (!incomingByScreen.has(toId)) incomingByScreen.set(toId, []);
+        incomingByScreen.get(toId).push({ action: row.action, detail: row.detail, app });
+      }
+
+      function deriveScreenTitle(id, appName) {
+        const explicit = explicitTitleByScreen.get(id);
+        if (explicit && !isHashOrUnknownScreenToken(explicit)) {
+          return sentenceCase(explicit);
+        }
+        const readable = extractReadableScreenSuffix(id);
+        if (readable) return readable;
+        const incoming = incomingByScreen.get(id);
+        if (incoming && incoming.length) {
+          const lastIn = incoming[incoming.length - 1];
+          return formatActionAsScreenTitle(lastIn.action, lastIn.detail, appName, "to");
+        }
+        const outgoing = outgoingByScreen.get(id);
+        if (outgoing && outgoing.length) {
+          const firstOut = outgoing[0];
+          return formatActionAsScreenTitle(firstOut.action, firstOut.detail, appName, "from");
+        }
+        return `${appName || "App"} screen`;
+      }
+
       function ensureScreen(id, appName) {
         const key = id || `${appName || "App"}:screen`;
         if (!screensMap.has(key)) {
-          const fallbackTitle = String(key).includes(":") ? String(key).split(":").slice(1).join(":") : String(key);
           screensMap.set(key, {
             id: key,
             app: appName || "App",
-            title: sentenceCase(fallbackTitle.replace(/[-_]/g, " ")) || String(key),
+            title: deriveScreenTitle(key, appName || "App"),
             visits: 0,
             agents: new Set(),
           });
@@ -1204,8 +1322,30 @@
         };
       });
 
+      const screens = Array.from(screensMap.values());
+      const titleCountsByApp = new Map();
+      for (const s of screens) {
+        const key = `${s.app}::${s.title}`;
+        titleCountsByApp.set(key, (titleCountsByApp.get(key) || 0) + 1);
+      }
+      const seenTitleIndex = new Map();
+      for (const s of screens) {
+        const key = `${s.app}::${s.title}`;
+        if ((titleCountsByApp.get(key) || 0) > 1) {
+          const n = (seenTitleIndex.get(key) || 0) + 1;
+          seenTitleIndex.set(key, n);
+          s.title = `${s.title} (${n})`;
+        }
+      }
+      for (const e of edges) {
+        const fromNode = screensMap.get(e.from);
+        const toNode = screensMap.get(e.to);
+        if (fromNode) e.fromTitle = fromNode.title;
+        if (toNode) e.toTitle = toNode.title;
+      }
+
       return {
-        screens: Array.from(screensMap.values()),
+        screens,
         edges,
         allApps: Array.from(appsSet).sort(),
         allAgents: Array.from(agentsSet),
@@ -1559,8 +1699,8 @@
                 app: matchedAction?.app || (fromId ? fromId.split(":")[0] : "Desktop"),
                 fromId,
                 toId,
-                fromTitle: fromScreen?.title || (fromId ? fromId.split(":").slice(1).join(":") : "Active screen"),
-                toTitle: toScreen?.title || (toId ? toId.split(":").slice(1).join(":") : "Next screen"),
+                fromTitle: fromScreen?.title || extractReadableScreenSuffix(fromId) || "Active screen",
+                toTitle: toScreen?.title || extractReadableScreenSuffix(toId) || "Next screen",
                 ms: matchedAction?.ms || 0,
               };
             });
@@ -1577,8 +1717,8 @@
                 app: a.app || "Desktop",
                 fromId: a.from || "",
                 toId: a.to || "",
-                fromTitle: fromScreen?.title || (a.from ? a.from.split(":").slice(1).join(":") : "Active screen"),
-                toTitle: toScreen?.title || (a.to ? a.to.split(":").slice(1).join(":") : "Next screen"),
+                fromTitle: fromScreen?.title || extractReadableScreenSuffix(a.from) || "Active screen",
+                toTitle: toScreen?.title || extractReadableScreenSuffix(a.to) || "Next screen",
                 ms: a.ms || 0,
               };
             });
@@ -2809,20 +2949,171 @@
         </div>
       `;
     } else {
-      const rowHeight = 100;
-      const svgWidth = 880;
-      const svgHeight = Math.max(140, sm.edges.length * rowHeight + 32);
+      function truncateWord(text, maxLen = 28) {
+        const s = String(text || "").trim();
+        if (s.length <= maxLen) return s;
+        const slice = s.slice(0, maxLen);
+        const lastSpace = slice.lastIndexOf(" ");
+        if (lastSpace > Math.floor(maxLen * 0.45)) {
+          return slice.slice(0, lastSpace).trimEnd() + "…";
+        }
+        return slice.trimEnd() + "…";
+      }
+      const wNode = 196;
+      const hNode = 56;
+      const colStep = 340;
+      const rowStep = 104;
+      const padX = 24;
 
-      const edgeRowsSvg = sm.edges
-        .map((edge, idx) => {
-          const y = 20 + idx * rowHeight;
-          const xFrom = 24;
-          const wNode = 224;
-          const hNode = 54;
-          const xTo = 620;
-          const xLineStart = xFrom + wNode;
-          const xLineEnd = xTo;
-          const xMid = Math.round((xLineStart + xLineEnd) / 2);
+      const screenIndex = new Map(sm.screens.map((s, i) => [s.id, i]));
+      const adj = new Map(sm.screens.map((s) => [s.id, new Set()]));
+      const outEdgesByNode = new Map(sm.screens.map((s) => [s.id, []]));
+      const inDegree = new Map(sm.screens.map((s) => [s.id, 0]));
+
+      for (const edge of sm.edges) {
+        if (adj.has(edge.from) && adj.has(edge.to)) {
+          adj.get(edge.from).add(edge.to);
+          adj.get(edge.to).add(edge.from);
+        }
+        if (outEdgesByNode.has(edge.from)) {
+          outEdgesByNode.get(edge.from).push(edge);
+        }
+        if (edge.from !== edge.to && inDegree.has(edge.to)) {
+          inDegree.set(edge.to, inDegree.get(edge.to) + 1);
+        }
+      }
+
+      /* Connected components in order of first appearance */
+      const visitedComp = new Set();
+      const components = [];
+      for (const s of sm.screens) {
+        if (visitedComp.has(s.id)) continue;
+        const compIds = [];
+        const queue = [s.id];
+        visitedComp.add(s.id);
+        while (queue.length) {
+          const cur = queue.shift();
+          compIds.push(cur);
+          for (const nb of adj.get(cur) || []) {
+            if (!visitedComp.has(nb)) {
+              visitedComp.add(nb);
+              queue.push(nb);
+            }
+          }
+        }
+        compIds.sort((a, b) => (screenIndex.get(a) ?? 0) - (screenIndex.get(b) ?? 0));
+        components.push(compIds);
+      }
+
+      const nodeLayout = new Map();
+      let currentY = 20;
+      let maxSvgWidth = 880;
+
+      for (const compIds of components) {
+        const compSet = new Set(compIds);
+        const colById = new Map();
+        const roots = compIds.filter((id) => (inDegree.get(id) || 0) === 0);
+        const bfsQueue = roots.length ? [...roots] : [compIds[0]];
+        for (const r of bfsQueue) colById.set(r, 0);
+
+        while (bfsQueue.length) {
+          const cur = bfsQueue.shift();
+          const curCol = colById.get(cur) || 0;
+          for (const edge of outEdgesByNode.get(cur) || []) {
+            if (!compSet.has(edge.to)) continue;
+            if (!colById.has(edge.to)) {
+              colById.set(edge.to, curCol + 1);
+              bfsQueue.push(edge.to);
+            }
+          }
+        }
+        for (const id of compIds) {
+          if (!colById.has(id)) colById.set(id, 0);
+        }
+
+        const layers = new Map();
+        let maxCol = 0;
+        for (const id of compIds) {
+          const col = colById.get(id) || 0;
+          if (col > maxCol) maxCol = col;
+          if (!layers.has(col)) layers.set(col, []);
+          layers.get(col).push(id);
+        }
+
+        let maxRowsInComp = 1;
+        for (const ids of layers.values()) {
+          if (ids.length > maxRowsInComp) maxRowsInComp = ids.length;
+        }
+
+        const compEdges = sm.edges.filter((e) => compSet.has(e.from) && compSet.has(e.to));
+        const hasSelfLoop = compEdges.some((e) => e.from === e.to);
+        const backEdgeCount = compEdges.filter(
+          (e) => e.from !== e.to && (colById.get(e.to) || 0) <= (colById.get(e.from) || 0)
+        ).length;
+
+        const topPad = hasSelfLoop ? 52 : 12;
+        const compTopY = currentY + topPad;
+
+        for (let col = 0; col <= maxCol; col++) {
+          const ids = layers.get(col) || [];
+          const colOffsetY = Math.round(((maxRowsInComp - ids.length) * rowStep) / 2);
+          ids.forEach((id, rowIdx) => {
+            const x = padX + col * colStep;
+            const y = compTopY + colOffsetY + rowIdx * rowStep;
+            nodeLayout.set(id, {
+              id,
+              col,
+              row: rowIdx,
+              x,
+              y,
+              compTopY,
+              compBottomY: compTopY + (maxRowsInComp - 1) * rowStep + hNode,
+            });
+          });
+        }
+
+        const compWidth = padX * 2 + maxCol * colStep + wNode + 40;
+        if (compWidth > maxSvgWidth) maxSvgWidth = compWidth;
+
+        const bottomLoopPad = backEdgeCount > 0 ? 48 + backEdgeCount * 36 : 24;
+        currentY = compTopY + (maxRowsInComp - 1) * rowStep + hNode + bottomLoopPad;
+      }
+
+      const svgWidth = maxSvgWidth;
+      const svgHeight = Math.max(180, currentY + 12);
+
+      /* Group parallel edges between the same pair of nodes */
+      const pairGroups = new Map();
+      for (const edge of sm.edges) {
+        const key = edge.from < edge.to ? `${edge.from}__${edge.to}` : `${edge.to}__${edge.from}`;
+        if (!pairGroups.has(key)) pairGroups.set(key, []);
+        pairGroups.get(key).push(edge);
+      }
+
+      const edgeIndexInPair = new Map();
+      for (const list of pairGroups.values()) {
+        list.forEach((edge, i) => {
+          edgeIndexInPair.set(edge.id, { idx: i, count: list.length });
+        });
+      }
+
+      function arrowPolygon(tipX, tipY, fromX, fromY, color) {
+        const angle = Math.atan2(tipY - fromY, tipX - fromX);
+        const len = 9;
+        const wing = 5;
+        const p1x = (tipX - len * Math.cos(angle) + wing * Math.sin(angle)).toFixed(1);
+        const p1y = (tipY - len * Math.sin(angle) - wing * Math.cos(angle)).toFixed(1);
+        const p2x = (tipX - len * Math.cos(angle) - wing * Math.sin(angle)).toFixed(1);
+        const p2y = (tipY - len * Math.sin(angle) + wing * Math.cos(angle)).toFixed(1);
+        return `<polygon points="${tipX.toFixed(1)},${tipY.toFixed(1)} ${p1x},${p1y} ${p2x},${p2y}" fill="${escapeHtml(color)}" />`;
+      }
+
+      let backEdgeSeq = 0;
+      const edgesSvg = sm.edges
+        .map((edge) => {
+          const fromPos = nodeLayout.get(edge.from);
+          const toPos = nodeLayout.get(edge.to);
+          if (!fromPos || !toPos) return "";
 
           const statusFill =
             edge.statusClass === "state-success"
@@ -2830,22 +3121,18 @@
               : edge.statusClass === "state-warning"
                 ? "#f5a623"
                 : "#ff5c6c";
-
           const isSelectedEdge = selectedEdge && selectedEdge.id === edge.id;
           const isReplayHit =
             activeReplayStep &&
             ((activeReplayStep.fromId && edge.from === activeReplayStep.fromId && activeReplayStep.toId && edge.to === activeReplayStep.toId) ||
               (activeReplayStep.action && edge.action === activeReplayStep.action));
 
-          const nodeStroke = isReplayHit
+          const edgeStroke = isReplayHit
             ? "#f5a623"
             : isSelectedEdge
               ? "#f2f4f8"
-              : "rgba(255,255,255,0.12)";
-          const nodeStrokeWidth = isReplayHit || isSelectedEdge ? "2" : "1";
-
-          const edgeStroke = edge.reliabilityColor || edge.trailColor || "#767d8e";
-          const edgeWidth = edge.strokeWidth || 2.2;
+              : edge.reliabilityColor || edge.trailColor || "#767d8e";
+          const edgeWidth = isSelectedEdge || isReplayHit ? Math.max(3, edge.strokeWidth || 2.2) : edge.strokeWidth || 2.2;
           const dashAttr = edge.isDestructive ? 'stroke-dasharray="6 4"' : "";
 
           const reliabilityBadge = edge.isDestructive
@@ -2856,29 +3143,113 @@
           const metaText = `${reliabilityBadge}${
             edge.meanMs ? ` · ${edge.meanMs}ms` : ""
           } · ${edge.sourceLabel}`;
+          const shortAction = truncateWord(edge.actionClean, 24);
+
+          let pathD = "";
+          let labelX = 0;
+          let labelY = 0;
+          let arrowHtml = "";
+
+          if (edge.from === edge.to) {
+            /* Self-loop arching above the node */
+            const x1 = fromPos.x + wNode * 0.34;
+            const y1 = fromPos.y;
+            const x2 = fromPos.x + wNode * 0.66;
+            const y2 = fromPos.y;
+            const cx1 = x1 - 12;
+            const cy1 = fromPos.y - 54;
+            const cx2 = x2 + 12;
+            const cy2 = fromPos.y - 54;
+            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+            labelX = fromPos.x + wNode * 0.5;
+            labelY = fromPos.y - 44;
+            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          } else if (toPos.col <= fromPos.col) {
+            /* Backward / loop edge: curve cleanly below the component so cycles read as loops */
+            backEdgeSeq += 1;
+            const x1 = fromPos.x + wNode * 0.5;
+            const y1 = fromPos.y + hNode;
+            const x2 = toPos.x + wNode * 0.5;
+            const y2 = toPos.y + hNode;
+            const loopY = Math.max(fromPos.compBottomY, toPos.compBottomY) + 34 + (backEdgeSeq - 1) * 34;
+            const cx1 = x1;
+            const cy1 = loopY + 18;
+            const cx2 = x2;
+            const cy2 = loopY + 18;
+            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+            labelX = Math.round((x1 + x2) / 2);
+            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          } else {
+            /* Forward edge: left-to-right cubic Bezier */
+            const pairInfo = edgeIndexInPair.get(edge.id) || { idx: 0, count: 1 };
+            const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 34;
+            const skipLift = toPos.col - fromPos.col > 1 ? -28 : 0;
+            const x1 = fromPos.x + wNode;
+            const y1 = fromPos.y + hNode / 2;
+            const x2 = toPos.x;
+            const y2 = toPos.y + hNode / 2;
+            const dx = Math.max(48, (x2 - x1) * 0.45);
+            const cx1 = x1 + dx;
+            const cy1 = y1 + offset + skipLift;
+            const cx2 = x2 - dx;
+            const cy2 = y2 + offset + skipLift;
+            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+            labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2);
+            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          }
+
+          const pillW = 246;
+          const pillH = 38;
+          const pillX = Math.max(8, Math.min(svgWidth - pillW - 8, labelX - pillW / 2));
+          const pillY = Math.max(4, labelY - pillH / 2);
+          const textCenterX = pillX + pillW / 2;
 
           return `
-            <g class="sm-edge-group ${isSelectedEdge ? "is-selected" : ""}" transform="translate(0, ${y})" data-action="select-sm-edge" data-edge-id="${escapeHtml(edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(edge.actionClean)} from ${escapeHtml(edge.fromTitle)} to ${escapeHtml(edge.toTitle)}">
-              <rect x="${xFrom}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
-              <text x="${xFrom + 12}" y="25" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(edge.app)}</text>
-              <text x="${xFrom + 12}" y="45" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(edge.fromTitle.slice(0, 26))}</text>
-
-              <line x1="${xLineStart}" y1="32" x2="${xLineEnd - 8}" y2="32" stroke="${escapeHtml(edgeStroke)}" stroke-width="${edgeWidth}" ${dashAttr} />
-              <polygon points="${xLineEnd},32 ${xLineEnd - 9},26 ${xLineEnd - 9},38" fill="${escapeHtml(edgeStroke)}" />
-
-              <rect x="${xMid - 150}" y="2" width="300" height="24" rx="6" fill="#0c0d10" />
-              <text x="${xMid}" y="18" text-anchor="middle" font-size="12" font-weight="600">
+            <g class="sm-edge-group ${isSelectedEdge ? "is-selected" : ""}" data-action="select-sm-edge" data-edge-id="${escapeHtml(edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(edge.actionClean)} from ${escapeHtml(edge.fromTitle)} to ${escapeHtml(edge.toTitle)} (${escapeHtml(edge.statusSymbolWord)})">
+              <title>${escapeHtml(edge.fromTitle)} → ${escapeHtml(edge.toTitle)}: ${escapeHtml(edge.actionClean)} (${escapeHtml(metaText)})</title>
+              <path d="${pathD}" fill="none" stroke="${escapeHtml(edgeStroke)}" stroke-width="${edgeWidth}" ${dashAttr} />
+              ${arrowHtml}
+              <rect x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="6" fill="#0c0d10" stroke="${isSelectedEdge ? "#f2f4f8" : "rgba(255,255,255,0.08)"}" stroke-width="1" />
+              <text x="${textCenterX}" y="${pillY + 15}" text-anchor="middle" font-size="12" font-weight="600">
                 <tspan fill="${statusFill}">${escapeHtml(edge.statusSymbolWord)}</tspan>
-                <tspan fill="#f2f4f8"> · ${escapeHtml(edge.actionClean.slice(0, 24))}</tspan>
+                <tspan fill="#f2f4f8"> · ${escapeHtml(shortAction)}</tspan>
               </text>
-              <circle cx="${xMid - 138}" cy="46" r="4" fill="${escapeHtml(edge.trailColor)}" />
-              <text x="${xMid}" y="50" text-anchor="middle" fill="#a6adbb" font-size="12">
-                ${escapeHtml(edge.agents.join(", "))} · ${escapeHtml(metaText)}
+              <circle cx="${pillX + 12}" cy="${pillY + 28}" r="4" fill="${escapeHtml(edge.trailColor)}" />
+              <text x="${textCenterX + 4}" y="${pillY + 32}" text-anchor="middle" fill="#a6adbb" font-size="12">
+                ${escapeHtml(truncateWord(edge.agents.join(", "), 12))} · ${escapeHtml(truncateWord(metaText, 22))}
               </text>
+            </g>
+          `;
+        })
+        .join("");
 
-              <rect x="${xTo}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
-              <text x="${xTo + 12}" y="25" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(edge.app)}</text>
-              <text x="${xTo + 12}" y="45" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(edge.toTitle.slice(0, 26))}</text>
+      const nodesSvg = sm.screens
+        .map((node) => {
+          const pos = nodeLayout.get(node.id);
+          if (!pos) return "";
+          const isReplayNode =
+            activeReplayStep &&
+            (activeReplayStep.fromId === node.id || activeReplayStep.toId === node.id);
+          const isSelectedNode =
+            selectedEdge &&
+            (selectedEdge.from === node.id || selectedEdge.to === node.id);
+          const nodeStroke = isReplayNode
+            ? "#f5a623"
+            : isSelectedNode
+              ? "#f2f4f8"
+              : "rgba(255,255,255,0.16)";
+          const nodeStrokeWidth = isReplayNode || isSelectedNode ? "2" : "1";
+          const shortApp = truncateWord(node.app, 22);
+          const shortTitle = truncateWord(node.title, 22);
+
+          return `
+            <g class="sm-node-group">
+              <title>${escapeHtml(node.app)}: ${escapeHtml(node.title)}</title>
+              <rect x="${pos.x}" y="${pos.y}" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
+              <text x="${pos.x + 12}" y="${pos.y + 21}" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(shortApp)}</text>
+              <text x="${pos.x + 12}" y="${pos.y + 41}" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(shortTitle)}</text>
             </g>
           `;
         })
@@ -2887,7 +3258,8 @@
       svgGraphHtml = `
         <div class="sm-graph-wrap">
           <svg class="sm-svg" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Agent state machine screen transitions">
-            ${edgeRowsSvg}
+            ${edgesSvg}
+            ${nodesSvg}
           </svg>
         </div>
       `;
@@ -5034,6 +5406,18 @@
     }
   }
 
+  function renderSendErrorBanner() {
+    const errBanner = document.getElementById("send-error-banner");
+    if (!errBanner) return;
+    if (sendErrorText) {
+      errBanner.classList.remove("hidden");
+      errBanner.innerHTML = `<span class="state-text state-danger">&times; Failed &middot; ${escapeHtml(sendErrorText)}</span>`;
+    } else {
+      errBanner.classList.add("hidden");
+      errBanner.innerHTML = "";
+    }
+  }
+
   function renderNow() {
     const vm = getViewModel();
     if (!selectedTaskRunId && vm.taskGroups[0]) {
@@ -5042,17 +5426,7 @@
     renderHeaderAndProvenance(vm);
     renderConnectionBanner(vm);
     renderApprovalsStrip(vm);
-
-    const errBanner = document.getElementById("send-error-banner");
-    if (errBanner) {
-      if (sendErrorText) {
-        errBanner.classList.remove("hidden");
-        errBanner.innerHTML = `<span class="state-text state-danger">&times; Failed &middot; ${escapeHtml(sendErrorText)}</span>`;
-      } else {
-        errBanner.classList.add("hidden");
-        errBanner.innerHTML = "";
-      }
-    }
+    renderSendErrorBanner();
 
     if (currentView === "graph") {
       renderAgentGraphView(vm);
@@ -5191,8 +5565,9 @@
 
     const links = attachedItems.filter((a) => a.kind === "link").map((a) => a.url);
     const fullPrompt = links.length ? `${cleanPrompt}\n${links.join("\n")}` : cleanPrompt;
-    const fileItems = attachedItems.filter((a) => a.kind === "file");
+    const fileItems = attachedItems.filter((a) => a.kind !== "link");
     const attachedNames = attachedItems.map((a) => a.name).filter(Boolean);
+    const activeThreadId = selectedTaskRunId || "";
 
     try {
       let created;
@@ -5200,24 +5575,28 @@
         created = await Transport.request("POST", "/api/task", {
           prompt: fullPrompt,
           attachedNames,
+          ...(activeThreadId ? { thread: activeThreadId } : {}),
         });
       } else if (hasShellBridge()) {
         const filePaths = fileItems.map((f) => f.path).filter(Boolean);
         created = await Transport.request(
           "POST",
           "/api/task",
-          filePaths.length ? { prompt: fullPrompt, filePaths } : { jsonBody: { prompt: fullPrompt } }
+          filePaths.length
+            ? { prompt: fullPrompt, filePaths, ...(activeThreadId ? { thread: activeThreadId } : {}) }
+            : { jsonBody: { prompt: fullPrompt, ...(activeThreadId ? { thread: activeThreadId } : {}) } }
         );
       } else if (fileItems.length) {
         const fd = new FormData();
         fd.append("prompt", fullPrompt);
+        if (activeThreadId) fd.append("thread", activeThreadId);
         for (const item of fileItems) {
           if (item.file) fd.append("files", item.file, item.name);
         }
         created = await Transport.request("POST", "/api/task", { formData: fd });
       } else {
         created = await Transport.request("POST", "/api/task", {
-          jsonBody: { prompt: fullPrompt },
+          jsonBody: { prompt: fullPrompt, ...(activeThreadId ? { thread: activeThreadId } : {}) },
         });
       }
 
@@ -5477,32 +5856,136 @@
       promptInput.style.height = `${Math.min(80, Math.max(20, promptInput.scrollHeight))}px`;
     }
 
+    /* Attachment limits matching backend/computeranything/core/attach.py (3-image limit,
+       text inline up to 6000 chars, binary/PDF name-only unless text extracted) and
+       backend/computeranything/server.py (MAX_FILE = 50 MB). */
+    const ATTACHMENT_LIMITS = Object.freeze({
+      maxFileBytes: 50 * 1024 * 1024,
+      maxImages: 3,
+    });
+
+    function inferBrowserFileKind(file) {
+      const mime = String(file?.type || "").toLowerCase();
+      const name = String(file?.name || "").toLowerCase();
+      if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp)$/i.test(name)) {
+        return "image";
+      }
+      if (mime === "application/pdf" || name.endsWith(".pdf")) {
+        return "pdf";
+      }
+      if (
+        mime.startsWith("text/") ||
+        mime === "application/json" ||
+        /\.(txt|md|markdown|csv|tsv|json|yaml|yml|xml|log|py|js|ts|swift|html|css)$/i.test(name)
+      ) {
+        return "text";
+      }
+      return "other";
+    }
+
+    function formatAttachmentLabel(att, imageIdx) {
+      if (att.kind === "link") return "Link";
+      if (att.fileKind === "image") {
+        return imageIdx < ATTACHMENT_LIMITS.maxImages
+          ? "Agents see it"
+          : "Not sent · 3-image limit";
+      }
+      if (att.fileKind === "text") return "Agents read it";
+      if (att.fileKind === "pdf") {
+        if (att.textExtracted === true) {
+          const pages = Number(att.pageCount) || 0;
+          return pages > 0
+            ? `Agents read the text · ${pages} ${pages === 1 ? "page" : "pages"}`
+            : "Agents read the text";
+        }
+        return "Name only · agents can't open it yet";
+      }
+      return "Name only · agents can't open it yet";
+    }
+
     function renderAttachments() {
       if (!attachmentsList) return;
       if (!attachments.length) {
         attachmentsList.innerHTML = "";
         return;
       }
+      let imageIdx = 0;
       attachmentsList.innerHTML = attachments
-        .map(
-          (att, idx) => `
+        .map((att, idx) => {
+          const currentImgIdx = att.fileKind === "image" ? imageIdx++ : -1;
+          const label = formatAttachmentLabel(att, currentImgIdx);
+          const thumbHtml = att.thumbnail
+            ? `<img class="attachment-thumb" src="${escapeHtml(att.thumbnail)}" alt="" />`
+            : "";
+          return `
             <span class="attachment-token">
+              ${thumbHtml}
               <span class="attachment-name" title="${escapeHtml(att.name)}">${escapeHtml(att.name)}</span>
+              <span class="attachment-note">${escapeHtml(label)}</span>
               <button type="button" class="attachment-remove" data-remove-idx="${idx}" aria-label="Remove ${escapeHtml(att.name)}">&times;</button>
             </span>
-          `
-        )
+          `;
+        })
         .join("");
     }
 
     function addAttachments(items) {
+      const rejections = [];
       for (const item of items) {
         if (!item || !item.name) continue;
+        if (item.fileKind === "folder" || item.kind === "folder") {
+          rejections.push("Folders can't be attached · Drop the files inside");
+          continue;
+        }
+        if (typeof item.size === "number" && item.size > ATTACHMENT_LIMITS.maxFileBytes) {
+          rejections.push(`${item.name}: Over 50 MB · Not attached`);
+          continue;
+        }
         if (!attachments.some((a) => a.id === item.id)) {
           attachments.push(item);
         }
       }
+      if (rejections.length) {
+        sendErrorText = rejections[0];
+        renderSendErrorBanner();
+      }
       renderAttachments();
+    }
+
+    function normalizeShellFiles(files) {
+      return (files || []).map((f) => ({
+        id: `${f.path || ""}-${f.name || ""}`,
+        name: f.name || "file",
+        kind: f.kind === "folder" ? "folder" : "file",
+        fileKind: f.kind || "other",
+        path: f.path || "",
+        size: typeof f.size === "number" ? f.size : 0,
+        thumbnail: f.thumbnail || "",
+        pageCount: typeof f.pageCount === "number" ? f.pageCount : 0,
+        textExtracted: Boolean(f.textExtracted),
+      }));
+    }
+
+    function normalizeBrowserFiles(files) {
+      return (files || []).map((f, i) => {
+        const fileKind = inferBrowserFileKind(f);
+        const name = f.name || `photo-${Date.now()}-${i + 1}.png`;
+        const thumbnail =
+          fileKind === "image" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function"
+            ? URL.createObjectURL(f)
+            : "";
+        return {
+          id: `file-${name}-${f.size}-${i}`,
+          name,
+          kind: "file",
+          fileKind,
+          size: typeof f.size === "number" ? f.size : 0,
+          thumbnail,
+          textExtracted: false,
+          file: f,
+          objectUrl: thumbnail,
+        };
+      });
     }
 
     if (promptInput) {
@@ -5557,14 +6040,7 @@
         if (hasShellBridge()) {
           const picked = await Transport.pickFiles(kind);
           if (picked && picked.length) {
-            addAttachments(
-              picked.map((f) => ({
-                id: `${f.path}-${f.name}`,
-                name: f.name,
-                kind: "file",
-                path: f.path,
-              }))
-            );
+            addAttachments(normalizeShellFiles(picked));
           }
           return;
         }
@@ -5581,14 +6057,7 @@
     if (fileInput) {
       fileInput.addEventListener("change", () => {
         const files = Array.from(fileInput.files || []);
-        addAttachments(
-          files.map((f) => ({
-            id: `file-${f.name}-${f.size}`,
-            name: f.name,
-            kind: "file",
-            file: f,
-          }))
-        );
+        addAttachments(normalizeBrowserFiles(files));
         fileInput.value = "";
       });
     }
@@ -5618,11 +6087,75 @@
         if (!btn) return;
         const idx = Number(btn.dataset.removeIdx);
         if (!Number.isNaN(idx)) {
-          attachments.splice(idx, 1);
+          const [removed] = attachments.splice(idx, 1);
+          if (removed?.objectUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+            try {
+              URL.revokeObjectURL(removed.objectUrl);
+            } catch {
+              // Ignore object URL cleanup errors
+            }
+          }
           renderAttachments();
         }
       });
     }
+
+    if (promptForm) {
+      promptForm.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        promptForm.classList.add("drag-over");
+      });
+
+      promptForm.addEventListener("dragleave", (e) => {
+        if (!promptForm.contains(e.relatedTarget)) {
+          promptForm.classList.remove("drag-over");
+        }
+      });
+
+      promptForm.addEventListener("drop", (e) => {
+        e.preventDefault();
+        promptForm.classList.remove("drag-over");
+        if (!hasShellBridge()) {
+          const dtItems = Array.from(e.dataTransfer?.items || []);
+          const hasFolder = dtItems.some(
+            (it) => typeof it.webkitGetAsEntry === "function" && it.webkitGetAsEntry()?.isDirectory
+          );
+          if (hasFolder) {
+            sendErrorText = "Folders can't be attached · Drop the files inside";
+            renderSendErrorBanner();
+            return;
+          }
+          const files = Array.from(e.dataTransfer?.files || []);
+          if (files.length) {
+            addAttachments(normalizeBrowserFiles(files));
+            return;
+          }
+        }
+        const uri = e.dataTransfer?.getData("text/uri-list") || e.dataTransfer?.getData("text/plain");
+        if (uri && /^https?:\/\//i.test(uri.trim())) {
+          const clean = uri.trim();
+          addAttachments([{ id: `link-${clean}`, name: clean, kind: "link", url: clean }]);
+        }
+      });
+    }
+
+    if (promptInput) {
+      promptInput.addEventListener("paste", (e) => {
+        if (hasShellBridge()) return;
+        const files = Array.from(e.clipboardData?.files || []);
+        if (files.length) {
+          e.preventDefault();
+          addAttachments(normalizeBrowserFiles(files));
+        }
+      });
+    }
+
+    window.addEventListener("shell-event", (e) => {
+      const msg = e.detail || {};
+      if (msg.type === "filesDropped" && Array.isArray(msg.files)) {
+        addAttachments(normalizeShellFiles(msg.files));
+      }
+    });
 
     /* Delegated clicks across navigation & all 5 views */
     document.addEventListener("click", async (e) => {

@@ -1,0 +1,255 @@
+{
+  "agents": {
+    "r-loop-2": {
+      "name": "Iris",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C",
+      "greeted": true
+    },
+    "r-loop-3": {
+      "name": "Kestrel",
+      "color": "#C0DED0",
+      "edge": "#E6FFF0",
+      "ink": "#396C5A",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r-loop-1",
+      "goal": "Add USB-C dock to cart, recover from checkout error, and verify 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 9.4,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Completed cart retry loop and Calculator check"
+      }
+    },
+    {
+      "id": "r-loop-2",
+      "goal": "Add USB-C dock to cart and recover from checkout loop",
+      "role": "cu",
+      "parent": "r-loop-1",
+      "state": "done",
+      "elapsed": 6.1,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Returned to cart and verified USB-C dock quantity"
+      }
+    },
+    {
+      "id": "r-loop-3",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-loop-1",
+      "state": "done",
+      "elapsed": 3.3,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "2 + 3 = 5"
+      }
+    }
+  ],
+  "details": {
+    "r-loop-1": {
+      "id": "r-loop-1",
+      "goal": "Add USB-C dock to cart, recover from checkout error, and verify 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 9.4,
+      "n_events": 3,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.3, "kind": "route", "role": "cu", "app": "Safari", "goal": "Add USB-C dock to cart" },
+        { "t": 9.4, "kind": "result", "ok": true, "summary": "Completed cart retry loop and Calculator check" }
+      ],
+      "result": { "ok": true, "summary": "Completed cart retry loop and Calculator check" }
+    },
+    "r-loop-2": {
+      "id": "r-loop-2",
+      "goal": "Add USB-C dock to cart and recover from checkout loop",
+      "role": "cu",
+      "parent": "r-loop-1",
+      "state": "done",
+      "elapsed": 6.1,
+      "n_events": 4,
+      "events": [
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Iris", "msg_kind": "hello", "text": "Hi, I'm Iris!" },
+        { "t": 1.2, "kind": "act", "step": 1, "source": "llm", "agent": "Iris", "action": "click:button:add usb-c dock to hardware cart", "ok": true },
+        { "t": 3.1, "kind": "act", "step": 2, "source": "llm", "agent": "Iris", "action": "click:button:return to shopping cart", "ok": true },
+        { "t": 6.1, "kind": "result", "ok": true, "summary": "Returned to cart and verified USB-C dock quantity" }
+      ],
+      "result": { "ok": true, "summary": "Returned to cart and verified USB-C dock quantity" }
+    },
+    "r-loop-3": {
+      "id": "r-loop-3",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-loop-1",
+      "state": "done",
+      "elapsed": 3.3,
+      "n_events": 4,
+      "events": [
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Kestrel", "msg_kind": "hello", "text": "Hi, I'm Kestrel!" },
+        { "t": 0.8, "kind": "act", "step": 1, "source": "system", "agent": "Kestrel", "action": "open_app:running:calculator", "ok": true },
+        { "t": 2.1, "kind": "act", "step": 2, "source": "llm", "agent": "Kestrel", "action": "click:button:2 + 3 =", "ok": true },
+        { "t": 3.3, "kind": "result", "ok": true, "summary": "2 + 3 = 5" }
+      ],
+      "result": { "ok": true, "summary": "2 + 3 = 5" }
+    }
+  },
+  "help": [],
+  "transcripts": [
+    {
+      "id": 9101,
+      "ts": 1763149000.1,
+      "run": "r-loop-1",
+      "role": "user",
+      "agent": "ComputerAnything",
+      "kind": "prompt",
+      "text": "Add USB-C dock to cart, recover from checkout error, and verify 2 + 3 in Calculator",
+      "meta": { "attachments": ["order-spec.pdf", "receipt-photo.jpg"] }
+    }
+  ],
+  "actions": {
+    "total": 8,
+    "actions": [
+      {
+        "ts": 1763149001.0,
+        "run": "r-loop-2",
+        "agent": "Iris",
+        "app": "Safari",
+        "from": "Safari:07f5a759c6",
+        "action": "click:button:add usb-c dock to hardware cart",
+        "to": "Safari:a1b2c3d4e5",
+        "outcome": "ok",
+        "ms": 180,
+        "source": "llm"
+      },
+      {
+        "ts": 1763149002.2,
+        "run": "r-loop-2",
+        "agent": "Iris",
+        "app": "Safari",
+        "from": "Safari:a1b2c3d4e5",
+        "action": "click:button:proceed to checkout",
+        "to": "Safari:f6a7b8c9d0",
+        "outcome": "failed",
+        "ms": 240,
+        "source": "llm"
+      },
+      {
+        "ts": 1763149003.4,
+        "run": "r-loop-2",
+        "agent": "Iris",
+        "app": "Safari",
+        "from": "Safari:f6a7b8c9d0",
+        "action": "click:button:return to shopping cart",
+        "to": "Safari:a1b2c3d4e5",
+        "outcome": "ok",
+        "ms": 160,
+        "source": "memory"
+      },
+      {
+        "ts": 1763149004.5,
+        "run": "r-loop-2",
+        "agent": "Iris",
+        "app": "Safari",
+        "from": "Safari:a1b2c3d4e5",
+        "action": "click:button:sign out of admin account",
+        "to": "Safari:c0ffee1234",
+        "outcome": "denied",
+        "ms": 95,
+        "source": "gate"
+      },
+      {
+        "ts": 1763149005.1,
+        "run": "r-loop-3",
+        "agent": "Kestrel",
+        "app": "Calculator",
+        "from": "Calculator:?",
+        "action": "open_app:running:calculator",
+        "to": "Calculator:1122334455",
+        "outcome": "ok",
+        "ms": 210,
+        "source": "system"
+      },
+      {
+        "ts": 1763149006.0,
+        "run": "r-loop-3",
+        "agent": "Kestrel",
+        "app": "Calculator",
+        "from": "Calculator:1122334455",
+        "action": "click:button:2 + 3 =",
+        "to": "Calculator:6677889900",
+        "outcome": "ok",
+        "ms": 130,
+        "source": "llm"
+      },
+      {
+        "ts": 1763149006.8,
+        "run": "r-loop-3",
+        "agent": "Kestrel",
+        "app": "Calculator",
+        "from": "Calculator:6677889900",
+        "action": "done",
+        "to": "Calculator:9988776655",
+        "outcome": "done_verified",
+        "ms": 0,
+        "source": "llm",
+        "detail": "Calculator display reads 5"
+      }
+    ]
+  },
+  "graph": {
+    "screens": 7,
+    "transitions": 7,
+    "skills": 2,
+    "apps": ["Calculator", "Safari"],
+    "mean_edge_p": 0.667,
+    "destructive_edges": 1,
+    "actions_logged": 7,
+    "agents": ["Iris", "Kestrel"]
+  },
+  "analytics": {
+    "tasks": 1,
+    "cost_usd": 0.0124,
+    "llm_calls": 5,
+    "mean_cost_per_task": 0.0124,
+    "by_role": [
+      { "role": "orchestrator", "runs": 1, "ok": 1, "mean_seconds": 9.4 },
+      { "role": "cu", "runs": 2, "ok": 2, "mean_seconds": 4.7 }
+    ],
+    "by_purpose": [
+      { "purpose": "decide", "calls": 4, "cost_usd": 0.0096, "mean_ms": 180 },
+      { "purpose": "verify", "calls": 1, "cost_usd": 0.0028, "mean_ms": 110 }
+    ],
+    "by_app": [
+      { "app": "Safari", "actions": 4, "ok": 2, "failed": 1, "denied": 1 },
+      { "app": "Calculator", "actions": 3, "ok": 3, "failed": 0, "denied": 0 }
+    ]
+  },
+  "costs": {
+    "r-loop-1": {
+      "run": "r-loop-1",
+      "agents": 3,
+      "llm_calls": 5,
+      "prompt_tokens": 8200,
+      "completion_tokens": 940,
+      "cost_usd": 0.0124,
+      "model_seconds": 2.1,
+      "actions": { "ok": 5, "failed": 1, "denied": 1 },
+      "by_agent": [
+        { "agent": "Iris", "calls": 3, "cost": 0.0082, "ms": 1300 },
+        { "agent": "Kestrel", "calls": 2, "cost": 0.0042, "ms": 800 }
+      ]
+    }
+  }
+}
