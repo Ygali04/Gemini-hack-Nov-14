@@ -1,0 +1,2443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Workspace</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      /* Two surfaces only: app background and raised surface */
+      --bg-app: #0c0d10;
+      --bg-raised: #16181d;
+      --btn-hover: rgba(255, 255, 255, 0.07);
+      --btn-pressed: rgba(255, 255, 255, 0.04);
+      --line-divider: rgba(255, 255, 255, 0.08);
+      --focus-ring: #8a8f9e;
+
+      /* Text hierarchy */
+      --text-primary: #f2f4f8;
+      --text-secondary: #a6adbb;
+      --text-muted: #767d8e;
+
+      /* Primary ink button (only filled button in panel) */
+      --ink-fill: #f2f4f8;
+      --ink-fill-hover: #ffffff;
+      --ink-fill-pressed: #d5d9e2;
+      --ink-text: #0c0d10;
+
+      /* State colors (used only with symbol + word, never as region fill) */
+      --state-working: #4c8dff;
+      --state-success: #32d583;
+      --state-warning: #f5a623;
+      --state-danger: #ff5c6c;
+
+      /* Motion */
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --dur-enter: 180ms;
+      --dur-exit: 117ms;
+
+      /* Typography */
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      font-weight: 400;
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      background: var(--bg-app);
+      overflow-x: hidden;
+    }
+
+    html.is-shell,
+    body.is-shell {
+      background: transparent !important;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Neutral mid-tone focus ring (never blue) */
+    button:focus-visible,
+    textarea:focus-visible,
+    input:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 1.5px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    /* Overlay shell: the ONLY element with a shadow */
+    .notch-shell {
+      position: relative;
+      background: var(--bg-app);
+      border-bottom: 1px solid var(--line-divider);
+      border-left: 1px solid var(--line-divider);
+      border-right: 1px solid var(--line-divider);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+      overflow: hidden;
+      transform-origin: top center;
+      transition:
+        width var(--dur-enter) var(--ease-out),
+        height var(--dur-enter) var(--ease-out),
+        border-radius var(--dur-enter) var(--ease-out);
+    }
+
+    body[data-state="collapsed"] .notch-shell {
+      width: 280px;
+      height: 36px;
+      border-radius: 0 0 16px 16px;
+      transition:
+        width var(--dur-exit) var(--ease-out),
+        height var(--dur-exit) var(--ease-out),
+        border-radius var(--dur-exit) var(--ease-out);
+    }
+
+    body[data-state="expanded"] .notch-shell {
+      width: 480px;
+      height: var(--panel-height, 220px);
+      max-height: 600px;
+      border-radius: 0 0 16px 16px;
+    }
+
+    /* Instant open/close when keyboard-driven */
+    body.instant-motion .notch-shell,
+    body.instant-motion .pill-bar,
+    body.instant-motion .panel-view {
+      transition: none !important;
+    }
+
+    .notch-shell.drag-over {
+      background: var(--bg-raised);
+    }
+
+    /* ---------------- COLLAPSED PILL ---------------- */
+    .pill-bar {
+      width: 280px;
+      height: 36px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 12px;
+      line-height: 16px;
+      cursor: pointer;
+    }
+
+    .pill-bar:hover {
+      background: var(--btn-hover);
+    }
+
+    .pill-bar:active {
+      background: var(--btn-pressed);
+    }
+
+    body[data-state="expanded"] .pill-bar {
+      opacity: 0;
+      pointer-events: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      visibility: hidden;
+    }
+
+    .pill-status-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 256px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .pill-sub {
+      color: var(--text-secondary);
+      font-weight: 400;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pill-idle {
+      color: var(--text-primary);
+      font-weight: 400;
+    }
+
+    /* ---------------- EXPANDED PANEL ---------------- */
+    .panel-view {
+      width: 480px;
+      max-height: 600px;
+      display: flex;
+      flex-direction: column;
+      padding: 12px 16px 16px;
+      gap: 16px;
+    }
+
+    body[data-state="collapsed"] .panel-view {
+      position: absolute;
+      top: 0;
+      left: 0;
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+
+    body[data-state="expanded"] .panel-view {
+      position: relative;
+      opacity: 1;
+      pointer-events: auto;
+      visibility: visible;
+    }
+
+    /* ---------------- BUTTONS (Section 5) ---------------- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      height: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      padding: 0 8px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 400;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .btn:active:not(:disabled) {
+      background: var(--btn-pressed);
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-icon {
+      width: 28px;
+      padding: 0;
+    }
+
+    /* Primary button (Send): the ONLY filled button in the panel */
+    .btn-primary {
+      background: var(--ink-fill);
+      color: var(--ink-text);
+      font-weight: 600;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--ink-fill-hover);
+      color: var(--ink-text);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      background: var(--ink-fill-pressed);
+      color: var(--ink-text);
+    }
+
+    /* ---------------- PROMPT SURFACE (F1 fixed: hint only while empty, never over text) ---------------- */
+    .prompt-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+    }
+
+    .prompt-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+    }
+
+    .attach-wrapper {
+      position: relative;
+      display: inline-flex;
+      flex-shrink: 0;
+    }
+
+    .attach-menu {
+      position: absolute;
+      top: 32px;
+      left: 0;
+      z-index: 20;
+      background: var(--bg-raised);
+      border: 1px solid var(--line-divider);
+      border-radius: 8px;
+      padding: 4px;
+      display: none;
+      flex-direction: column;
+      min-width: 140px;
+    }
+
+    .attach-menu.open {
+      display: flex;
+    }
+
+    .attach-menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      height: 32px;
+      padding: 0 8px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-primary);
+      font: inherit;
+      font-size: 13px;
+      line-height: 20px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .attach-menu-item:hover {
+      background: var(--btn-hover);
+    }
+
+    .attach-menu-item:active {
+      background: var(--btn-pressed);
+    }
+
+    .prompt-field-wrap {
+      flex: 1;
+      min-width: 0;
+      min-height: 32px;
+      background: var(--bg-raised);
+      border-radius: 8px;
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prompt-textarea {
+      flex: 1;
+      min-width: 0;
+      height: 20px;
+      min-height: 20px;
+      max-height: 80px;
+      resize: none;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      outline: none !important;
+      overflow-y: auto;
+      user-select: text;
+    }
+
+    .prompt-textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* F1: Shown ONLY when field is empty, hidden immediately on any text */
+    .enter-action-hint {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+      pointer-events: none;
+    }
+
+    .prompt-field-wrap.has-text .enter-action-hint {
+      display: none;
+    }
+
+    .sample-tag {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    /* Inline Link attachment or Connect input row */
+    .inline-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+    }
+
+    .inline-input-row.hidden {
+      display: none;
+    }
+
+    .inline-text-input {
+      flex: 1;
+      min-width: 0;
+      height: 32px;
+      background: var(--bg-raised);
+      border: none;
+      border-radius: 8px;
+      padding: 0 8px;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      user-select: text;
+    }
+
+    .inline-text-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Attachment tokens: "photo.png ×" */
+    .attachments-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .attachments-list:empty {
+      display: none;
+    }
+
+    .attachment-token {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 28px;
+      padding: 0 8px;
+      border-radius: 8px;
+      background: var(--bg-raised);
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      max-width: 220px;
+    }
+
+    .attachment-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .attachment-remove {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 16px;
+      cursor: pointer;
+    }
+
+    .attachment-remove:hover {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .attachment-remove:active {
+      background: var(--btn-pressed);
+    }
+
+    /* ---------------- STATE TEXT & COLORS ---------------- */
+    .state-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .state-working { color: var(--state-working); }
+    .state-success { color: var(--state-success); }
+    .state-warning { color: var(--state-warning); }
+    .state-danger  { color: var(--state-danger); }
+    .state-neutral { color: var(--text-muted); }
+
+    /* ---------------- CONVERSATION TIMELINE ---------------- */
+    .timeline-scroll {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+      max-height: 460px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar,
+    .step-detail-mono::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar-thumb,
+    .step-detail-mono::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 4px;
+    }
+
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 32px;
+      width: 100%;
+    }
+
+    .timeline-row-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .timeline-fact {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .timeline-block {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--line-divider);
+      margin: 0;
+    }
+
+    /* Run Header */
+    .run-header {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line-divider);
+    }
+
+    .run-title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .run-title {
+      font-size: 15px;
+      line-height: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      word-break: break-word;
+    }
+
+    .run-elapsed {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    .run-outcome-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 28px;
+    }
+
+    .run-outcome-copy {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+      flex-wrap: wrap;
+    }
+
+    .run-summary-text {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      word-break: break-word;
+    }
+
+    .run-evidence-line {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      word-break: break-word;
+    }
+
+    /* Pending human help request inline inside timeline */
+    .help-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line-divider);
+    }
+
+    .help-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 32px;
+    }
+
+    .help-question {
+      font-size: 13px;
+      line-height: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      min-width: 0;
+      flex: 1;
+    }
+
+    .help-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .help-meta {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      word-break: break-word;
+    }
+
+    /* Steps list: flat rows separated by whitespace, no cards */
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .step-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      border-radius: 8px;
+    }
+
+    .step-row-btn {
+      width: 100%;
+      min-height: 32px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .step-row-btn:hover {
+      background: var(--btn-hover);
+    }
+
+    .step-row-btn:active {
+      background: var(--btn-pressed);
+    }
+
+    .step-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .step-actor {
+      font-size: 13px;
+      line-height: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      flex-shrink: 0;
+    }
+
+    .step-event-text {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
+    /* Expandable report / log detail */
+    .step-detail-mono {
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: var(--bg-raised);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--text-secondary);
+      max-height: 180px;
+      overflow-y: auto;
+      user-select: text;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Past runs inside timeline */
+    .past-runs-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line-divider);
+    }
+
+    .section-heading {
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 600;
+      color: var(--text-muted);
+      padding: 0 8px;
+    }
+
+    .past-run-btn {
+      width: 100%;
+      min-height: 32px;
+      padding: 0 8px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .past-run-btn:hover {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .past-run-btn:active {
+      background: var(--btn-pressed);
+    }
+
+    .past-run-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .past-run-instr {
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ---------------- SKELETON SHIMMER & HIGHLIGHT FADE ---------------- */
+    @keyframes shimmerMove {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .skeleton-line {
+      height: 16px;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.04) 25%,
+        rgba(255, 255, 255, 0.11) 50%,
+        rgba(255, 255, 255, 0.04) 75%
+      );
+      background-size: 200% 100%;
+      animation: shimmerMove 1.4s linear infinite;
+    }
+
+    @keyframes highlightFade {
+      0% { background-color: rgba(255, 255, 255, 0.09); }
+      100% { background-color: transparent; }
+    }
+
+    .changed-highlight {
+      animation: highlightFade 600ms ease-out forwards;
+    }
+
+    @keyframes heroStepEnter {
+      0% {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .step-enter {
+      animation: heroStepEnter var(--dur-enter) var(--ease-out) forwards;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .notch-shell {
+        transition: opacity 120ms ease !important;
+      }
+      .step-enter {
+        animation: highlightFade 120ms ease-out forwards !important;
+      }
+      .skeleton-line {
+        animation: none !important;
+        background: rgba(255, 255, 255, 0.07) !important;
+      }
+    }
+  </style>
+</head>
+<body data-state="collapsed">
+  <div id="notch-shell" class="notch-shell">
+    <!-- COLLAPSED PILL -->
+    <button type="button" id="pill-trigger" class="pill-bar" aria-label="Expand agent workspace">
+      <span id="pill-status-line" class="pill-status-line" aria-live="polite">
+        <span class="pill-idle">Ask your agents</span>
+      </span>
+    </button>
+
+    <!-- EXPANDED PANEL -->
+    <div id="panel-view" class="panel-view">
+      <form id="prompt-form" class="prompt-section">
+        <div class="prompt-row">
+          <div class="attach-wrapper">
+            <button
+              type="button"
+              id="attach-btn"
+              class="btn btn-icon"
+              aria-label="Add attachment"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              title="Add attachment"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3.2V12.8M3.2 8H12.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div id="attach-menu" class="attach-menu" role="menu" aria-label="Attachment options">
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="photo">Photo…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="video">Video…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="files">Files…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="link">Link…</button>
+            </div>
+          </div>
+
+          <input type="file" id="file-input" multiple hidden />
+
+          <div id="prompt-field-wrap" class="prompt-field-wrap">
+            <textarea
+              id="prompt-input"
+              class="prompt-textarea"
+              rows="1"
+              placeholder="Ask your agents…"
+              aria-label="Ask your agents"
+            ></textarea>
+            <span class="enter-action-hint">Enter &middot; send to agents</span>
+          </div>
+
+          <button type="submit" id="send-btn" class="btn btn-primary" aria-label="Send to agents">
+            <span>Send</span>
+          </button>
+
+          <button type="button" id="collapse-btn" class="btn" aria-label="Collapse workspace">
+            <span>Esc</span>
+          </button>
+        </div>
+
+        <div id="link-input-row" class="inline-input-row hidden">
+          <input
+            type="url"
+            id="link-input"
+            class="inline-text-input"
+            placeholder="https://example.com"
+            aria-label="Attachment link URL"
+          />
+          <button type="button" id="link-add-btn" class="btn">Add link</button>
+          <button type="button" id="link-cancel-btn" class="btn">Cancel</button>
+        </div>
+
+        <div id="attachments-list" class="attachments-list"></div>
+      </form>
+
+      <div id="sample-banner" class="timeline-row" style="display:none;">
+        <span class="sample-tag">Sample data</span>
+      </div>
+
+      <div id="timeline-scroll" class="timeline-scroll" role="log" aria-live="polite">
+        <div class="timeline-row">
+          <span class="state-text state-working">&hellip; Loading</span>
+          <div class="skeleton-line" style="flex: 1; max-width: 240px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const fixtureParam = params.get("fixture");
+      const queryToken = params.get("t") || "";
+      const hasShellBridge = () => Boolean(window.webkit?.messageHandlers?.shell);
+
+      if (hasShellBridge() || params.get("shell") === "notch") {
+        document.documentElement.classList.add("is-shell");
+        document.body.classList.add("is-shell");
+      }
+
+      if (params.get("state") === "expanded") {
+        document.body.dataset.state = "expanded";
+      }
+
+      /* ============================================================================
+         1. TRANSPORT LAYER (Shell Bridge | Same-Origin Fetch | Fixture Mode)
+         ============================================================================ */
+      const Transport = (function () {
+        let bridgeSeq = 1;
+        const pendingBridgeCalls = new Map();
+
+        /* Session-only connection state (never persisted to disk/localStorage) */
+        let sessionToken = queryToken;
+        let sessionBaseUrl = queryToken ? window.location.origin : "";
+        let fixtureState = null;
+
+        window.__notchBridgeReceive = function (msg) {
+          if (!msg || !msg.id) return;
+          const resolver = pendingBridgeCalls.get(msg.id);
+          if (resolver) {
+            pendingBridgeCalls.delete(msg.id);
+            resolver(msg);
+          }
+        };
+
+        function callShell(type, payload) {
+          return new Promise((resolve, reject) => {
+            if (!hasShellBridge()) {
+              reject(new Error("Shell unavailable"));
+              return;
+            }
+            const id = "b-" + bridgeSeq++;
+            pendingBridgeCalls.set(id, resolve);
+            try {
+              window.webkit.messageHandlers.shell.postMessage({
+                type,
+                id,
+                ...(payload || {}),
+              });
+            } catch (err) {
+              pendingBridgeCalls.delete(id);
+              reject(err);
+            }
+          });
+        }
+
+        function parseBackendAddress(raw) {
+          const trimmed = String(raw || "").trim();
+          if (!trimmed) {
+            return { ok: false, error: "Paste the address the backend printed" };
+          }
+          let parsed;
+          try {
+            parsed = new URL(trimmed);
+          } catch {
+            return { ok: false, error: "Address must be a valid URL with ?t=" };
+          }
+          const token = parsed.searchParams.get("t") || "";
+          if (!token) {
+            return { ok: false, error: "Address is missing ?t= token" };
+          }
+          return {
+            ok: true,
+            baseUrl: parsed.origin,
+            token,
+          };
+        }
+
+        async function init() {
+          if (fixtureParam) {
+            await loadFixture(fixtureParam);
+            return { connected: true, isSampleData: true };
+          }
+          if (hasShellBridge()) {
+            const cfg = await callShell("getConfig");
+            if (cfg && cfg.connected) {
+              sessionBaseUrl = cfg.baseUrl || "shell";
+              return { connected: true, isSampleData: false };
+            }
+            return { connected: false, isSampleData: false };
+          }
+          if (sessionToken && window.location.protocol.startsWith("http")) {
+            return { connected: true, isSampleData: false };
+          }
+          return { connected: false, isSampleData: false };
+        }
+
+        async function setConnection(rawUrl) {
+          if (hasShellBridge()) {
+            const res = await callShell("setConnection", { url: rawUrl });
+            if (!res || !res.ok) {
+              return { ok: false, error: res?.error || "Invalid address" };
+            }
+            sessionBaseUrl = res.baseUrl || "shell";
+            sessionToken = "shell-session";
+            return { ok: true };
+          }
+
+          const parsed = parseBackendAddress(rawUrl);
+          if (!parsed.ok) return parsed;
+
+          if (window.location.protocol.startsWith("http") && parsed.baseUrl !== window.location.origin) {
+            return {
+              ok: false,
+              error: "Browser origin differs; open " + parsed.baseUrl + "/?t=… directly or use desktop notch",
+            };
+          }
+
+          sessionBaseUrl = parsed.baseUrl;
+          sessionToken = parsed.token;
+          return { ok: true };
+        }
+
+        function clearConnection() {
+          sessionToken = "";
+          sessionBaseUrl = "";
+        }
+
+        function isConnected() {
+          if (fixtureParam) return Boolean(fixtureState);
+          return Boolean(sessionToken);
+        }
+
+        async function loadFixture(name) {
+          const safe = String(name || "").replace(/[^A-Za-z0-9_-]/g, "");
+          if (!safe) throw new Error("Invalid fixture name");
+          let rawText = "";
+          if (hasShellBridge()) {
+            const res = await callShell("readFixture", { name: safe });
+            if (!res || !res.ok) throw new Error("Sample data not found");
+            rawText = res.body || "";
+          } else {
+            const res = await fetch(`./fixtures/${safe}.json`, { cache: "no-store" });
+            if (!res.ok) throw new Error("Sample data not found");
+            rawText = await res.text();
+          }
+          const parsed = JSON.parse(rawText);
+          fixtureState = {
+            runs: Array.isArray(parsed.runs) ? parsed.runs : [],
+            details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
+            help: Array.isArray(parsed.help) ? parsed.help : [],
+          };
+        }
+
+        async function request(method, path, options = {}) {
+          if (fixtureParam) {
+            return handleFixtureRequest(method, path, options);
+          }
+
+          if (hasShellBridge()) {
+            const payload = { method, path };
+            if (options.filePaths && options.filePaths.length) {
+              payload.filePaths = options.filePaths;
+              payload.prompt = options.prompt || "";
+            } else if (options.jsonBody !== undefined) {
+              payload.body = JSON.stringify(options.jsonBody);
+            }
+            const res = await callShell("http", payload);
+            if (!res || res.status === 0) {
+              throw Object.assign(new Error(res?.error || "Not connected"), { code: "NETWORK" });
+            }
+            let data = null;
+            try {
+              data = res.body ? JSON.parse(res.body) : {};
+            } catch {
+              data = {};
+            }
+            if (!res.ok) {
+              throw Object.assign(new Error(data.error || `HTTP ${res.status}`), {
+                status: res.status,
+                code: res.status === 403 ? "AUTH" : "HTTP",
+              });
+            }
+            return data;
+          }
+
+          if (!sessionToken) {
+            throw Object.assign(new Error("Not connected"), { code: "AUTH" });
+          }
+
+          const fetchOpts = {
+            method,
+            headers: { "X-CA-Token": sessionToken },
+          };
+          if (options.formData) {
+            fetchOpts.body = options.formData;
+          } else if (options.jsonBody !== undefined) {
+            fetchOpts.headers["Content-Type"] = "application/json";
+            fetchOpts.body = JSON.stringify(options.jsonBody);
+          }
+
+          const res = await fetch(path, fetchOpts);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw Object.assign(new Error(data.error || `HTTP ${res.status}`), {
+              status: res.status,
+              code: res.status === 403 ? "AUTH" : "HTTP",
+            });
+          }
+          return data;
+        }
+
+        function handleFixtureRequest(method, path, options) {
+          if (!fixtureState) throw new Error("Sample data unavailable");
+          if (method === "GET" && path === "/api/runs") {
+            return JSON.parse(JSON.stringify(fixtureState.runs));
+          }
+          if (method === "GET" && path.startsWith("/api/runs/")) {
+            const idPart = path.slice("/api/runs/".length).split("?")[0];
+            const detail = fixtureState.details[idPart] || fixtureState.runs.find((r) => r.id === idPart);
+            if (!detail) throw new Error("Run not found");
+            return JSON.parse(JSON.stringify(detail));
+          }
+          if (method === "GET" && path === "/api/help") {
+            return JSON.parse(JSON.stringify(fixtureState.help.filter((h) => h.answer == null)));
+          }
+          if (method === "POST" && path.startsWith("/api/help/")) {
+            const hid = path.slice("/api/help/".length);
+            const choice = options.jsonBody?.choice;
+            const item = fixtureState.help.find((h) => h.id === hid);
+            if (!item || !item.options.includes(choice)) {
+              throw new Error("Invalid choice");
+            }
+            item.answer = choice;
+            const targetRun = fixtureState.runs.find((r) => r.id === item.run);
+            const targetDetail = fixtureState.details[item.run];
+            const isApprove = choice === item.options[0];
+            if (targetRun) {
+              targetRun.state = isApprove ? "done" : "failed";
+              targetRun.result = {
+                ok: isApprove,
+                summary: isApprove ? "Completed after approval" : "Stopped: denied by user",
+              };
+            }
+            if (targetDetail) {
+              targetDetail.state = targetRun ? targetRun.state : "done";
+              targetDetail.events.push({
+                t: (targetDetail.elapsed || 9) + 1,
+                kind: "help_answer",
+                id: hid,
+                answer: choice,
+                timed_out: false,
+              });
+              targetDetail.result = targetRun?.result || null;
+            }
+            const parent = targetRun?.parent
+              ? fixtureState.runs.find((r) => r.id === targetRun.parent)
+              : null;
+            if (parent) {
+              parent.state = isApprove ? "done" : "failed";
+              parent.result = {
+                ok: isApprove,
+                summary: isApprove ? "Completed after approval" : "Stopped: denied by user",
+              };
+            }
+            return { ok: true };
+          }
+          if (method === "POST" && path === "/api/task") {
+            const promptText = options.prompt || options.jsonBody?.prompt || "New task";
+            const newId = "r-sample-" + Date.now();
+            const parentRun = {
+              id: newId,
+              goal: promptText,
+              role: "orchestrator",
+              parent: null,
+              state: "planning",
+              elapsed: 0.1,
+              n_events: 1,
+              result: null,
+            };
+            fixtureState.runs.unshift(parentRun);
+            fixtureState.details[newId] = {
+              ...parentRun,
+              events: [{ t: 0.1, kind: "state", state: "planning" }],
+            };
+            return { run: newId };
+          }
+          throw new Error("Unsupported path in sample data");
+        }
+
+        async function pickFiles(kind) {
+          if (!hasShellBridge()) return null;
+          const res = await callShell("pickFiles", { kind });
+          return Array.isArray(res?.files) ? res.files : [];
+        }
+
+        return {
+          init,
+          setConnection,
+          clearConnection,
+          isConnected,
+          request,
+          pickFiles,
+        };
+      })();
+
+      /* ============================================================================
+         2. SINGLE ADAPTER (Maps upstream /api/* shapes -> ViewModel; views read ONLY ViewModel)
+         ============================================================================ */
+      const WorkspaceAdapter = (function () {
+        function formatSeconds(sec) {
+          const n = Math.max(0, Number(sec) || 0);
+          if (n < 1) return "<1s";
+          if (n < 10) return `${n.toFixed(1)}s`;
+          const whole = Math.round(n);
+          if (whole < 60) return `${whole}s`;
+          const mins = Math.floor(whole / 60);
+          const rem = whole % 60;
+          return `${mins}m ${String(rem).padStart(2, "0")}s`;
+        }
+
+        function sentenceCase(text) {
+          const s = String(text || "").trim();
+          if (!s) return "";
+          return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        function actorLabelForRole(role) {
+          if (role === "qa") return "QA agent";
+          if (role === "dev") return "Dev agent";
+          if (role === "cu") return "Computer use agent";
+          if (role === "marketing") return "Marketing agent";
+          return "Agent";
+        }
+
+        function summarizeEventPlain(ev) {
+          if (!ev || typeof ev !== "object") return "";
+          switch (ev.kind) {
+            case "state":
+              if (ev.state === "planning") return "Planning next steps";
+              if (ev.state === "acting") return "Working";
+              if (ev.state === "awaiting_human") return "Waiting for your answer";
+              if (ev.state === "done") return "Finished";
+              if (ev.state === "failed") return "Stopped";
+              return "";
+            case "route":
+              return `Assigned to ${actorLabelForRole(ev.role)}`;
+            case "app_ready":
+              return ev.app ? `Opened ${ev.app}` : "Opened app";
+            case "memory":
+              return ev.msg ? sentenceCase(ev.msg) : "Replaying saved steps";
+            case "decide":
+              return ev.thought ? sentenceCase(ev.thought) : (ev.action ? `Next action: ${ev.action}` : "Choosing next step");
+            case "act":
+              return ev.action ? `Action: ${String(ev.action).replace(":", " ")}` : "Performed action";
+            case "verify":
+              if (ev.achieved) {
+                return ev.evidence ? `Verified: ${ev.evidence}` : "Verified goal on screen";
+              }
+              return ev.evidence ? `Not verified yet: ${ev.evidence}` : "Verification check failed";
+            case "tests":
+              return ev.exit === 0
+                ? `Tests passed (round ${ev.round || 1})`
+                : `Tests failed (round ${ev.round || 1})`;
+            case "ui_check":
+              return ev.summary ? sentenceCase(ev.summary) : (ev.ok ? "UI check passed" : "UI check found issues");
+            case "bug_report": {
+              const count = Array.isArray(ev.bugs) ? ev.bugs.length : 0;
+              if (count === 0) return `Round ${ev.round || 1}: no bugs found`;
+              return `Round ${ev.round || 1}: found ${count} bug${count === 1 ? "" : "s"}`;
+            }
+            case "patch":
+              if (ev.applied === false) {
+                return ev.error && /denied/i.test(ev.error)
+                  ? "Patch denied · Nothing was changed."
+                  : "Patch not applied · Nothing was changed.";
+              }
+              return ev.explanation ? `Applied fix: ${ev.explanation}` : "Applied patch";
+            case "commit":
+              return ev.ok ? "Committed fix" : "Could not commit fix";
+            case "help":
+              return ev.question ? `Asked: ${ev.question}` : "Waiting for approval";
+            case "help_answer":
+              return `Answered: ${sentenceCase(ev.answer || "")}${ev.timed_out ? " (timed out)" : ""}`;
+            case "artifact":
+              return ev.tagline ? `Created brief: ${ev.tagline}` : "Saved output";
+            case "tour":
+              return ev.summary ? sentenceCase(ev.summary) : `Captured screen ${ev.step || ""}`.trim();
+            case "warn":
+              return ev.error ? sentenceCase(ev.error) : "Warning";
+            case "error":
+              return ev.error || ev.msg ? sentenceCase(ev.error || ev.msg) : "Error occurred";
+            case "result":
+              return ev.summary ? sentenceCase(ev.summary) : "";
+            default:
+              return "";
+          }
+        }
+
+        function formatStepDetails(run, events) {
+          const lines = [];
+          for (const ev of events) {
+            const line = summarizeEventPlain(ev);
+            if (line) {
+              lines.push(line);
+            }
+            if (ev.kind === "bug_report" && Array.isArray(ev.bugs)) {
+              for (const b of ev.bugs) {
+                lines.push(`  - [${b.severity || "issue"}] ${b.title}${b.evidence ? ` (${b.evidence})` : ""}`);
+              }
+            }
+            if (ev.kind === "patch" && ev.diff) {
+              lines.push(ev.diff);
+            }
+            if (ev.kind === "patch" && ev.applied === false && ev.error) {
+              lines.push(`  Reason: ${ev.error} · Nothing was changed.`);
+            }
+          }
+          if (!lines.length && run.result?.summary) {
+            lines.push(sentenceCase(run.result.summary));
+          }
+          return lines;
+        }
+
+        function extractVerificationEvidence(allRunsInGroup, detailsById) {
+          for (const r of allRunsInGroup) {
+            const detail = detailsById[r.id];
+            const evs = Array.isArray(detail?.events) ? detail.events : [];
+            const verified = [...evs].reverse().find((e) => e.kind === "verify" && e.achieved && e.evidence);
+            if (verified) return String(verified.evidence).trim();
+          }
+          return "";
+        }
+
+        function hasUnappliedPatch(allRunsInGroup, detailsById) {
+          for (const r of allRunsInGroup) {
+            const detail = detailsById[r.id];
+            const evs = Array.isArray(detail?.events) ? detail.events : [];
+            const unapplied = [...evs].reverse().find((e) => e.kind === "patch" && e.applied === false);
+            if (unapplied) return unapplied;
+          }
+          return null;
+        }
+
+        function cleanFailureFact(rawSummary) {
+          const text = String(rawSummary || "").trim();
+          if (!text) return "Stopped before finishing";
+          const withoutRepo = text.replace(/^QA\s+\S+:\s*/i, "");
+          return sentenceCase(withoutRepo);
+        }
+
+        function mapStep(childRun, detail, pendingHelpForChild) {
+          const events = Array.isArray(detail?.events) ? detail.events : [];
+          const actorLabel = actorLabelForRole(childRun.role);
+          const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
+          const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
+
+          let stateSymbolWord = "▶ Running";
+          let stateColorClass = "state-working";
+          let isWorking = false;
+
+          if (pendingHelpForChild.length || childRun.state === "awaiting_human") {
+            stateSymbolWord = "◔ Needs approval";
+            stateColorClass = "state-warning";
+          } else if (childRun.state === "queued" || childRun.state === "planning") {
+            stateSymbolWord = "▶ Running";
+            stateColorClass = "state-working";
+            isWorking = true;
+          } else if (childRun.state === "acting") {
+            stateSymbolWord = "▶ Running";
+            stateColorClass = "state-working";
+            isWorking = true;
+          } else if (childRun.state === "done" && childRun.result?.ok === true) {
+            stateSymbolWord = "✓ Verified";
+            stateColorClass = "state-success";
+          } else if (childRun.state === "failed" || (childRun.state === "done" && childRun.result?.ok === false)) {
+            stateSymbolWord = "× Failed";
+            stateColorClass = "state-danger";
+          } else {
+            stateSymbolWord = "◔ Finished, not verified";
+            stateColorClass = "state-warning";
+          }
+
+          /* Latest meaningful event in plain words */
+          let latestSummary = "";
+          if (unappliedPatch && (childRun.state === "failed" || childRun.role === "dev")) {
+            latestSummary = summarizeEventPlain(unappliedPatch);
+          } else {
+            for (let i = events.length - 1; i >= 0; i--) {
+              const candidate = summarizeEventPlain(events[i]);
+              if (candidate && candidate !== "Finished" && candidate !== "Stopped" && candidate !== "Working") {
+                latestSummary = candidate;
+                break;
+              }
+            }
+          }
+          if (!latestSummary) {
+            if (verifiedEvent?.evidence) {
+              latestSummary = `Verified: ${verifiedEvent.evidence}`;
+            } else if (childRun.result?.summary) {
+              latestSummary = sentenceCase(childRun.result.summary);
+            } else if (isWorking) {
+              latestSummary = "Working…";
+            }
+          }
+
+          const detailLines = formatStepDetails(childRun, events);
+
+          return {
+            id: childRun.id,
+            actorLabel,
+            stateSymbolWord,
+            stateColorClass,
+            latestSummary,
+            detailLines,
+            hasDetails: detailLines.length > 0 || isWorking,
+            isWorking,
+          };
+        }
+
+        function mapRuns(rawRuns, detailsById, pendingHelpList, meta) {
+          const runsList = Array.isArray(rawRuns) ? rawRuns : [];
+          const helpList = Array.isArray(pendingHelpList) ? pendingHelpList : [];
+          const byId = new Map(runsList.map((r) => [r.id, r]));
+
+          /* Group child runs under parent orchestrator runs */
+          const parents = runsList.filter((r) => !r.parent || !byId.has(r.parent));
+          const childrenByParent = new Map();
+          for (const r of runsList) {
+            if (r.parent && byId.has(r.parent)) {
+              if (!childrenByParent.has(r.parent)) childrenByParent.set(r.parent, []);
+              childrenByParent.get(r.parent).push(r);
+            }
+          }
+
+          const mappedRuns = parents.map((parent) => {
+            const rawChildren = [...(childrenByParent.get(parent.id) || [])].reverse();
+            const groupRuns = [parent, ...rawChildren];
+            const groupRunIds = new Set(groupRuns.map((r) => r.id));
+
+            const pendingHelp = helpList
+              .filter((h) => groupRunIds.has(h.run) && h.answer == null)
+              .map((h) => ({
+                id: h.id,
+                question: h.question || "Approval needed",
+                options: Array.isArray(h.options) && h.options.length ? h.options : ["approve", "deny"],
+                detail: h.detail ? String(h.detail) : "",
+                timeoutNote: "No answer in 5m declines this.",
+              }));
+
+            const steps = (rawChildren.length ? rawChildren : [parent]).map((child) => {
+              const childHelp = helpList.filter((h) => h.run === child.id && h.answer == null);
+              return mapStep(child, detailsById[child.id], childHelp);
+            });
+
+            const evidenceText = extractVerificationEvidence(groupRuns, detailsById);
+            const unappliedPatch = hasUnappliedPatch(groupRuns, detailsById);
+
+            /* Truth rules (Requirement 4):
+               "✓ Verified" ONLY when parent run is done AND result.ok === true. */
+            let state = "working"; // "working" | "waiting" | "verified" | "failed"
+            let stateSymbolWord = "▶ Running";
+            let stateFact = "";
+            let stateColorClass = "state-working";
+
+            if (pendingHelp.length > 0 || parent.state === "awaiting_human" || rawChildren.some((c) => c.state === "awaiting_human")) {
+              state = "waiting";
+              stateSymbolWord = "◔ Needs approval";
+              stateFact = pendingHelp[0]?.question || "Waiting for your answer";
+              stateColorClass = "state-warning";
+            } else if (parent.state === "queued" || parent.state === "planning" || parent.state === "acting") {
+              state = "working";
+              stateSymbolWord = "▶ Running";
+              const activeChild = steps.find((s) => s.isWorking);
+              stateFact = activeChild ? activeChild.actorLabel : "Planning";
+              stateColorClass = "state-working";
+            } else if (parent.state === "done" && parent.result?.ok === true) {
+              state = "verified";
+              stateSymbolWord = "✓ Verified";
+              stateFact = cleanFailureFact(parent.result.summary) || "All checks passed";
+              stateColorClass = "state-success";
+            } else if (parent.state === "failed" || (parent.state === "done" && parent.result?.ok === false)) {
+              state = "failed";
+              stateSymbolWord = "× Failed";
+              const baseSummary = cleanFailureFact(parent.result?.summary);
+              stateFact = unappliedPatch
+                ? `${baseSummary} · Nothing was changed.`
+                : baseSummary;
+              stateColorClass = "state-danger";
+            } else {
+              state = "failed";
+              stateSymbolWord = "× Failed";
+              stateFact = "Run stopped without a verified result";
+              stateColorClass = "state-danger";
+            }
+
+            return {
+              id: parent.id,
+              goal: parent.goal || "Untitled run",
+              elapsedText: formatSeconds(parent.elapsed),
+              state,
+              stateSymbolWord,
+              stateFact,
+              stateColorClass,
+              evidenceText,
+              steps,
+              pendingHelp,
+            };
+          });
+
+          return {
+            connectionStatus: meta.connectionStatus,
+            connectionError: meta.connectionError || "",
+            isSampleData: Boolean(meta.isSampleData),
+            runs: mappedRuns,
+          };
+        }
+
+        return { mapRuns };
+      })();
+
+      /* ============================================================================
+         3. APPLICATION STATE & UI CONTROLLER (Reads ONLY WorkspaceAdapter ViewModel)
+         ============================================================================ */
+      const notchShell = document.getElementById("notch-shell");
+      const pillTrigger = document.getElementById("pill-trigger");
+      const pillStatusLine = document.getElementById("pill-status-line");
+      const panelView = document.getElementById("panel-view");
+      const collapseBtn = document.getElementById("collapse-btn");
+      const promptForm = document.getElementById("prompt-form");
+      const promptFieldWrap = document.getElementById("prompt-field-wrap");
+      const promptInput = document.getElementById("prompt-input");
+      const attachBtn = document.getElementById("attach-btn");
+      const attachMenu = document.getElementById("attach-menu");
+      const fileInput = document.getElementById("file-input");
+      const linkInputRow = document.getElementById("link-input-row");
+      const linkInput = document.getElementById("link-input");
+      const linkAddBtn = document.getElementById("link-add-btn");
+      const linkCancelBtn = document.getElementById("link-cancel-btn");
+      const attachmentsList = document.getElementById("attachments-list");
+      const sampleBanner = document.getElementById("sample-banner");
+      const timelineScroll = document.getElementById("timeline-scroll");
+
+      /* Each attachment item: { id, name, kind: "file" | "link", file?: File, path?: string, url?: string } */
+      let attachments = [];
+      let rawRuns = [];
+      let detailsById = {};
+      let pendingHelp = [];
+      let optimisticRuns = [];
+      let sendErrorText = "";
+      let connectionStatus = "loading"; // "loading" | "disconnected" | "stale" | "connected"
+      let connectionError = "";
+      let isSampleData = false;
+      let hasLoadedOnce = false;
+      let selectedRunId = null;
+      let latestSeenRunId = null;
+      const expandedStepIds = new Set();
+      const knownStepFingerprints = new Map();
+      const highlightedStepIds = new Set();
+      let lastPostedResize = { width: 0, height: 0, state: "" };
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function getCurrentState() {
+        return document.body.dataset.state === "expanded" ? "expanded" : "collapsed";
+      }
+
+      function syncSizeAndBridge(forcePost = false, instant = false) {
+        const state = getCurrentState();
+        let width = 280;
+        let height = 36;
+
+        if (state === "expanded") {
+          width = 480;
+          const naturalHeight = panelView.scrollHeight;
+          height = Math.min(600, Math.max(150, Math.ceil(naturalHeight)));
+          notchShell.style.setProperty("--panel-height", `${height}px`);
+        }
+
+        if (
+          forcePost ||
+          lastPostedResize.width !== width ||
+          lastPostedResize.height !== height ||
+          lastPostedResize.state !== state
+        ) {
+          lastPostedResize = { width, height, state };
+          if (hasShellBridge()) {
+            try {
+              window.webkit.messageHandlers.shell.postMessage({
+                type: "resize",
+                width,
+                height,
+                state,
+                instant: Boolean(instant),
+              });
+            } catch {
+              // Ignore bridge errors
+            }
+          }
+        }
+      }
+
+      function setState(nextState, options = {}) {
+        const { instant = false } = options;
+        const normalized = nextState === "expanded" ? "expanded" : "collapsed";
+        if (instant) {
+          document.body.classList.add("instant-motion");
+        } else {
+          document.body.classList.remove("instant-motion");
+        }
+        document.body.dataset.state = normalized;
+        closeAttachMenu();
+        syncSizeAndBridge(true, instant);
+
+        if (normalized === "expanded") {
+          requestAnimationFrame(() => {
+            if (connectionStatus === "disconnected") {
+              const connectInput = document.getElementById("connect-url-input");
+              if (connectInput) connectInput.focus();
+            } else {
+              promptInput.focus();
+            }
+            syncSizeAndBridge(false, instant);
+          });
+        }
+      }
+
+      pillTrigger.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setState("expanded", { instant: true });
+        }
+      });
+
+      pillTrigger.addEventListener("click", (e) => {
+        setState("expanded", { instant: e.detail === 0 });
+      });
+
+      collapseBtn.addEventListener("click", (e) => {
+        setState("collapsed", { instant: e.detail === 0 });
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Escape") {
+          if (attachMenu.classList.contains("open")) {
+            e.preventDefault();
+            closeAttachMenu();
+            attachBtn.focus();
+            return;
+          }
+          if (!linkInputRow.classList.contains("hidden")) {
+            e.preventDefault();
+            closeLinkInput();
+            attachBtn.focus();
+            return;
+          }
+          if (getCurrentState() === "expanded") {
+            e.preventDefault();
+            setState("collapsed", { instant: true });
+          }
+        }
+      });
+
+      /* F1: Toggle .has-text immediately so hint hides the moment user types */
+      function syncPromptFieldState() {
+        promptFieldWrap.classList.toggle("has-text", promptInput.value.length > 0);
+        promptInput.style.height = "20px";
+        promptInput.style.height = `${Math.min(80, Math.max(20, promptInput.scrollHeight))}px`;
+        syncSizeAndBridge();
+      }
+
+      promptInput.addEventListener("input", syncPromptFieldState);
+      promptInput.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          promptForm.requestSubmit();
+        }
+      });
+
+      /* ---------------- ATTACHMENTS ---------------- */
+      function closeAttachMenu() {
+        attachMenu.classList.remove("open");
+        attachBtn.setAttribute("aria-expanded", "false");
+      }
+
+      function closeLinkInput() {
+        linkInputRow.classList.add("hidden");
+        linkInput.value = "";
+        syncSizeAndBridge();
+      }
+
+      attachBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const willOpen = !attachMenu.classList.contains("open");
+        attachMenu.classList.toggle("open", willOpen);
+        attachBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        syncSizeAndBridge();
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!attachMenu.contains(e.target) && e.target !== attachBtn) {
+          closeAttachMenu();
+        }
+      });
+
+      attachMenu.addEventListener("click", async (e) => {
+        const item = e.target.closest("[data-attach-kind]");
+        if (!item) return;
+        const kind = item.dataset.attachKind;
+        closeAttachMenu();
+
+        if (kind === "link") {
+          linkInputRow.classList.remove("hidden");
+          syncSizeAndBridge();
+          requestAnimationFrame(() => linkInput.focus());
+          return;
+        }
+
+        if (hasShellBridge()) {
+          const picked = await Transport.pickFiles(kind);
+          if (picked && picked.length) {
+            addAttachments(
+              picked.map((f) => ({
+                id: `${f.path}-${f.name}`,
+                name: f.name,
+                kind: "file",
+                path: f.path,
+              }))
+            );
+          }
+          return;
+        }
+
+        if (kind === "photo") {
+          fileInput.setAttribute("accept", "image/*");
+        } else if (kind === "video") {
+          fileInput.setAttribute("accept", "video/*");
+        } else {
+          fileInput.removeAttribute("accept");
+        }
+        fileInput.click();
+      });
+
+      linkAddBtn.addEventListener("click", () => {
+        const val = linkInput.value.trim();
+        if (val) {
+          addAttachments([{ id: `link-${val}`, name: val, kind: "link", url: val }]);
+        }
+        closeLinkInput();
+      });
+
+      linkCancelBtn.addEventListener("click", closeLinkInput);
+
+      linkInput.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          linkAddBtn.click();
+        }
+      });
+
+      function addAttachments(items) {
+        let changed = false;
+        for (const item of items) {
+          if (!item || !item.name) continue;
+          if (!attachments.some((a) => a.id === item.id)) {
+            attachments.push(item);
+            changed = true;
+          }
+        }
+        if (changed) {
+          renderAttachments();
+          syncSizeAndBridge();
+        }
+      }
+
+      function renderAttachments() {
+        if (!attachments.length) {
+          attachmentsList.innerHTML = "";
+          return;
+        }
+        attachmentsList.innerHTML = attachments
+          .map(
+            (att, idx) => `
+              <span class="attachment-token">
+                <span class="attachment-name" title="${escapeHtml(att.name)}">${escapeHtml(att.name)}</span>
+                <button type="button" class="attachment-remove" data-remove-idx="${idx}" aria-label="Remove ${escapeHtml(att.name)}">&times;</button>
+              </span>
+            `
+          )
+          .join("");
+      }
+
+      attachmentsList.addEventListener("click", (e) => {
+        const removeBtn = e.target.closest("[data-remove-idx]");
+        if (!removeBtn) return;
+        const idx = Number(removeBtn.dataset.removeIdx);
+        if (!Number.isNaN(idx)) {
+          attachments.splice(idx, 1);
+          renderAttachments();
+          syncSizeAndBridge();
+        }
+      });
+
+      fileInput.addEventListener("change", () => {
+        const files = Array.from(fileInput.files || []);
+        addAttachments(
+          files.map((f) => ({
+            id: `file-${f.name}-${f.size}`,
+            name: f.name,
+            kind: "file",
+            file: f,
+          }))
+        );
+        fileInput.value = "";
+      });
+
+      notchShell.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        if (getCurrentState() === "collapsed") setState("expanded");
+        notchShell.classList.add("drag-over");
+      });
+
+      notchShell.addEventListener("dragleave", (e) => {
+        if (!notchShell.contains(e.relatedTarget)) {
+          notchShell.classList.remove("drag-over");
+        }
+      });
+
+      notchShell.addEventListener("drop", (e) => {
+        e.preventDefault();
+        notchShell.classList.remove("drag-over");
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length && !hasShellBridge()) {
+          addAttachments(
+            files.map((f) => ({
+              id: `file-${f.name}-${f.size}`,
+              name: f.name,
+              kind: "file",
+              file: f,
+            }))
+          );
+          return;
+        }
+        const uri = e.dataTransfer?.getData("text/uri-list") || e.dataTransfer?.getData("text/plain");
+        if (uri && /^https?:\/\//i.test(uri.trim())) {
+          const clean = uri.trim();
+          addAttachments([{ id: `link-${clean}`, name: clean, kind: "link", url: clean }]);
+        }
+      });
+
+      window.addEventListener("paste", (e) => {
+        const files = Array.from(e.clipboardData?.files || []);
+        if (files.length && !hasShellBridge()) {
+          addAttachments(
+            files.map((f, i) => {
+              const name = f.name || `photo-${Date.now()}-${i + 1}.png`;
+              return { id: `paste-${name}-${f.size}`, name, kind: "file", file: f };
+            })
+          );
+        }
+      });
+
+      /* ---------------- SUBMIT PROMPT ---------------- */
+      async function submitTask(rawPrompt, attachedItems) {
+        sendErrorText = "";
+        const links = attachedItems.filter((a) => a.kind === "link").map((a) => a.url);
+        const fullPrompt = links.length ? `${rawPrompt}\n${links.join("\n")}` : rawPrompt;
+        const fileItems = attachedItems.filter((a) => a.kind === "file");
+
+        const tempId = `optimistic-${Date.now()}`;
+        optimisticRuns.push({
+          id: tempId,
+          goal: rawPrompt,
+          role: "orchestrator",
+          parent: null,
+          state: "planning",
+          elapsed: 0,
+          n_events: 0,
+          result: null,
+        });
+        selectedRunId = tempId;
+        renderNow();
+
+        try {
+          let created;
+          if (hasShellBridge()) {
+            const filePaths = fileItems.map((f) => f.path).filter(Boolean);
+            created = await Transport.request("POST", "/api/task", filePaths.length
+              ? { prompt: fullPrompt, filePaths }
+              : { jsonBody: { prompt: fullPrompt } }
+            );
+          } else if (fileItems.length) {
+            const fd = new FormData();
+            fd.append("prompt", fullPrompt);
+            for (const item of fileItems) {
+              if (item.file) fd.append("files", item.file, item.name);
+            }
+            created = await Transport.request("POST", "/api/task", { formData: fd });
+          } else {
+            created = await Transport.request("POST", "/api/task", {
+              jsonBody: { prompt: fullPrompt },
+            });
+          }
+
+          optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+          if (created?.run) {
+            selectedRunId = created.run;
+          }
+          await pollAll();
+        } catch (err) {
+          optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+          if (err.code === "AUTH") {
+            Transport.clearConnection();
+            connectionStatus = "disconnected";
+            connectionError = "Token rejected · Paste the address again";
+          } else {
+            sendErrorText = err.message || "Could not send task";
+          }
+          renderNow();
+        }
+      }
+
+      promptForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const prompt = promptInput.value.trim();
+        if (!prompt) return;
+
+        if (!Transport.isConnected()) {
+          connectionStatus = "disconnected";
+          connectionError = "Paste the address the backend printed";
+          renderNow();
+          return;
+        }
+
+        const currentAttachments = [...attachments];
+        promptInput.value = "";
+        attachments = [];
+        renderAttachments();
+        syncPromptFieldState();
+
+        submitTask(prompt, currentAttachments);
+      });
+
+      /* ---------------- VIEW RENDERING (Reads ONLY WorkspaceAdapter ViewModel) ---------------- */
+      function renderPill(vm) {
+        if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+          pillStatusLine.innerHTML = `<span class="state-text state-working">&hellip; Loading</span>`;
+          return;
+        }
+
+        if (vm.connectionStatus === "disconnected") {
+          pillStatusLine.innerHTML = `<span class="state-text state-warning">&oslash; Not connected</span>`;
+          return;
+        }
+
+        const latest = vm.runs[0] || null;
+        if (!latest) {
+          pillStatusLine.innerHTML = `<span class="pill-idle">Ask your agents</span>`;
+          return;
+        }
+
+        /* F2 & F3: No fake "Run again" action in pill; only symbol + word get state color */
+        const fact = latest.stateFact ? `<span class="pill-sub">&middot; ${escapeHtml(latest.stateFact)}</span>` : "";
+        pillStatusLine.innerHTML = `
+          <span class="state-text ${escapeHtml(latest.stateColorClass)}">${escapeHtml(latest.stateSymbolWord)}</span>
+          ${fact}
+        `;
+      }
+
+      function renderPanel(vm) {
+        sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
+
+        if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+          timelineScroll.innerHTML = `
+            <div class="timeline-row">
+              <span class="state-text state-working">&hellip; Loading</span>
+              <div class="skeleton-line" style="flex: 1; max-width: 240px;"></div>
+            </div>
+          `;
+          syncSizeAndBridge();
+          return;
+        }
+
+        if (vm.connectionStatus === "disconnected") {
+          const prevInput = document.getElementById("connect-url-input")?.value || "";
+          timelineScroll.innerHTML = `
+            <div class="timeline-block">
+              <div class="timeline-row">
+                <span class="state-text state-warning">&oslash; Not connected</span>
+                <span class="timeline-fact">${escapeHtml(vm.connectionError || "Paste the address the backend printed")}</span>
+              </div>
+              <div class="inline-input-row">
+                <input
+                  type="url"
+                  id="connect-url-input"
+                  class="inline-text-input"
+                  placeholder="http://127.0.0.1:8765/?t=..."
+                  aria-label="Backend address"
+                  value="${escapeHtml(prevInput)}"
+                />
+                <button type="button" id="connect-submit-btn" class="btn">Connect</button>
+              </div>
+            </div>
+          `;
+          syncSizeAndBridge();
+          return;
+        }
+
+        const blocks = [];
+
+        if (vm.connectionStatus === "stale") {
+          blocks.push(`
+            <div class="timeline-row">
+              <span class="state-text state-warning">&#9684; May be out of date</span>
+              <button type="button" class="btn" data-action="retry-connect">Retry</button>
+            </div>
+          `);
+        }
+
+        if (sendErrorText) {
+          blocks.push(`
+            <div class="timeline-row">
+              <span class="state-text state-danger">&times; Failed &middot; ${escapeHtml(sendErrorText)}</span>
+            </div>
+          `);
+        }
+
+        if (!vm.runs.length) {
+          blocks.push(`
+            <div class="timeline-row">
+              <span class="state-text state-neutral">&cir; No runs yet</span>
+            </div>
+          `);
+          timelineScroll.innerHTML = blocks.join("");
+          syncSizeAndBridge();
+          return;
+        }
+
+        const newestId = vm.runs[0].id;
+        if (newestId !== latestSeenRunId) {
+          latestSeenRunId = newestId;
+          selectedRunId = newestId;
+        }
+        const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
+        selectedRunId = activeRun.id;
+
+        const savedScroll = new Map();
+        timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
+          savedScroll.set(el.dataset.detailScroll, el.scrollTop);
+        });
+
+        /* Inline pending help rows inside timeline (Requirement 5) */
+        const helpHtml = activeRun.pendingHelp
+          .map(
+            (h) => `
+              <div class="help-block">
+                <div class="help-row">
+                  <span class="help-question">${escapeHtml(h.question)}</span>
+                  <span class="help-actions">
+                    ${h.options
+                      .map(
+                        (opt) => `
+                          <button
+                            type="button"
+                            class="btn"
+                            data-action="answer-help"
+                            data-help-id="${escapeHtml(h.id)}"
+                            data-choice="${escapeHtml(opt)}"
+                          >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
+                        `
+                      )
+                      .join("")}
+                  </span>
+                </div>
+                ${h.detail ? `<div class="help-meta">${escapeHtml(h.detail)}</div>` : ""}
+                <div class="help-meta">${escapeHtml(h.timeoutNote)}</div>
+              </div>
+            `
+          )
+          .join("");
+
+        /* Steps (F5: NO elapsed duplicated on child steps) */
+        const stepsHtml = activeRun.steps
+          .map((step) => {
+            const isExpanded = expandedStepIds.has(step.id);
+            const fingerprint = `${step.stateSymbolWord}:${step.latestSummary}`;
+            const prev = knownStepFingerprints.get(step.id);
+            if (prev && prev !== fingerprint) {
+              highlightedStepIds.add(step.id);
+              setTimeout(() => highlightedStepIds.delete(step.id), 650);
+            }
+            knownStepFingerprints.set(step.id, fingerprint);
+
+            const highlightClass = highlightedStepIds.has(step.id) ? "changed-highlight" : "";
+            const enterClass = !prev && hasLoadedOnce ? "step-enter" : "";
+
+            let detailHtml = "";
+            if (isExpanded) {
+              const linesHtml = step.detailLines.length
+                ? step.detailLines.map((l) => `<div>${escapeHtml(l)}</div>`).join("")
+                : `<div>No events recorded yet.</div>`;
+              const shimmerHtml = step.isWorking
+                ? `<div class="skeleton-line" style="margin-top: 8px; width: 70%;"></div>`
+                : "";
+              detailHtml = `
+                <div class="step-detail-mono" data-detail-scroll="${escapeHtml(step.id)}">${linesHtml}${shimmerHtml}</div>
+              `;
+            }
+
+            return `
+              <div class="step-item ${highlightClass} ${enterClass}">
+                <button
+                  type="button"
+                  class="step-row-btn"
+                  data-step-id="${escapeHtml(step.id)}"
+                  aria-expanded="${isExpanded ? "true" : "false"}"
+                >
+                  <span class="step-left">
+                    <span class="state-text ${escapeHtml(step.stateColorClass)}">${escapeHtml(step.stateSymbolWord)}</span>
+                    <span class="step-actor">${escapeHtml(step.actorLabel)}</span>
+                    <span class="step-event-text">${escapeHtml(step.latestSummary)}</span>
+                  </span>
+                </button>
+                ${detailHtml}
+              </div>
+            `;
+          })
+          .join("");
+
+        const runAgainHtml =
+          activeRun.state === "failed"
+            ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
+            : "";
+
+        const evidenceHtml = activeRun.evidenceText
+          ? `<div class="run-evidence-line">Verified on screen: ${escapeHtml(activeRun.evidenceText)}</div>`
+          : "";
+
+        blocks.push(`
+          <div class="timeline-block">
+            <div class="run-header">
+              <div class="run-title-row">
+                <span class="run-title">${escapeHtml(activeRun.goal)}</span>
+                <span class="run-elapsed">${escapeHtml(activeRun.elapsedText)}</span>
+              </div>
+              <div class="run-outcome-row">
+                <div class="run-outcome-copy">
+                  <span class="state-text ${escapeHtml(activeRun.stateColorClass)}">${escapeHtml(activeRun.stateSymbolWord)}</span>
+                  ${activeRun.stateFact ? `<span class="run-summary-text">${escapeHtml(activeRun.stateFact)}</span>` : ""}
+                </div>
+                ${runAgainHtml}
+              </div>
+              ${evidenceHtml}
+            </div>
+            ${helpHtml}
+            <div class="steps-list">
+              ${stepsHtml}
+            </div>
+          </div>
+        `);
+
+        const otherRuns = vm.runs.filter((r) => r.id !== activeRun.id);
+        if (otherRuns.length) {
+          const pastHtml = otherRuns
+            .map(
+              (r) => `
+                <button type="button" class="past-run-btn" data-run-id="${escapeHtml(r.id)}">
+                  <span class="past-run-left">
+                    <span class="state-text ${escapeHtml(r.stateColorClass)}">${escapeHtml(r.stateSymbolWord)}</span>
+                    <span class="past-run-instr">${escapeHtml(r.goal)}</span>
+                  </span>
+                  <span class="run-elapsed">${escapeHtml(r.elapsedText)}</span>
+                </button>
+              `
+            )
+            .join("");
+
+          blocks.push(`
+            <div class="past-runs-section">
+              <div class="section-heading">Earlier runs</div>
+              ${pastHtml}
+            </div>
+          `);
+        }
+
+        timelineScroll.innerHTML = blocks.join("");
+
+        timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
+          const prev = savedScroll.get(el.dataset.detailScroll);
+          if (prev != null) el.scrollTop = prev;
+        });
+
+        syncSizeAndBridge();
+      }
+
+      function renderNow() {
+        const vm = WorkspaceAdapter.mapRuns([...optimisticRuns, ...rawRuns], detailsById, pendingHelp, {
+          connectionStatus,
+          connectionError,
+          isSampleData,
+        });
+        renderPill(vm);
+        renderPanel(vm);
+      }
+
+      /* ---------------- TIMELINE INTERACTIONS ---------------- */
+      async function handleConnectSubmit() {
+        const input = document.getElementById("connect-url-input");
+        if (!input) return;
+        const res = await Transport.setConnection(input.value);
+        if (!res.ok) {
+          connectionStatus = "disconnected";
+          connectionError = res.error || "Paste the address the backend printed";
+          renderNow();
+          return;
+        }
+        connectionError = "";
+        connectionStatus = "loading";
+        renderNow();
+        await pollAll();
+      }
+
+      timelineScroll.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && e.target.id === "connect-url-input") {
+          e.preventDefault();
+          handleConnectSubmit();
+        }
+      });
+
+      timelineScroll.addEventListener("click", async (e) => {
+        if (e.target.id === "connect-submit-btn") {
+          handleConnectSubmit();
+          return;
+        }
+
+        const actionBtn = e.target.closest("[data-action]");
+        if (actionBtn) {
+          const action = actionBtn.dataset.action;
+          if (action === "retry-connect") {
+            await pollAll();
+            return;
+          }
+          if (action === "run-again") {
+            const p = actionBtn.dataset.prompt || "";
+            if (p) submitTask(p, []);
+            return;
+          }
+          if (action === "answer-help") {
+            const hid = actionBtn.dataset.helpId;
+            const choice = actionBtn.dataset.choice;
+            if (hid && choice) {
+              actionBtn.disabled = true;
+              try {
+                await Transport.request("POST", `/api/help/${encodeURIComponent(hid)}`, {
+                  jsonBody: { choice },
+                });
+                await pollAll();
+              } catch (err) {
+                sendErrorText = err.message || "Could not send answer";
+                renderNow();
+              }
+            }
+            return;
+          }
+        }
+
+        const stepBtn = e.target.closest("[data-step-id]");
+        if (stepBtn) {
+          const id = stepBtn.dataset.stepId;
+          if (expandedStepIds.has(id)) {
+            expandedStepIds.delete(id);
+          } else {
+            expandedStepIds.add(id);
+          }
+          renderNow();
+          return;
+        }
+
+        const runBtn = e.target.closest("[data-run-id]");
+        if (runBtn) {
+          selectedRunId = runBtn.dataset.runId;
+          renderNow();
+        }
+      });
+
+      /* ---------------- POLLING ---------------- */
+      async function pollAll() {
+        if (!Transport.isConnected()) {
+          connectionStatus = "disconnected";
+          renderNow();
+          return;
+        }
+
+        try {
+          const [runsResp, helpResp] = await Promise.all([
+            Transport.request("GET", "/api/runs"),
+            Transport.request("GET", "/api/help"),
+          ]);
+
+          const nextRuns = Array.isArray(runsResp) ? runsResp : [];
+          const nextHelp = Array.isArray(helpResp) ? helpResp : [];
+
+          /* Fetch incremental event details for active/selected runs */
+          const parents = nextRuns.filter((r) => !r.parent);
+          const focusParentId =
+            (selectedRunId && parents.some((p) => p.id === selectedRunId) && selectedRunId) ||
+            parents[0]?.id ||
+            null;
+
+          const detailTargets = nextRuns.filter(
+            (r) => r.id === focusParentId || r.parent === focusParentId || !r.parent
+          );
+
+          await Promise.all(
+            detailTargets.map(async (r) => {
+              const existing = detailsById[r.id];
+              const since = existing ? existing.events.length : 0;
+              if (existing && existing.n_events === r.n_events && (r.state === "done" || r.state === "failed")) {
+                return;
+              }
+              try {
+                const view = await Transport.request(
+                  "GET",
+                  `/api/runs/${encodeURIComponent(r.id)}?since=${since}`
+                );
+                if (existing && since > 0 && Array.isArray(view.events)) {
+                  view.events = [...existing.events, ...view.events];
+                }
+                detailsById[r.id] = view;
+              } catch {
+                // Keep previous detail if transient failure
+              }
+            })
+          );
+
+          rawRuns = nextRuns;
+          pendingHelp = nextHelp;
+          hasLoadedOnce = true;
+          connectionStatus = "connected";
+          connectionError = "";
+          renderNow();
+        } catch (err) {
+          if (err.code === "AUTH") {
+            Transport.clearConnection();
+            connectionStatus = "disconnected";
+            connectionError = "Paste the address the backend printed";
+          } else {
+            connectionStatus = hasLoadedOnce ? "stale" : "disconnected";
+          }
+          renderNow();
+        }
+      }
+
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(() => syncSizeAndBridge());
+        ro.observe(panelView);
+      }
+
+      async function boot() {
+        syncSizeAndBridge(true);
+        try {
+          const state = await Transport.init();
+          isSampleData = state.isSampleData;
+          if (state.connected) {
+            await pollAll();
+          } else {
+            connectionStatus = "disconnected";
+            renderNow();
+          }
+        } catch (err) {
+          connectionStatus = "disconnected";
+          connectionError = err.message || "Could not start workspace";
+          renderNow();
+        }
+        setInterval(pollAll, 1000);
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>
