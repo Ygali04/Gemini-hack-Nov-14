@@ -1,0 +1,25 @@
+model,cond,rep,task,r,ok,steps,memory_steps,calls,cost,seconds,summary
+default,sf,1,calc-23x19,1,1,7,0,9,0.023278,39.6,Computed 23 × 19 in Calculator; the result is 437.
+default,sl,1,calc-23x19,1,1,7,0,9,0.023234,44.2,Computed 23 × 19 in Calculator and got the result 437.
+default,sf,1,calc-48x25,1,1,7,0,9,0.024802,51.2,"Computed 48 × 25 in Calculator. The result is 1,200."
+default,sl,1,calc-48x25,1,1,7,0,9,0.022946,38.8,"Computed 48 × 25 in Calculator. The result is 1,200."
+default,sf,1,calc-144/12,1,1,8,0,10,0.02808,46.9,Computed 144 ÷ 12 in Calculator and read the result: 12.
+default,sl,1,calc-144/12,1,1,8,0,10,0.025932,42.1,Computed 144 ÷ 12 in Calculator; the result is 12.
+default,sf,1,settings-appearance,1,1,1,0,3,0.019018,15.4,Opened the Appearance pane in System Settings.
+default,sl,1,settings-appearance,1,1,1,0,4,0.028206,26.5,"Opened the Appearance pane in System Settings, showing options for Auto, Light, and Dark appearance."
+default,sf,2,calc-23x19,1,1,7,7,2,0.004542,12.6,Computed 23 × 19 in Calculator; the result is 437.
+default,sl,2,calc-23x19,1,1,7,0,9,0.022694,37.4,Computed 23 × 19 in Calculator; the result is 437.
+default,sf,2,calc-48x25,1,1,7,7,2,0.00452,13.2,"Computed 48 × 25 in Calculator; the result is 1,200."
+default,sl,2,calc-48x25,1,1,7,0,9,0.02392,38.2,"Computed 48 × 25 in Calculator. The result is 1,200."
+default,sf,2,calc-144/12,1,1,8,8,2,0.00468,12.1,Computed 144 ÷ 12 in Calculator and read the result: 12
+default,sl,2,calc-144/12,1,1,8,0,10,0.025848,44.8,Computed 144 ÷ 12 in Calculator; the result is 12.
+default,sf,2,settings-appearance,1,1,1,1,2,0.011234,19.4,Opened the Appearance pane in System Settings.
+default,sl,2,settings-appearance,1,1,1,0,3,0.019604,14.9,Opened the Appearance pane in System Settings.
+default,sf,3,calc-23x19,1,1,7,7,2,0.004332,10.0,Computed 23 × 19 in Calculator and got the result 437.
+default,sl,3,calc-23x19,1,1,7,0,9,0.023534,37.1,Computed 23 × 19 in Calculator and got the result 437.
+default,sf,3,calc-48x25,1,1,7,7,2,0.00449,11.7,"Computed 48 × 25 in Calculator. The result is 1,200."
+default,sl,3,calc-48x25,1,1,7,0,9,0.023746,45.0,"Computed 48 × 25 in Calculator; the result is 1,200."
+default,sf,3,calc-144/12,1,1,8,8,2,0.00448,13.1,Computed 144 ÷ 12 in Calculator; the result is 12.
+default,sl,3,calc-144/12,1,1,8,0,10,0.026672,56.5,Computed 144 ÷ 12 in Calculator; the result is 12.
+default,sf,3,settings-appearance,1,1,1,1,2,0.011574,9.9,Opened the Appearance pane in System Settings.
+default,sl,3,settings-appearance,1,1,1,0,3,0.019168,15.6,Opened the Appearance pane in System Settings.

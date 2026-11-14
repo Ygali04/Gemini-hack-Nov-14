@@ -1,0 +1,12 @@
+{
+  "model": "default",
+  "reps": 3,
+  "tasks": [
+    "calc-23x19",
+    "calc-48x25",
+    "calc-144/12",
+    "settings-appearance"
+  ],
+  "frontmost_apps_seen": 1,
+  "probe_samples": 1355
+}

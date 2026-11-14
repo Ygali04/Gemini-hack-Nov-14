@@ -2,4 +2,4 @@ __pycache__/
 .env
 backend/overlay/overlay
 notch/build/
-bench/results/*/sf_home/
+**/bench/results/*/sf_home/

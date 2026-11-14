@@ -91,4 +91,24 @@ On every benchmark above, the same harness runs with Gemini 4 Argon (decide and 
 
 Runner: `backend/bench/learning_curve.py`. Four tasks (three Calculator sums, one System Settings pane), three repetitions, stateful and stateless runs interleaved.
 
-Results: pending; this section is filled from `backend/bench/results/argon-pilot/trials.csv` when the run ends.
+**Result: memory didn't change success (G = 0, a ceiling), but from the second repetition on it cut model calls 3.9 times and cost 3.7 times.** All 24 trials succeeded. The pilot cost $0.43 and took 11.6 minutes, and the frontmost app stayed the same through all 1,355 focus samples.
+
+![Success, model calls and dollars per task, stateful vs stateless, over three repetitions](img/learning/learning_curve.png)
+
+Means over the four tasks. Repetitions 2 and 3 are pooled, since they match:
+
+| Condition | Rep | Success | Calls | Dollars | Seconds | Steps replayed from memory |
+|---|---|---|---|---|---|---|
+| Stateful | 1 | 4/4 | 7.75 | 0.0238 | 38.3 | 0 of 5.75 |
+| Stateless | 1 | 4/4 | 8.00 | 0.0251 | 37.9 | 0 |
+| Stateful | 2–3 | 8/8 | 2.00 | 0.0062 | 12.8 | 5.75 of 5.75 |
+| Stateless | 2–3 | 8/8 | 7.75 | 0.0232 | 36.2 | 0 |
+
+How to read it:
+
+- **G = Σ*g*<sub>t</sub> = 0** over 12 pairs, because every trial in both arms scored *r* = 1. These tasks are too easy to show a success gain, so the effect shows up entirely on the cost side.
+- **Cost.** From repetition 2 on, the stateful agent replays every step of the stored path. It makes 2 model calls in place of 7.75 (3.9 times fewer), which cuts cost per task from $0.0232 to $0.0062 (3.7 times less) and time from 36.2 s to 12.8 s (2.8 times faster). PreAct reports 8.5 to 13 times faster replay; our remaining time goes to the two calls and to UI waits.
+- **No transfer yet.** In repetition 1 the stateful agent solved 48 × 25 right after 23 × 19 with nothing replayed, because the graph keys skills to the goal it saw. Reusing a path across similar goals is the next thing to build and measure.
+- **Sample size.** That's 4 tasks × 3 repetitions on one Mac, so it shows the effect is real but not how large it is in general. The next run uses tasks the agent fails sometimes (MacArena), where G can move.
+
+Data: `backend/bench/results/argon-pilot/trials.csv` (one row per trial). The figure and its `data.csv` come from `backend/bench/plot_learning_curve.py`.
