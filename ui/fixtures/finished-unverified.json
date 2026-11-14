@@ -7,9 +7,31 @@
       "parent": null,
       "state": "done",
       "elapsed": 5.4,
-      "n_events": 3,
+      "n_events": 4,
       "result": {
-        "summary": "Opened Notes and wrote draft text without running verification."
+        "summary": "Opened Notes and wrote draft text without running verification.",
+        "digest": {
+          "run": "r1763140800-1",
+          "goal": "Open Notes and draft meeting follow-up",
+          "role": "orchestrator",
+          "ok": false,
+          "summary": "Opened Notes and wrote draft text without running verification.",
+          "seconds": 5.4,
+          "steps": 2,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "llm": { "calls": 3, "prompt_tokens": 1120, "completion_tokens": 140, "cost": 0.0018, "ms": 1600 },
+          "task_cost": {
+            "run": "r1763140800-1",
+            "agents": 2,
+            "llm_calls": 3,
+            "prompt_tokens": 1120,
+            "completion_tokens": 140,
+            "cost_usd": 0.0018,
+            "model_seconds": 1.6
+          },
+          "children": ["r1763140800-2"]
+        }
       }
     },
     {
@@ -19,7 +41,7 @@
       "parent": "r1763140800-1",
       "state": "done",
       "elapsed": 4.9,
-      "n_events": 4,
+      "n_events": 5,
       "result": {
         "summary": "Typed meeting follow-up into Notes",
         "steps": 2
@@ -34,10 +56,11 @@
       "parent": null,
       "state": "done",
       "elapsed": 5.4,
-      "n_events": 3,
+      "n_events": 4,
       "events": [
         { "t": 0.1, "kind": "state", "state": "planning" },
         { "t": 0.5, "kind": "route", "role": "cu", "app": "Notes", "goal": "Open Notes and draft meeting follow-up" },
+        { "t": 5.3, "kind": "msg", "role": "assistant", "agent": "ComputerAnything", "msg_kind": "result", "text": "Opened Notes and wrote draft text without running verification." },
         { "t": 5.4, "kind": "state", "state": "done" }
       ],
       "result": {
@@ -51,9 +74,10 @@
       "parent": "r1763140800-1",
       "state": "done",
       "elapsed": 4.9,
-      "n_events": 4,
+      "n_events": 5,
       "events": [
-        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "CU 1", "msg_kind": "hello", "text": "Hi, I'm CU 1! I'll open Notes and draft meeting follow-up." },
+        { "t": 0.2, "kind": "state", "state": "planning" },
         { "t": 1.1, "kind": "app_ready", "app": "Notes", "method": "finder", "seconds": 0.9 },
         { "t": 2.4, "kind": "act", "step": 0, "source": "llm", "action": "click:New Note", "act_ms": 115, "agent": "CU 1" },
         { "t": 3.6, "kind": "act", "step": 1, "source": "llm", "action": "type:Note body", "act_ms": 140, "agent": "CU 1" }
@@ -65,18 +89,5 @@
     }
   },
   "help": [],
-  "agents": {
-    "r1763140800-2": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
-  },
-  "costs": {
-    "r1763140800-1": {
-      "run": "r1763140800-1",
-      "agents": 2,
-      "llm_calls": 3,
-      "prompt_tokens": 1120,
-      "completion_tokens": 140,
-      "cost_usd": 0.0018,
-      "model_seconds": 1.6
-    }
-  }
+  "agents": {}
 }

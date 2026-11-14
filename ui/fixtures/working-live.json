@@ -53,6 +53,7 @@
             { "goal": "Open Appearance in System Settings", "app": "System Settings" }
           ]
         },
+        { "t": 0.6, "kind": "msg", "role": "assistant", "agent": "ComputerAnything", "msg_kind": "plan", "text": "Splitting this into 2 agents working in parallel: Compute 7 × 6 in Calculator; Open Appearance in System Settings." },
         { "t": 0.6, "kind": "state", "state": "acting" }
       ],
       "result": null
