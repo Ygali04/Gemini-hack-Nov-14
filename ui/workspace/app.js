@@ -566,12 +566,42 @@
      2. ONBOARDING & APPROVAL RULES IN-PAGE STATE (Section 1B - B4)
      ============================================================================ */
   const OnboardingState = {
+    step: 1,
+    totalSteps: 9,
+    userName: "",
+    callMe: "",
+    pronounce: "",
     agentName: "Mercury",
     swatchIndex: 0,
+    voiceId: "2X7h8q4r8pMNZ7zRmpiF",
+    voicePreviewStatus: "",
+    a11y: {
+      text_size: "default",
+      reduce_motion:
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      high_contrast:
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-contrast: more)").matches,
+      cursor_palette: "default",
+      cursor_scale: 1.0,
+    },
+    permissions: {
+      accessibility: false,
+      screen_recording: false,
+      app_scripting: false,
+    },
+    stageDisplay: "secondary",
+    blockedApps: ["Banking", "Passwords", "Health"],
+    customBlockedApp: "",
+    memoryEnabled: true,
+    memoryStatusNote: "",
     starterPrompts: [
-      "Confirm Display Settings resolution is set to Default on Built-in Display",
       "Open Calculator and verify that 8 units at $31 equals 248",
-      "Run the checkout test suite in /tmp/shop and verify the cart total",
+      "Confirm Display Settings resolution is set to Default on Built-in Display",
+      "Open Safari and check the local workspace summary",
     ],
     rules: [
       {
@@ -591,33 +621,25 @@
         warning: "This changes sign-in or security settings",
       },
       {
-        id: "rule-destructive",
-        kind: "destructive",
-        when: "Delete files, send external messages, or run destructive actions",
+        id: "rule-delete",
+        kind: "delete",
+        when: "Delete files or run destructive actions",
         should: "ask",
         locked: true,
         warning: "This can't be undone",
       },
       {
-        id: "rule-open-app",
-        kind: "open_app",
-        when: "Open and inspect local macOS applications (Calculator, Safari, System Settings)",
-        should: "allow",
+        id: "rule-send",
+        kind: "send",
+        when: "Send messages, emails, or posts on your behalf",
+        should: "ask",
         locked: false,
         warning: "",
       },
       {
-        id: "rule-replay-skill",
-        kind: "replay_skill",
-        when: "Replay verified non-destructive navigation skills from graph memory",
-        should: "allow",
-        locked: false,
-        warning: "",
-      },
-      {
-        id: "rule-clarify",
-        kind: "clarify",
-        when: "Save exported reports or clarify ambiguous file destinations",
+        id: "rule-script",
+        kind: "script",
+        when: "Run app scripts or automation shortcuts",
         should: "ask",
         locked: false,
         warning: "",
@@ -990,13 +1012,30 @@
         const meanMs = e.latencies.length
           ? Math.round(e.latencies.reduce((a, b) => a + b, 0) / e.latencies.length)
           : 0;
-        const reliabilityP = e.tries > 0 ? ((1 + e.successes) / (2 + e.tries)).toFixed(2) : null;
+        const reliabilityPNum = e.tries > 0 ? (1 + e.successes) / (2 + e.tries) : null;
+        const reliabilityP = reliabilityPNum != null ? reliabilityPNum.toFixed(2) : null;
+        const isDestructive = /\b(send|pay|buy|purchase|order|checkout|delete|remove|erase|post|publish|transfer|confirm|submit|unsubscribe|sign out|log out|reset|empty trash|wire|withdraw)\b/i.test(
+          e.action || ""
+        );
+        const reliabilityColor = isDestructive
+          ? "#ff5c6c"
+          : reliabilityPNum == null
+            ? "#767d8e"
+            : reliabilityPNum >= 0.7
+              ? "#32d583"
+              : reliabilityPNum >= 0.45
+                ? "#f5a623"
+                : "#ff5c6c";
+        const strokeWidth = Number(Math.min(7, Math.max(1.8, 1.4 + Math.sqrt(e.tries || 1) * 1.3)).toFixed(1));
 
         return {
           ...e,
           statusSymbolWord,
           statusClass,
           trailColor,
+          reliabilityColor,
+          strokeWidth,
+          isDestructive,
           meanMs,
           reliabilityP,
           actionClean: String(e.action || "").replace(/:/g, " · "),
@@ -1255,6 +1294,80 @@
         selectedAppFilter || "all"
       );
 
+      /* Build Agent Replay runs (Issue #1 #5: step through act events and see which screen node each hit) */
+      const actionsByRun = new Map();
+      for (const row of Array.isArray(rawActions) ? rawActions : []) {
+        if (!row.run) continue;
+        if (!actionsByRun.has(row.run)) actionsByRun.set(row.run, []);
+        actionsByRun.get(row.run).push(row);
+      }
+
+      const replayRuns = runsList
+        .map((r) => {
+          const detail = detailsById[r.id];
+          const evs = Array.isArray(detail?.events) ? detail.events : [];
+          const actEvents = evs.filter((ev) => ev.kind === "act");
+          const runActions = actionsByRun.get(r.id) || [];
+          const agentName =
+            rawAgents?.[r.id]?.name ||
+            r.role ||
+            "Agent";
+
+          let steps = [];
+          if (actEvents.length) {
+            steps = actEvents.map((ev, idx) => {
+              const matchedAction =
+                runActions.find((a) => ev.action && a.action === ev.action) ||
+                runActions[idx] ||
+                null;
+              const fromId = matchedAction?.from || "";
+              const toId = matchedAction?.to || "";
+              const fromScreen = stateMachine.screens.find((s) => s.id === fromId);
+              const toScreen = stateMachine.screens.find((s) => s.id === toId);
+              return {
+                index: idx,
+                t: ev.t,
+                action: ev.action || matchedAction?.action || "act",
+                ok: ev.ok !== false,
+                outcome: matchedAction?.outcome || (ev.ok === false ? "failed" : "ok"),
+                app: matchedAction?.app || (fromId ? fromId.split(":")[0] : "Desktop"),
+                fromId,
+                toId,
+                fromTitle: fromScreen?.title || (fromId ? fromId.split(":").slice(1).join(":") : "Active screen"),
+                toTitle: toScreen?.title || (toId ? toId.split(":").slice(1).join(":") : "Next screen"),
+                ms: matchedAction?.ms || 0,
+              };
+            });
+          } else if (runActions.length) {
+            steps = runActions.map((a, idx) => {
+              const fromScreen = stateMachine.screens.find((s) => s.id === a.from);
+              const toScreen = stateMachine.screens.find((s) => s.id === a.to);
+              return {
+                index: idx,
+                t: null,
+                action: a.action || "act",
+                ok: a.outcome === "ok" || a.outcome === "done_verified",
+                outcome: a.outcome || "ok",
+                app: a.app || "Desktop",
+                fromId: a.from || "",
+                toId: a.to || "",
+                fromTitle: fromScreen?.title || (a.from ? a.from.split(":").slice(1).join(":") : "Active screen"),
+                toTitle: toScreen?.title || (a.to ? a.to.split(":").slice(1).join(":") : "Next screen"),
+                ms: a.ms || 0,
+              };
+            });
+          }
+
+          return {
+            id: r.id,
+            goal: r.goal || "Untitled run",
+            agentName,
+            role: r.role || "agent",
+            steps,
+          };
+        })
+        .filter((rr) => rr.steps.length > 0);
+
       return {
         connectionStatus,
         connectionError,
@@ -1267,6 +1380,8 @@
         filteredTranscriptRuns,
         searchedTranscriptRows: Array.isArray(searchedTranscriptRows) ? searchedTranscriptRows : null,
         stateMachine,
+        rawActions: Array.isArray(rawActions) ? rawActions : [],
+        replayRuns,
         graphStats: rawGraph || {
           screens: stateMachine.screens.length,
           transitions: stateMachine.edges.length,
@@ -1313,6 +1428,9 @@
   let selectedAgentNodeId = null;
   let smAgentFilter = "";
   let selectedAppFilter = "all";
+  let selectedSmEdgeId = null;
+  let replayRunId = null;
+  let replayStepIndex = 0;
   let logSearchQuery = "";
   let logStatusFilter = "all";
   let searchDebounceTimer = null;
@@ -1799,6 +1917,24 @@
     const sm = vm.stateMachine;
     const stats = vm.graphStats;
 
+    /* Determine active replay run & step */
+    const replayRuns = Array.isArray(vm.replayRuns) ? vm.replayRuns : [];
+    const activeReplayRun =
+      replayRuns.find((r) => r.id === replayRunId) || replayRuns[0] || null;
+    if (activeReplayRun && replayRunId !== activeReplayRun.id) {
+      replayRunId = activeReplayRun.id;
+      replayStepIndex = 0;
+    }
+    const replaySteps = activeReplayRun?.steps || [];
+    const clampedStepIdx = replaySteps.length
+      ? Math.max(0, Math.min(replayStepIndex, replaySteps.length - 1))
+      : 0;
+    replayStepIndex = clampedStepIdx;
+    const activeReplayStep = replaySteps[clampedStepIdx] || null;
+
+    const selectedEdge =
+      sm.edges.find((e) => e.id === selectedSmEdgeId) || null;
+
     const agentPillsHtml = [
       `<button type="button" class="agent-trail-pill ${!smAgentFilter ? "active" : ""}" data-action="set-sm-agent" data-agent="">All agents</button>`,
       ...sm.allAgents.map((ag) => {
@@ -1836,7 +1972,7 @@
         </div>
       `;
     } else {
-      const rowHeight = 96;
+      const rowHeight = 100;
       const svgWidth = 880;
       const svgHeight = Math.max(140, sm.edges.length * rowHeight + 32);
 
@@ -1858,29 +1994,52 @@
                 ? "#f5a623"
                 : "#ff5c6c";
 
-          const metaText = `${edge.tries ? `${edge.successes}/${edge.tries} ok` : "gated"}${
+          const isSelectedEdge = selectedEdge && selectedEdge.id === edge.id;
+          const isReplayHit =
+            activeReplayStep &&
+            ((activeReplayStep.fromId && edge.from === activeReplayStep.fromId && activeReplayStep.toId && edge.to === activeReplayStep.toId) ||
+              (activeReplayStep.action && edge.action === activeReplayStep.action));
+
+          const nodeStroke = isReplayHit
+            ? "#f5a623"
+            : isSelectedEdge
+              ? "#f2f4f8"
+              : "rgba(255,255,255,0.12)";
+          const nodeStrokeWidth = isReplayHit || isSelectedEdge ? "2" : "1";
+
+          const edgeStroke = edge.reliabilityColor || edge.trailColor || "#767d8e";
+          const edgeWidth = edge.strokeWidth || 2.2;
+          const dashAttr = edge.isDestructive ? 'stroke-dasharray="6 4"' : "";
+
+          const reliabilityBadge = edge.isDestructive
+            ? "⊘ Destructive · gated"
+            : edge.reliabilityP != null
+              ? `P=${edge.reliabilityP} · ${edge.tries} ${edge.tries === 1 ? "try" : "tries"}`
+              : "gated";
+          const metaText = `${reliabilityBadge}${
             edge.meanMs ? ` · ${edge.meanMs}ms` : ""
           } · ${edge.sourceLabel}`;
 
           return `
-            <g transform="translate(0, ${y})">
-              <rect x="${xFrom}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
+            <g class="sm-edge-group ${isSelectedEdge ? "is-selected" : ""}" transform="translate(0, ${y})" data-action="select-sm-edge" data-edge-id="${escapeHtml(edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(edge.actionClean)} from ${escapeHtml(edge.fromTitle)} to ${escapeHtml(edge.toTitle)}">
+              <rect x="${xFrom}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
               <text x="${xFrom + 12}" y="25" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(edge.app)}</text>
               <text x="${xFrom + 12}" y="45" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(edge.fromTitle.slice(0, 26))}</text>
 
-              <line x1="${xLineStart}" y1="32" x2="${xLineEnd - 8}" y2="32" stroke="${escapeHtml(edge.trailColor)}" stroke-width="2.2" />
-              <polygon points="${xLineEnd},32 ${xLineEnd - 9},27 ${xLineEnd - 9},37" fill="${escapeHtml(edge.trailColor)}" />
+              <line x1="${xLineStart}" y1="32" x2="${xLineEnd - 8}" y2="32" stroke="${escapeHtml(edgeStroke)}" stroke-width="${edgeWidth}" ${dashAttr} />
+              <polygon points="${xLineEnd},32 ${xLineEnd - 9},26 ${xLineEnd - 9},38" fill="${escapeHtml(edgeStroke)}" />
 
-              <rect x="${xMid - 145}" y="2" width="290" height="24" rx="6" fill="#0c0d10" />
+              <rect x="${xMid - 150}" y="2" width="300" height="24" rx="6" fill="#0c0d10" />
               <text x="${xMid}" y="18" text-anchor="middle" font-size="12" font-weight="600">
                 <tspan fill="${statusFill}">${escapeHtml(edge.statusSymbolWord)}</tspan>
-                <tspan fill="#f2f4f8"> · ${escapeHtml(edge.actionClean.slice(0, 26))}</tspan>
+                <tspan fill="#f2f4f8"> · ${escapeHtml(edge.actionClean.slice(0, 24))}</tspan>
               </text>
+              <circle cx="${xMid - 138}" cy="46" r="4" fill="${escapeHtml(edge.trailColor)}" />
               <text x="${xMid}" y="50" text-anchor="middle" fill="#a6adbb" font-size="12">
                 ${escapeHtml(edge.agents.join(", "))} · ${escapeHtml(metaText)}
               </text>
 
-              <rect x="${xTo}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
+              <rect x="${xTo}" y="5" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
               <text x="${xTo + 12}" y="25" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(edge.app)}</text>
               <text x="${xTo + 12}" y="45" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(edge.toTitle.slice(0, 26))}</text>
             </g>
@@ -1897,6 +2056,130 @@
       `;
     }
 
+    /* Clicked edge action log rows */
+    let edgeLogHtml = "";
+    if (selectedEdge) {
+      const matchingRows = (vm.rawActions || []).filter(
+        (r) =>
+          (r.from || `${r.app || "Desktop"}:start`) === selectedEdge.from &&
+          (r.action || "action") === selectedEdge.action &&
+          (r.to || `${r.app || "Desktop"}:${String(r.action || "act").split(":")[0] || "next"}`) === selectedEdge.to
+      );
+      const rowsHtml = matchingRows.length
+        ? matchingRows
+            .map((r) => {
+              const out = String(r.outcome || "ok");
+              const outClass =
+                out === "ok" || out === "done_verified"
+                  ? "state-success"
+                  : out === "help"
+                    ? "state-warning"
+                    : "state-danger";
+              const outSymbol =
+                out === "ok" || out === "done_verified"
+                  ? "✓ Success"
+                  : out === "help"
+                    ? "◔ Waiting"
+                    : out === "denied"
+                      ? "⊘ Denied"
+                      : "× Failed";
+              const timeStr = r.ts
+                ? new Date(r.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                : "—";
+              return `
+                <tr>
+                  <td>${escapeHtml(timeStr)}</td>
+                  <td>${escapeHtml(r.agent || "Agent")}</td>
+                  <td><span class="state-text ${outClass}">${outSymbol}</span></td>
+                  <td class="num-col">${escapeHtml(r.ms ?? 0)}ms</td>
+                  <td>${escapeHtml(r.source || "model")}</td>
+                </tr>
+              `;
+            })
+            .join("")
+        : `<tr><td colspan="5" class="section-subtitle">No individual action rows recorded for this edge.</td></tr>`;
+
+      edgeLogHtml = `
+        <div class="sm-edge-detail">
+          <div class="section-header-row">
+            <div>
+              <h3 class="section-title">Edge log: ${escapeHtml(selectedEdge.actionClean)}</h3>
+              <p class="section-subtitle">
+                ${escapeHtml(selectedEdge.fromTitle)} &rarr; ${escapeHtml(selectedEdge.toTitle)}
+                ${selectedEdge.isDestructive ? " · Destructive action (never suggested as a path)" : ""}
+              </p>
+            </div>
+            <button type="button" class="btn" data-action="close-sm-edge">Close</button>
+          </div>
+          <div class="data-table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Agent</th>
+                  <th>Outcome</th>
+                  <th class="num-col">Latency</th>
+                  <th>Source</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    /* Agent replay section (Issue #1 #5) */
+    let replayHtml = "";
+    if (replayRuns.length) {
+      const runOptionsHtml = replayRuns
+        .map(
+          (rr) =>
+            `<option value="${escapeHtml(rr.id)}" ${rr.id === activeReplayRun?.id ? "selected" : ""}>${escapeHtml(
+              `${rr.agentName}: ${rr.goal.slice(0, 64)}`
+            )}</option>`
+        )
+        .join("");
+
+      const stepDetailHtml = activeReplayStep
+        ? `
+          <div class="replay-step-bar">
+            <span class="state-text ${activeReplayStep.ok ? "state-success" : "state-danger"}">
+              ${activeReplayStep.ok ? "✓ Success" : "× Failed"}
+            </span>
+            <span class="replay-action-name">${escapeHtml(String(activeReplayStep.action || "").replace(/:/g, " · "))}</span>
+            <span class="section-subtitle">
+              Screen hit: ${escapeHtml(activeReplayStep.app)} · ${escapeHtml(activeReplayStep.fromTitle)} &rarr; ${escapeHtml(activeReplayStep.toTitle)}
+              ${activeReplayStep.ms ? ` (${escapeHtml(activeReplayStep.ms)}ms)` : ""}
+            </span>
+          </div>
+        `
+        : `<p class="section-subtitle">No act steps recorded for this run.</p>`;
+
+      replayHtml = `
+        <div class="sm-replay-section">
+          <div class="section-header-row">
+            <div>
+              <h3 class="section-title">Agent replay</h3>
+              <p class="section-subtitle">Pick a run and step through its act events to see which screen node each one hit</p>
+            </div>
+            <div class="filter-group">
+              <button type="button" class="btn" data-action="replay-prev" ${clampedStepIdx <= 0 ? "disabled" : ""}>Previous</button>
+              <span class="section-subtitle">Step ${replaySteps.length ? clampedStepIdx + 1 : 0} of ${replaySteps.length}</span>
+              <button type="button" class="btn" data-action="replay-next" ${clampedStepIdx >= replaySteps.length - 1 ? "disabled" : ""}>Next</button>
+            </div>
+          </div>
+          <div class="filter-bar">
+            <label for="replay-run-select" class="filter-label">Run:</label>
+            <select id="replay-run-select" class="inline-text-input replay-select" data-action="select-replay-run">
+              ${runOptionsHtml}
+            </select>
+          </div>
+          ${stepDetailHtml}
+        </div>
+      `;
+    }
+
     const reliabilityText =
       stats.mean_edge_p != null ? `${Math.round(Number(stats.mean_edge_p) * 100)}% (P=${stats.mean_edge_p})` : "No scored edges yet";
 
@@ -1905,7 +2188,7 @@
         <div>
           <h2 class="section-title">State machine graph</h2>
           <p class="section-subtitle">
-            Screens as nodes and actions as directed edges with agent color trails
+            Screens as nodes and actions as directed edges. Width shows tries; color shows reliability; dashed lines mark destructive edges. Click an edge for its action log.
           </p>
         </div>
         <div class="filter-group">
@@ -1927,12 +2210,12 @@
         <div class="metric-item">
           <span class="metric-label">Saved replay skills</span>
           <span class="metric-value">${escapeHtml(stats.skills ?? 0)}</span>
-          <span class="metric-note">Macro paths replayed without LLM</span>
+          <span class="metric-note">Macro paths replayed without model</span>
         </div>
         <div class="metric-item">
           <span class="metric-label">Mean edge reliability</span>
           <span class="metric-value">${escapeHtml(reliabilityText)}</span>
-          <span class="metric-note">Beta(1,1) posterior mean</span>
+          <span class="metric-note">Posterior mean across tries</span>
         </div>
       </div>
 
@@ -1944,6 +2227,8 @@
       </div>
 
       ${svgGraphHtml}
+      ${edgeLogHtml}
+      ${replayHtml}
     `;
   }
 
@@ -2173,11 +2458,65 @@
             ${
               vm.isSampleData
                 ? "This fixture is the empty first-run sample (0 recorded tasks)."
-                : "The SQLite store has 0 recorded model calls (for example when running with CA_MOCK=1). Zeroes are not shown as completed metrics."
+                : "The local store has 0 recorded model calls (for example when running in mock mode). Zeroes are not shown as completed metrics."
             }
           </span>
         </div>
       `;
+
+    /* Cost per task over time (Issue #1 #2) */
+    const tasksWithCost = vm.taskGroups
+      .filter((g) => g.cost && (g.cost.cost_usd > 0 || g.cost.llm_calls > 0))
+      .slice()
+      .reverse();
+    let spendChartHtml = "";
+    if (tasksWithCost.length) {
+      const maxCost = Math.max(...tasksWithCost.map((g) => Number(g.cost.cost_usd || 0)), 0.0001);
+      const barW = 28;
+      const gap = 10;
+      const chartW = Math.max(240, tasksWithCost.length * (barW + gap) + 16);
+      const chartH = 56;
+      const barsSvg = tasksWithCost
+        .map((g, i) => {
+          const val = Number(g.cost.cost_usd || 0);
+          const h = Math.max(4, Math.round((val / maxCost) * 38));
+          const x = 8 + i * (barW + gap);
+          const y = 44 - h;
+          return `
+            <g>
+              <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" fill="#a6adbb" opacity="0.75">
+                <title>${escapeHtml(g.goal)}: $${val.toFixed(4)}</title>
+              </rect>
+              <text x="${x + barW / 2}" y="55" text-anchor="middle" fill="#767d8e" font-size="10">$${val.toFixed(3)}</text>
+            </g>
+          `;
+        })
+        .join("");
+      spendChartHtml = `
+        <div class="analytics-spark-wrap">
+          <div class="section-header-row">
+            <span class="filter-label">Cost per task over time</span>
+            <span class="section-subtitle">${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}</span>
+          </div>
+          <svg class="analytics-spark-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task over time">
+            ${barsSvg}
+          </svg>
+        </div>
+      `;
+    }
+
+    /* Decide spend share cue (Issue #1 #2) */
+    const purposes = Array.isArray(an?.by_purpose) ? an.by_purpose : [];
+    const totalPurposeSpend = purposes.reduce((sum, p) => sum + Number(p.cost_usd || 0), 0);
+    const decideRow = purposes.find((p) => String(p.purpose || "").toLowerCase() === "decide");
+    const decidePct =
+      totalPurposeSpend > 0 && decideRow
+        ? Math.round((Number(decideRow.cost_usd || 0) / totalPurposeSpend) * 100)
+        : null;
+    const decideCueHtml =
+      decidePct != null && decidePct >= 65
+        ? `<p class="section-subtitle">Decide accounts for ${decidePct}% of model spend — consider switching on the fast decide tier.</p>`
+        : "";
 
     const taskRowsHtml = vm.taskGroups.length
       ? vm.taskGroups
@@ -2189,7 +2528,7 @@
                   <td>${escapeHtml(g.goal)}</td>
                   <td><span class="state-text ${escapeHtml(g.overallStatus.colorClass)}">${escapeHtml(g.overallStatus.shortSymbolWord || g.overallStatus.symbolWord)}</span></td>
                   <td class="num-col">${escapeHtml(g.allNodes.length)}</td>
-                  <td class="num-col" colspan="4"><span class="section-subtitle">No model calls logged (CA_MOCK=1 or pending)</span></td>
+                  <td class="num-col" colspan="4"><span class="section-subtitle">No model calls logged (mock mode or pending)</span></td>
                   <td class="num-col">${escapeHtml(g.elapsedText)}</td>
                 </tr>
               `;
@@ -2231,37 +2570,51 @@
         : `<tr><td colspan="4" class="section-subtitle">No role completion stats recorded yet.</td></tr>`;
 
     const purposeRowsHtml =
-      Array.isArray(an?.by_purpose) && an.by_purpose.length
-        ? an.by_purpose
-            .map(
-              (p) => `
+      purposes.length
+        ? purposes
+            .map((p) => {
+              const share =
+                totalPurposeSpend > 0
+                  ? `${Math.round((Number(p.cost_usd || 0) / totalPurposeSpend) * 100)}%`
+                  : "—";
+              return `
                 <tr>
                   <td>${escapeHtml(p.purpose || "general")}</td>
                   <td class="num-col">${escapeHtml(p.calls ?? 0)}</td>
-                  <td class="num-col">$${Number(p.cost_usd || 0).toFixed(4)}</td>
+                  <td class="num-col">$${Number(p.cost_usd || 0).toFixed(4)} (${share})</td>
                   <td class="num-col">${p.mean_ms != null ? `${Math.round(Number(p.mean_ms))}ms` : "—"}</td>
                 </tr>
-              `
-            )
+              `;
+            })
             .join("")
         : `<tr><td colspan="4" class="section-subtitle">No purpose spend breakdown recorded yet.</td></tr>`;
 
     const appRowsHtml =
       Array.isArray(an?.by_app) && an.by_app.length
         ? an.by_app
-            .map(
-              (a) => `
+            .map((a) => {
+              const totalActs = Number(a.actions) || 0;
+              const okActs = Number(a.ok) || 0;
+              const rateNum = totalActs > 0 ? Math.round((okActs / totalActs) * 100) : null;
+              const rateHtml =
+                rateNum == null
+                  ? '<span class="state-text state-neutral">&cir; —</span>'
+                  : rateNum < 70
+                    ? `<span class="state-text state-warning">◔ ${rateNum}% · Needs help</span>`
+                    : `<span class="state-text state-success">✓ ${rateNum}%</span>`;
+              return `
                 <tr>
                   <td>${escapeHtml(a.app || "Desktop")}</td>
-                  <td class="num-col">${escapeHtml(a.actions ?? 0)}</td>
-                  <td class="num-col">${escapeHtml(a.ok ?? 0)}</td>
+                  <td class="num-col">${escapeHtml(totalActs)}</td>
+                  <td class="num-col">${escapeHtml(okActs)}</td>
                   <td class="num-col">${escapeHtml(a.failed ?? 0)}</td>
                   <td class="num-col">${escapeHtml(a.denied ?? 0)}</td>
+                  <td class="num-col">${rateHtml}</td>
                 </tr>
-              `
-            )
+              `;
+            })
             .join("")
-        : `<tr><td colspan="5" class="section-subtitle">No application action rows recorded yet.</td></tr>`;
+        : `<tr><td colspan="6" class="section-subtitle">No application action rows recorded yet.</td></tr>`;
 
     container.innerHTML = `
       <div class="section-header-row">
@@ -2272,238 +2625,581 @@
       </div>
 
       ${summaryStripHtml}
+      ${spendChartHtml}
+      ${decideCueHtml}
 
-      <div class="section-header-row">
-        <h3 class="section-title">Per-task cost and time</h3>
-        <span class="section-subtitle">${vm.isSampleData ? "Preview" : "Live store"}</span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Task prompt</th>
-              <th>Status</th>
-              <th class="num-col">Agents</th>
-              <th class="num-col">LLM calls</th>
-              <th class="num-col">Tokens (in / out)</th>
-              <th class="num-col">Cost (USD)</th>
-              <th class="num-col">Model time</th>
-              <th class="num-col">Wall time</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${taskRowsHtml}
-          </tbody>
-        </table>
-      </div>
+      <details class="analytics-disclosure">
+        <summary class="analytics-disclosure-summary">
+          <span>Per-task cost and time</span>
+          <span class="section-subtitle">${vm.taskGroups.length} ${vm.taskGroups.length === 1 ? "task" : "tasks"} &middot; ${vm.isSampleData ? "Preview" : "Live store"}</span>
+        </summary>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Task prompt</th>
+                <th>Status</th>
+                <th class="num-col">Agents</th>
+                <th class="num-col">Calls</th>
+                <th class="num-col">Tokens (in / out)</th>
+                <th class="num-col">Cost</th>
+                <th class="num-col">Model time</th>
+                <th class="num-col">Wall time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${taskRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </details>
 
-      <div class="b1-layout">
-        <div>
-          <div class="section-header-row">
-            <h3 class="section-title">By agent role</h3>
+      <details class="analytics-disclosure">
+        <summary class="analytics-disclosure-summary">
+          <span>Spend by model purpose &amp; agent role</span>
+          <span class="section-subtitle">${decidePct != null ? `Decide ${decidePct}% of spend` : "Breakdown"}</span>
+        </summary>
+        <div class="b1-layout">
+          <div>
+            <div class="section-header-row">
+              <h3 class="section-title">By model purpose</h3>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Purpose</th>
+                    <th class="num-col">Calls</th>
+                    <th class="num-col">Spend</th>
+                    <th class="num-col">Mean latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${purposeRowsHtml}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th class="num-col">Runs</th>
-                  <th class="num-col">Success</th>
-                  <th class="num-col">Mean time</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${roleRowsHtml}
-              </tbody>
-            </table>
+
+          <div>
+            <div class="section-header-row">
+              <h3 class="section-title">By agent role</h3>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th class="num-col">Runs</th>
+                    <th class="num-col">Success</th>
+                    <th class="num-col">Mean time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${roleRowsHtml}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      </details>
 
-        <div>
-          <div class="section-header-row">
-            <h3 class="section-title">By model purpose</h3>
+      <details class="analytics-disclosure">
+        <summary class="analytics-disclosure-summary">
+          <span>Reliability per app &amp; memory stats</span>
+          <span class="section-subtitle">${Array.isArray(an?.by_app) ? `${an.by_app.length} apps` : "0 apps"} &middot; ${escapeHtml(gs.screens ?? 0)} screens</span>
+        </summary>
+        <div class="b1-layout">
+          <div>
+            <div class="section-header-row">
+              <h3 class="section-title">Reliability per app</h3>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th class="num-col">Steps</th>
+                    <th class="num-col">✓ Ok</th>
+                    <th class="num-col">× Failed</th>
+                    <th class="num-col">⊘ Denied</th>
+                    <th class="num-col">Success rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${appRowsHtml}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Purpose</th>
-                  <th class="num-col">Calls</th>
-                  <th class="num-col">Spend (USD)</th>
-                  <th class="num-col">Mean latency</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${purposeRowsHtml}
-              </tbody>
-            </table>
+
+          <div>
+            <div class="section-header-row">
+              <h3 class="section-title">Memory and tool stats</h3>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th class="num-col">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Screens indexed</td>
+                    <td class="num-col">${escapeHtml(gs.screens ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td>Action transitions</td>
+                    <td class="num-col">${escapeHtml(gs.transitions ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td>Saved macro skills</td>
+                    <td class="num-col">${escapeHtml(gs.skills ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td>Destructive edges gated</td>
+                    <td class="num-col">${escapeHtml(gs.destructive_edges ?? 0)}</td>
+                  </tr>
+                  <tr>
+                    <td>Total actions logged</td>
+                    <td class="num-col">${escapeHtml(gs.actions_logged ?? 0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div class="b1-layout">
-        <div>
-          <div class="section-header-row">
-            <h3 class="section-title">By application</h3>
-          </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Application</th>
-                  <th class="num-col">Steps</th>
-                  <th class="num-col">✓ Success</th>
-                  <th class="num-col">× Failed</th>
-                  <th class="num-col">⊘ Denied</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${appRowsHtml}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div>
-          <div class="section-header-row">
-            <h3 class="section-title">Memory and tool graph stats</h3>
-          </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th class="num-col">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Screens indexed</td>
-                  <td class="num-col">${escapeHtml(gs.screens ?? 0)}</td>
-                </tr>
-                <tr>
-                  <td>Action transitions</td>
-                  <td class="num-col">${escapeHtml(gs.transitions ?? 0)}</td>
-                </tr>
-                <tr>
-                  <td>Saved macro skills</td>
-                  <td class="num-col">${escapeHtml(gs.skills ?? 0)}</td>
-                </tr>
-                <tr>
-                  <td>Destructive edges gated</td>
-                  <td class="num-col">${escapeHtml(gs.destructive_edges ?? 0)}</td>
-                </tr>
-                <tr>
-                  <td>Total actions logged</td>
-                  <td class="num-col">${escapeHtml(gs.actions_logged ?? 0)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      </details>
     `;
   }
 
   /* ---------------- B4: ONBOARDING VIEW ---------------- */
+  const ONBOARDING_VOICES = [
+    { id: "2X7h8q4r8pMNZ7zRmpiF", name: "Sunny", note: "Warm and steady (default)" },
+    { id: "voice_river", name: "River", note: "Calm and neutral" },
+    { id: "voice_sage", name: "Sage", note: "Crisp and brisk" },
+  ];
+
   function renderOnboardingView(vm) {
     const container = document.getElementById("b4-content");
     if (!container) return;
 
+    const step = Math.max(1, Math.min(OnboardingState.totalSteps, OnboardingState.step || 1));
+    OnboardingState.step = step;
+
     const chosenSwatch = AGENT_SWATCHES[OnboardingState.swatchIndex % AGENT_SWATCHES.length];
     const previewSeed = stableSeed("preview:" + OnboardingState.agentName + ":" + chosenSwatch.name);
 
-    const swatchesHtml = AGENT_SWATCHES.map((sw, idx) => {
-      const checked = idx === OnboardingState.swatchIndex;
-      return `
-        <button
-          type="button"
-          role="radio"
-          aria-checked="${checked ? "true" : "false"}"
-          class="swatch-glass-chip"
-          data-glass-mount="1"
-          data-glass-body="${escapeHtml(sw.body)}"
-          data-glass-edge="${escapeHtml(sw.edge)}"
-          data-glass-ink="${escapeHtml(sw.ink)}"
-          data-glass-raw-ink="${escapeHtml(sw.rawInk)}"
-          data-glass-shape="capsule"
-          data-glass-seed="${escapeHtml(stableSeed("swatch:" + sw.name))}"
-          data-action="select-onboarding-swatch"
-          data-swatch-idx="${idx}"
-        >
-          <span class="glass-content">
-            <span>${escapeHtml(sw.name)}</span>
-            <span>${checked ? "✓" : ""}</span>
-          </span>
-        </button>
-      `;
-    }).join("");
+    const stepTitles = [
+      "Name",
+      "Voice",
+      "Look and accessibility",
+      "Permissions",
+      "Where agents work",
+      "What needs approval",
+      "Off-limits apps",
+      "Memory",
+      "First task",
+    ];
 
-    const starterHtml = OnboardingState.starterPrompts
-      .map(
-        (promptText, i) => `
-          <div class="starter-prompt-row">
-            <span class="starter-prompt-text">${i + 1}. ${escapeHtml(promptText)}</span>
-            <div class="filter-group">
-              <button
-                type="button"
-                class="btn"
-                data-action="fill-starter-prompt"
-                data-prompt="${escapeHtml(promptText)}"
-              >Load in input</button>
-              <button
-                type="button"
-                class="btn"
-                data-action="send-starter-prompt"
-                data-prompt="${escapeHtml(promptText)}"
-              >Send straight to chat</button>
-            </div>
-          </div>
-        `
-      )
-      .join("");
-
-    const rulesRowsHtml = OnboardingState.rules
-      .map((rule) => {
-        if (rule.locked) {
-          return `
-            <tr>
-              <td>
-                <div>${escapeHtml(rule.when)}</div>
-                <div class="approval-warning ${rule.kind === "destructive" ? "is-danger" : ""}">${escapeHtml(rule.warning)}</div>
-              </td>
-              <td>
-                <span class="state-text state-warning">◔ Ask first</span>
-                <div class="rule-locked-note">Always asks. Can't be changed.</div>
-              </td>
-            </tr>
-          `;
-        }
+    const stepNavHtml = stepTitles
+      .map((label, idx) => {
+        const sNum = idx + 1;
+        const active = sNum === step;
         return `
-          <tr>
-            <td>${escapeHtml(rule.when)}</td>
-            <td>
-              <div class="filter-group" role="group" aria-label="Approval behavior for ${escapeHtml(rule.when)}">
-                <button
-                  type="button"
-                  class="btn ${rule.should === "ask" ? "btn-active" : ""}"
-                  data-action="set-onboarding-rule"
-                  data-rule-id="${escapeHtml(rule.id)}"
-                  data-should="ask"
-                >Ask first</button>
-                <button
-                  type="button"
-                  class="btn ${rule.should === "allow" ? "btn-active" : ""}"
-                  data-action="set-onboarding-rule"
-                  data-rule-id="${escapeHtml(rule.id)}"
-                  data-should="allow"
-                >Allow automatically</button>
-              </div>
-            </td>
-          </tr>
+          <button
+            type="button"
+            class="btn ${active ? "btn-active" : ""}"
+            data-action="goto-onboarding-step"
+            data-step="${sNum}"
+            aria-current="${active ? "step" : "false"}"
+          >${sNum}. ${escapeHtml(label)}</button>
         `;
       })
       .join("");
+
+    let stepBodyHtml = "";
+
+    if (step === 1) {
+      const swatchesHtml = AGENT_SWATCHES.map((sw, idx) => {
+        const checked = idx === OnboardingState.swatchIndex;
+        return `
+          <button
+            type="button"
+            role="radio"
+            aria-checked="${checked ? "true" : "false"}"
+            class="swatch-glass-chip"
+            data-glass-mount="1"
+            data-glass-body="${escapeHtml(sw.body)}"
+            data-glass-edge="${escapeHtml(sw.edge)}"
+            data-glass-ink="${escapeHtml(sw.ink)}"
+            data-glass-raw-ink="${escapeHtml(sw.rawInk)}"
+            data-glass-shape="capsule"
+            data-glass-seed="${escapeHtml(stableSeed("swatch:" + sw.name))}"
+            data-action="select-onboarding-swatch"
+            data-swatch-idx="${idx}"
+          >
+            <span class="glass-content">
+              <span>${escapeHtml(sw.name)}</span>
+              <span>${checked ? "✓" : ""}</span>
+            </span>
+          </button>
+        `;
+      }).join("");
+
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">What should I call you?</h3>
+          <p class="section-subtitle">Optional. Leave blank if you prefer not to set a name now.</p>
+          <div class="onboarding-row">
+            <div class="onboarding-field">
+              <label for="onboarding-user-name" class="filter-label">Your name</label>
+              <input type="text" id="onboarding-user-name" class="inline-text-input" value="${escapeHtml(OnboardingState.userName)}" placeholder="Your name" maxlength="40" />
+            </div>
+            <div class="onboarding-field">
+              <label for="onboarding-call-me" class="filter-label">Call me</label>
+              <input type="text" id="onboarding-call-me" class="inline-text-input" value="${escapeHtml(OnboardingState.callMe)}" placeholder="Preferred name" maxlength="40" />
+            </div>
+            <div class="onboarding-field">
+              <label for="onboarding-pronounce" class="filter-label">Pronunciation (optional)</label>
+              <input type="text" id="onboarding-pronounce" class="inline-text-input" value="${escapeHtml(OnboardingState.pronounce)}" placeholder="e.g. ree-oh" maxlength="40" />
+            </div>
+          </div>
+
+          <div class="onboarding-row" style="margin-top:12px;">
+            <div class="onboarding-field">
+              <label for="onboarding-agent-name" class="filter-label">Primary agent alias</label>
+              <input type="text" id="onboarding-agent-name" class="inline-text-input" value="${escapeHtml(OnboardingState.agentName)}" placeholder="Mercury" maxlength="32" />
+            </div>
+            <div class="preview-stage">
+              <span class="filter-label">Live agent chip:</span>
+              <div
+                class="agent-preview-chip"
+                data-glass-mount="1"
+                data-glass-body="${escapeHtml(chosenSwatch.body)}"
+                data-glass-edge="${escapeHtml(chosenSwatch.edge)}"
+                data-glass-ink="${escapeHtml(chosenSwatch.ink)}"
+                data-glass-raw-ink="${escapeHtml(chosenSwatch.rawInk)}"
+                data-glass-shape="capsule"
+                data-glass-seed="${escapeHtml(previewSeed)}"
+              >
+                <span class="glass-content">
+                  <span>${escapeHtml(OnboardingState.agentName || "Mercury")}</span>
+                  <span>✓ Ready</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="filter-label">Agent sea-glass color swatch:</div>
+            <div class="swatches-stage" role="radiogroup" aria-label="Agent color swatches">${swatchesHtml}</div>
+          </div>
+        </div>
+      `;
+    } else if (step === 2) {
+      const voicesHtml = ONBOARDING_VOICES.map((v) => {
+        const active = OnboardingState.voiceId === v.id;
+        return `
+          <div class="starter-prompt-row">
+            <div>
+              <span class="starter-prompt-text">${escapeHtml(v.name)}</span>
+              <span class="section-subtitle"> &middot; ${escapeHtml(v.note)}</span>
+            </div>
+            <div class="filter-group">
+              <button type="button" class="btn" data-action="preview-onboarding-voice" data-voice-id="${escapeHtml(v.id)}">Play 3s sample</button>
+              <button type="button" class="btn ${active ? "btn-active" : ""}" data-action="select-onboarding-voice" data-voice-id="${escapeHtml(v.id)}">${active ? "✓ Selected" : "Allow"}</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Choose a voice</h3>
+          <p class="section-subtitle">Pick a voice for spoken replies, or listen to a 3-second sample first.</p>
+          <div class="starter-prompts-list">${voicesHtml}</div>
+          ${OnboardingState.voicePreviewStatus ? `<p class="section-subtitle">${escapeHtml(OnboardingState.voicePreviewStatus)}</p>` : ""}
+        </div>
+      `;
+    } else if (step === 3) {
+      const a11y = OnboardingState.a11y;
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Look and accessibility</h3>
+          <p class="section-subtitle">Follows your macOS reduced motion, high contrast, and VoiceOver settings by default.</p>
+          <div class="onboarding-row">
+            <div class="onboarding-field">
+              <label for="onboarding-text-size" class="filter-label">Text size</label>
+              <select id="onboarding-text-size" class="inline-text-input" data-action="set-a11y-select" data-a11y-key="text_size">
+                <option value="default" ${a11y.text_size === "default" ? "selected" : ""}>Default</option>
+                <option value="large" ${a11y.text_size === "large" ? "selected" : ""}>Large</option>
+                <option value="extra_large" ${a11y.text_size === "extra_large" ? "selected" : ""}>Extra large</option>
+              </select>
+            </div>
+            <div class="onboarding-field">
+              <label for="onboarding-cursor-palette" class="filter-label">Cursor palette</label>
+              <select id="onboarding-cursor-palette" class="inline-text-input" data-action="set-a11y-select" data-a11y-key="cursor_palette">
+                <option value="default" ${a11y.cursor_palette === "default" ? "selected" : ""}>Default sea-glass</option>
+                <option value="okabe_ito" ${a11y.cursor_palette === "okabe_ito" ? "selected" : ""}>Okabe-Ito (color-blind-safe)</option>
+              </select>
+            </div>
+            <div class="onboarding-field">
+              <label for="onboarding-cursor-scale" class="filter-label">Cursor scale</label>
+              <select id="onboarding-cursor-scale" class="inline-text-input" data-action="set-a11y-select" data-a11y-key="cursor_scale">
+                <option value="1" ${Number(a11y.cursor_scale) === 1 ? "selected" : ""}>1.0x</option>
+                <option value="1.25" ${Number(a11y.cursor_scale) === 1.25 ? "selected" : ""}>1.25x</option>
+                <option value="1.5" ${Number(a11y.cursor_scale) === 1.5 ? "selected" : ""}>1.5x</option>
+              </select>
+            </div>
+          </div>
+          <div class="filter-group" style="margin-top: 8px;">
+            <button type="button" class="btn ${a11y.reduce_motion ? "btn-active" : ""}" data-action="toggle-a11y" data-a11y-key="reduce_motion">
+              ${a11y.reduce_motion ? "✓ Reduced motion: cursors jump instead of flying" : "○ Reduced motion: off"}
+            </button>
+            <button type="button" class="btn ${a11y.high_contrast ? "btn-active" : ""}" data-action="toggle-a11y" data-a11y-key="high_contrast">
+              ${a11y.high_contrast ? "✓ High contrast: on" : "○ High contrast: off"}
+            </button>
+          </div>
+        </div>
+      `;
+    } else if (step === 4) {
+      const perms = OnboardingState.permissions;
+      const permItems = [
+        {
+          key: "accessibility",
+          label: "Accessibility",
+          why: "Needed so agents can click, type, and act inside apps.",
+        },
+        {
+          key: "screen_recording",
+          label: "Screen Recording",
+          why: "Needed so agents can read the screen and verify steps.",
+        },
+        {
+          key: "app_scripting",
+          label: "App scripting",
+          why: "Needed for app scripting and faster deterministic shortcuts.",
+        },
+      ];
+      const permsHtml = permItems
+        .map((p) => {
+          const granted = Boolean(perms[p.key]);
+          return `
+            <div class="starter-prompt-row">
+              <div>
+                <div class="starter-prompt-text">${escapeHtml(p.label)}</div>
+                <div class="section-subtitle">${escapeHtml(p.why)}</div>
+              </div>
+              <div class="filter-group">
+                <span class="state-text ${granted ? "state-success" : "state-warning"}">
+                  ${granted ? "✓ Granted" : "◔ Needed"}
+                </span>
+                ${
+                  vm.isSampleData
+                    ? `<button type="button" class="btn" data-action="toggle-sample-perm" data-perm-key="${p.key}">${granted ? "Not now" : "Allow"}</button>`
+                    : ""
+                }
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      const allGranted = perms.accessibility && perms.screen_recording && perms.app_scripting;
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Permissions</h3>
+          <p class="section-subtitle">
+            All three permissions are required before continuing. Live permission check endpoint is not on the backend yet${vm.isSampleData ? " — use Allow below to test in sample mode" : ""}.
+          </p>
+          <div class="starter-prompts-list">${permsHtml}</div>
+          <div class="filter-group">
+            <span class="state-text ${allGranted ? "state-success" : "state-warning"}">
+              ${allGranted ? "✓ Ready to continue" : "◔ Waiting for all three permissions"}
+            </span>
+          </div>
+        </div>
+      `;
+    } else if (step === 5) {
+      const choices = [
+        { val: "secondary", label: "Secondary display (recommended)" },
+        { val: "primary", label: "Primary display" },
+        { val: "ask", label: "Ask each time" },
+      ];
+      const choicesHtml = choices
+        .map((c) => {
+          const active = OnboardingState.stageDisplay === c.val;
+          return `
+            <button type="button" class="btn ${active ? "btn-active" : ""}" data-action="set-stage-display" data-display="${c.val}">
+              ${active ? "✓ " : ""}${escapeHtml(c.label)}
+            </button>
+          `;
+        })
+        .join("");
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Where agents work</h3>
+          <p class="section-subtitle">
+            Agents work behind your windows and never take your keyboard. Choose which display holds the agent stage.
+          </p>
+          <div class="filter-group">${choicesHtml}</div>
+        </div>
+      `;
+    } else if (step === 6) {
+      const rulesRowsHtml = OnboardingState.rules
+        .map((rule) => {
+          if (rule.locked) {
+            return `
+              <tr>
+                <td>
+                  <div>${escapeHtml(rule.when)}</div>
+                  <div class="approval-warning ${rule.kind === "delete" ? "is-danger" : ""}">${escapeHtml(rule.warning)}</div>
+                </td>
+                <td>
+                  <span class="state-text state-warning">◔ Ask first</span>
+                  <div class="rule-locked-note">Always asks. Can't be changed.</div>
+                </td>
+              </tr>
+            `;
+          }
+          return `
+            <tr>
+              <td>${escapeHtml(rule.when)}</td>
+              <td>
+                <div class="filter-group" role="group" aria-label="Approval behavior for ${escapeHtml(rule.when)}">
+                  <button
+                    type="button"
+                    class="btn ${rule.should === "ask" ? "btn-active" : ""}"
+                    data-action="set-onboarding-rule"
+                    data-rule-id="${escapeHtml(rule.id)}"
+                    data-should="ask"
+                  >Ask first</button>
+                  <button
+                    type="button"
+                    class="btn ${rule.should === "block" ? "btn-active" : ""}"
+                    data-action="set-onboarding-rule"
+                    data-rule-id="${escapeHtml(rule.id)}"
+                    data-should="block"
+                  >Not now (stricter)</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">What needs approval</h3>
+          <p class="section-subtitle">
+            All sensitive categories default to Ask first. You can make an app or action stricter, never looser than the defaults.
+          </p>
+          <div class="data-table-wrap">
+            <table class="rules-table">
+              <thead>
+                <tr>
+                  <th>When it wants to…</th>
+                  <th>It should</th>
+                </tr>
+              </thead>
+              <tbody>${rulesRowsHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } else if (step === 7) {
+      const blockedHtml = OnboardingState.blockedApps
+        .map(
+          (app) => `
+            <span class="attachment-token">
+              <span class="attachment-name">${escapeHtml(app)}</span>
+              ${
+                ["Banking", "Passwords", "Health"].includes(app)
+                  ? `<span class="section-subtitle" style="margin-left:4px;">Locked</span>`
+                  : `<button type="button" class="attachment-remove" data-action="remove-blocked-app" data-app="${escapeHtml(app)}" aria-label="Remove ${escapeHtml(app)}">&times;</button>`
+              }
+            </span>
+          `
+        )
+        .join("");
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Off-limits apps</h3>
+          <p class="section-subtitle">
+            Banking, passwords, and health apps are blocked by default so agents never open or read them.
+          </p>
+          <div class="attachments-list">${blockedHtml}</div>
+          <div class="filter-bar" style="margin-top:8px;">
+            <label for="onboarding-block-app-input" class="filter-label">Add app to block:</label>
+            <input type="text" id="onboarding-block-app-input" class="inline-text-input" value="${escapeHtml(OnboardingState.customBlockedApp)}" placeholder="e.g. Messages" maxlength="40" />
+            <button type="button" class="btn" data-action="add-blocked-app">Block app</button>
+          </div>
+        </div>
+      `;
+    } else if (step === 8) {
+      stepBodyHtml = `
+        <div class="onboarding-block">
+          <h3 class="section-title">Memory</h3>
+          <p class="section-subtitle">
+            Remember things about me to work faster next time.
+          </p>
+          <div class="filter-group">
+            <button type="button" class="btn ${OnboardingState.memoryEnabled ? "btn-active" : ""}" data-action="set-onboarding-memory" data-enabled="1">
+              ${OnboardingState.memoryEnabled ? "✓ " : ""}Allow
+            </button>
+            <button type="button" class="btn ${!OnboardingState.memoryEnabled ? "btn-active" : ""}" data-action="set-onboarding-memory" data-enabled="0">
+              ${!OnboardingState.memoryEnabled ? "✓ " : ""}Not now
+            </button>
+            <button type="button" class="btn btn-danger" data-action="forget-onboarding-memory">
+              Forget everything
+            </button>
+          </div>
+          ${OnboardingState.memoryStatusNote ? `<p class="section-subtitle">${escapeHtml(OnboardingState.memoryStatusNote)}</p>` : ""}
+        </div>
+      `;
+    } else {
+      const starterHtml = OnboardingState.starterPrompts
+        .map(
+          (promptText, i) => `
+            <div class="starter-prompt-row">
+              <span class="starter-prompt-text">${i + 1}. ${escapeHtml(promptText)}</span>
+              <div class="filter-group">
+                <button
+                  type="button"
+                  class="btn"
+                  data-action="fill-starter-prompt"
+                  data-prompt="${escapeHtml(promptText)}"
+                >Load in input</button>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  data-action="send-starter-prompt"
+                  data-prompt="${escapeHtml(promptText)}"
+                >Run first task</button>
+              </div>
+            </div>
+          `
+        )
+        .join("");
+
+      stepBodyHtml = `
+        <div class="onboarding-block" style="border-bottom:none;">
+          <h3 class="section-title">First task</h3>
+          <p class="section-subtitle">
+            Run a safe, visible demo to watch your agent cursor, lane, and steps in action.
+          </p>
+          <div class="starter-prompts-list">${starterHtml}</div>
+        </div>
+      `;
+    }
+
+    const canAdvanceFromPerms =
+      step !== 4 ||
+      (OnboardingState.permissions.accessibility &&
+        OnboardingState.permissions.screen_recording &&
+        OnboardingState.permissions.app_scripting);
 
     const existingAliasInput = document.getElementById("onboarding-agent-name");
     const aliasHadFocus = document.activeElement === existingAliasInput;
@@ -2514,93 +3210,37 @@
         <div>
           <h2 class="section-title">Meet your agent</h2>
           <p class="section-subtitle">
-            Configure your primary agent alias, sea-glass cursor swatch, starter prompt, and approval rules.
+            Step ${step} of ${OnboardingState.totalSteps}: ${escapeHtml(stepTitles[step - 1])}
           </p>
         </div>
-      </div>
-
-      <!-- 1. Agent name/alias & sea-glass swatches -->
-      <div class="onboarding-block">
-        <div class="onboarding-row">
-          <div style="min-width: 240px; flex: 1; max-width: 340px;">
-            <label for="onboarding-agent-name" class="filter-label" style="display:block; margin-bottom:4px;">Primary agent name or alias</label>
-            <input
-              type="text"
-              id="onboarding-agent-name"
-              class="inline-text-input"
-              style="width: 100%;"
-              value="${escapeHtml(OnboardingState.agentName)}"
-              placeholder="Mercury"
-              maxlength="32"
-            />
-          </div>
-
-          <div class="preview-stage">
-            <span class="filter-label">Live agent chip:</span>
-            <div
-              class="agent-preview-chip"
-              data-glass-mount="1"
-              data-glass-body="${escapeHtml(chosenSwatch.body)}"
-              data-glass-edge="${escapeHtml(chosenSwatch.edge)}"
-              data-glass-ink="${escapeHtml(chosenSwatch.ink)}"
-              data-glass-raw-ink="${escapeHtml(chosenSwatch.rawInk)}"
-              data-glass-shape="capsule"
-              data-glass-seed="${escapeHtml(previewSeed)}"
-            >
-              <span class="glass-content">
-                <span>${escapeHtml(OnboardingState.agentName || "Mercury")}</span>
-                <span>✓ Ready</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div class="filter-label">Choose agent sea-glass color swatch (5 backend cursor palettes, ink 25% darker &ge; 5.46:1):</div>
-          <div class="swatches-stage" role="radiogroup" aria-label="Agent color swatches">
-            ${swatchesHtml}
-          </div>
-        </div>
-
-        <p class="section-subtitle">
-          Note: Values are kept in this page for this session. The on-screen cursor name and color still come from the backend.
-        </p>
-      </div>
-
-      <!-- 2. Starter prompts straight into chat -->
-      <div class="onboarding-block">
-        <div>
-          <h3 class="section-title">Start your first task</h3>
-          <p class="section-subtitle">Pick one of the 3 starter prompts below to send straight into the chat, or type above.</p>
-        </div>
-        <div class="starter-prompts-list">
-          ${starterHtml}
+        <div class="filter-group">
+          <span class="provenance-tag">${step} of ${OnboardingState.totalSteps}</span>
         </div>
       </div>
 
-      <!-- 3. Grok Bot-style approval rules -->
-      <div class="onboarding-block" style="border-bottom: none;">
-        <div>
-          <h3 class="section-title">Approval rules</h3>
-          <p class="section-subtitle">
-            Money, sign-in, and destructive actions are enforced by the backend safety gate and always ask first.
-            Approval items in the conversation render each request's own options verbatim (Approve/Deny or Done/Cancel) until the backend rules API is added.
-          </p>
+      <div class="filter-bar onboarding-step-pills" role="navigation" aria-label="Onboarding steps">
+        ${stepNavHtml}
+      </div>
+
+      ${stepBodyHtml}
+
+      <div class="section-header-row onboarding-footer">
+        <div class="filter-group">
+          <button type="button" class="btn" data-action="prev-onboarding-step" ${step <= 1 ? "disabled" : ""}>Back</button>
+          ${step !== 4 && step < OnboardingState.totalSteps ? `<button type="button" class="btn" data-action="skip-onboarding-step">Skip</button>` : ""}
         </div>
-        <div class="data-table-wrap">
-          <table class="rules-table">
-            <thead>
-              <tr>
-                <th>When it wants to…</th>
-                <th>It should</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rulesRowsHtml}
-            </tbody>
-          </table>
+        <div class="filter-group">
+          ${
+            step < OnboardingState.totalSteps
+              ? `<button type="button" class="btn btn-primary" data-action="next-onboarding-step" ${!canAdvanceFromPerms ? "disabled" : ""}>Continue</button>`
+              : `<button type="button" class="btn" data-action="switch-view" data-target-view="graph">Open agent graph</button>`
+          }
         </div>
       </div>
+
+      <p class="section-subtitle">
+        Note: Profile and approval rules are kept in this page for this session until the backend profile and rules endpoints are added. The on-screen cursor name and color still come from the backend.
+      </p>
     `;
 
     mountGlassElementsIn(container, "b4-onboarding");
@@ -2625,6 +3265,31 @@
           }
         }
       }
+    }
+
+    const userNameInput = document.getElementById("onboarding-user-name");
+    if (userNameInput) {
+      userNameInput.addEventListener("input", (e) => {
+        OnboardingState.userName = e.target.value;
+      });
+    }
+    const callMeInput = document.getElementById("onboarding-call-me");
+    if (callMeInput) {
+      callMeInput.addEventListener("input", (e) => {
+        OnboardingState.callMe = e.target.value;
+      });
+    }
+    const pronounceInput = document.getElementById("onboarding-pronounce");
+    if (pronounceInput) {
+      pronounceInput.addEventListener("input", (e) => {
+        OnboardingState.pronounce = e.target.value;
+      });
+    }
+    const blockAppInput = document.getElementById("onboarding-block-app-input");
+    if (blockAppInput) {
+      blockAppInput.addEventListener("input", (e) => {
+        OnboardingState.customBlockedApp = e.target.value;
+      });
     }
   }
 
@@ -3154,7 +3819,31 @@
         case "clear-sm-filters":
           smAgentFilter = "";
           selectedAppFilter = "all";
+          selectedSmEdgeId = null;
           await pollAll();
+          break;
+
+        case "select-sm-edge":
+          selectedSmEdgeId =
+            selectedSmEdgeId === actionEl.dataset.edgeId ? null : actionEl.dataset.edgeId || null;
+          renderNow();
+          break;
+
+        case "close-sm-edge":
+          selectedSmEdgeId = null;
+          renderNow();
+          break;
+
+        case "replay-prev":
+          if (replayStepIndex > 0) {
+            replayStepIndex -= 1;
+            renderNow();
+          }
+          break;
+
+        case "replay-next":
+          replayStepIndex += 1;
+          renderNow();
           break;
 
         case "set-log-status":
@@ -3221,12 +3910,138 @@
           const ruleId = actionEl.dataset.ruleId;
           const shouldVal = actionEl.dataset.should;
           const rule = OnboardingState.rules.find((r) => r.id === ruleId);
-          if (rule && !rule.locked && (shouldVal === "ask" || shouldVal === "allow")) {
+          if (rule && !rule.locked && (shouldVal === "ask" || shouldVal === "block")) {
             rule.should = shouldVal;
             renderNow();
           }
           break;
         }
+
+        case "goto-onboarding-step": {
+          const targetStep = Number(actionEl.dataset.step);
+          if (!Number.isNaN(targetStep) && targetStep >= 1 && targetStep <= OnboardingState.totalSteps) {
+            if (
+              OnboardingState.step === 4 &&
+              targetStep > 4 &&
+              !(
+                OnboardingState.permissions.accessibility &&
+                OnboardingState.permissions.screen_recording &&
+                OnboardingState.permissions.app_scripting
+              )
+            ) {
+              break;
+            }
+            OnboardingState.step = targetStep;
+            renderNow();
+          }
+          break;
+        }
+
+        case "prev-onboarding-step":
+          if (OnboardingState.step > 1) {
+            OnboardingState.step -= 1;
+            renderNow();
+          }
+          break;
+
+        case "next-onboarding-step":
+        case "skip-onboarding-step":
+          if (action === "skip-onboarding-step" && OnboardingState.step === 4) {
+            break;
+          }
+          if (OnboardingState.step < OnboardingState.totalSteps) {
+            OnboardingState.step += 1;
+            renderNow();
+          }
+          break;
+
+        case "select-onboarding-voice":
+          OnboardingState.voiceId = actionEl.dataset.voiceId || "2X7h8q4r8pMNZ7zRmpiF";
+          renderNow();
+          break;
+
+        case "preview-onboarding-voice": {
+          const vid = actionEl.dataset.voiceId || "2X7h8q4r8pMNZ7zRmpiF";
+          const voiceObj = ONBOARDING_VOICES.find((v) => v.id === vid) || ONBOARDING_VOICES[0];
+          OnboardingState.voicePreviewStatus = `Playing 3-second sample for ${voiceObj.name}…`;
+          renderNow();
+          if (typeof window !== "undefined" && window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function") {
+            try {
+              window.speechSynthesis.cancel();
+              const utt = new window.SpeechSynthesisUtterance(`Hello, I am ${voiceObj.name}, ready to help.`);
+              window.speechSynthesis.speak(utt);
+            } catch {
+              // Ignore speech synthesis errors in headless/restricted environments
+            }
+          }
+          setTimeout(() => {
+            OnboardingState.voicePreviewStatus = `Finished 3-second sample for ${voiceObj.name}.`;
+            if (currentView === "onboarding") renderNow();
+          }, 3000);
+          break;
+        }
+
+        case "toggle-a11y": {
+          const key = actionEl.dataset.a11yKey;
+          if (key === "reduce_motion" || key === "high_contrast") {
+            OnboardingState.a11y[key] = !OnboardingState.a11y[key];
+            renderNow();
+          }
+          break;
+        }
+
+        case "toggle-sample-perm": {
+          const pKey = actionEl.dataset.permKey;
+          if (pKey && Object.prototype.hasOwnProperty.call(OnboardingState.permissions, pKey)) {
+            OnboardingState.permissions[pKey] = !OnboardingState.permissions[pKey];
+            renderNow();
+          }
+          break;
+        }
+
+        case "set-stage-display": {
+          const disp = actionEl.dataset.display;
+          if (disp === "secondary" || disp === "primary" || disp === "ask") {
+            OnboardingState.stageDisplay = disp;
+            renderNow();
+          }
+          break;
+        }
+
+        case "add-blocked-app": {
+          const name = (OnboardingState.customBlockedApp || "").trim();
+          if (name && !OnboardingState.blockedApps.includes(name)) {
+            OnboardingState.blockedApps.push(name);
+            OnboardingState.customBlockedApp = "";
+            renderNow();
+          }
+          break;
+        }
+
+        case "remove-blocked-app": {
+          const appName = actionEl.dataset.app;
+          if (appName && !["Banking", "Passwords", "Health"].includes(appName)) {
+            OnboardingState.blockedApps = OnboardingState.blockedApps.filter((a) => a !== appName);
+            renderNow();
+          }
+          break;
+        }
+
+        case "set-onboarding-memory":
+          OnboardingState.memoryEnabled = actionEl.dataset.enabled === "1";
+          OnboardingState.memoryStatusNote = OnboardingState.memoryEnabled
+            ? "Memory enabled for this session."
+            : "Memory paused for this session.";
+          renderNow();
+          break;
+
+        case "forget-onboarding-memory":
+          OnboardingState.userName = "";
+          OnboardingState.callMe = "";
+          OnboardingState.pronounce = "";
+          OnboardingState.memoryStatusNote = "Cleared session memory preferences.";
+          renderNow();
+          break;
 
         case "fill-starter-prompt": {
           const text = actionEl.dataset.prompt || "";
@@ -3248,6 +4063,23 @@
 
         default:
           break;
+      }
+    });
+
+    document.addEventListener("change", (e) => {
+      const target = e.target;
+      if (target && target.matches('[data-action="select-replay-run"]')) {
+        replayRunId = target.value || null;
+        replayStepIndex = 0;
+        renderNow();
+      } else if (target && target.matches('[data-action="set-a11y-select"]')) {
+        const key = target.dataset.a11yKey;
+        if (key === "cursor_scale") {
+          OnboardingState.a11y.cursor_scale = Number(target.value) || 1.0;
+        } else if (key === "text_size" || key === "cursor_palette") {
+          OnboardingState.a11y[key] = target.value;
+        }
+        renderNow();
       }
     });
 

@@ -1266,6 +1266,119 @@ select:focus-visible,
   color: var(--text-muted);
 }
 
+/* ---------------- STATE MACHINE EDGE LOG & REPLAY (Issue #1) ---------------- */
+.sm-edge-group {
+  cursor: pointer;
+}
+
+.sm-edge-group:focus-visible {
+  outline: 2px solid var(--focus-ring, #a6adbb);
+  outline-offset: 2px;
+}
+
+.sm-edge-detail,
+.sm-replay-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-divider);
+}
+
+.replay-step-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.replay-action-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.replay-select {
+  min-width: 240px;
+  max-width: 100%;
+  min-height: 30px;
+}
+
+/* ---------------- ANALYTICS SPARKLINE & DISCLOSURES (Issue #1) ---------------- */
+.analytics-spark-wrap {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-divider);
+  overflow-x: auto;
+}
+
+.analytics-spark-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 6px;
+}
+
+.analytics-disclosure {
+  border-bottom: 1px solid var(--line-divider);
+  padding: 10px 0;
+}
+
+.analytics-disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  list-style: none;
+}
+
+.analytics-disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.analytics-disclosure-summary::before {
+  content: "▶";
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.analytics-disclosure[open] > .analytics-disclosure-summary::before {
+  content: "▼";
+}
+
+/* ---------------- ONBOARDING 9-STEP FLOW (Issue #2) ---------------- */
+.onboarding-step-pills {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-divider);
+}
+
+.onboarding-field {
+  min-width: 180px;
+  flex: 1;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.onboarding-field .inline-text-input {
+  width: 100%;
+  min-height: 30px;
+}
+
+.onboarding-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-divider);
+}
+
 /* ---------------- SKELETON SHIMMER ---------------- */
 @keyframes shimmerMove {
   0% { background-position: 200% 0; }
