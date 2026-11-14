@@ -82,7 +82,21 @@ def _gate(run, app, kind, el, text, els=()):
     if kind == "press" and not NAV_KEY.match((text or "").strip()):
         # a key that is not pure navigation can submit the focused form: judge it by every actionable label
         screen += " " + " ".join(e["name"] for e in els if e.get("ref"))
-    shown = ("%s %s" % (kind, (target or text or "")[:60])).strip()  # safe to put in the question
+
+    def clip(v, n):
+        v = v or ""
+        return v if len(v) <= n else v[: n - 1] + "…"
+
+    if kind in ("type", "set_value"):  # the user must see what will be typed, not only where
+        shown = "%s %s: %s" % (kind, clip(target, 40), clip(text, 120))
+    else:
+        shown = ("%s %s" % (kind, clip(target or text, 60))).strip()
+
+    def ask(category, regex, tail):
+        trigger = regex.search(screen).group(0).lower()  # the keyword only, never the surrounding screen text
+        q = "Allow '%s' in %s? %s (matched \"%s\")" % (shown, app, tail, trigger)
+        return runs.ask_human(run, category, q, detail=text if kind in ("type", "set_value") else None) == "approve"
+
     if kind == "press" and MESSAGING_APP.search(app or "") and SUBMIT_KEY.match((text or "").strip()):
         q = "Press %s in %s? If a message box has focus, this sends a message." % ((text or "")[:20], app)
         return runs.ask_human(run, "destructive", q) == "approve"
@@ -104,11 +118,11 @@ def _gate(run, app, kind, el, text, els=()):
         run.approved_scripts = seen | {h}
         return True
     if MONEY.search(screen):
-        return runs.ask_human(run, "money", "Allow '%s' in %s? This may move money." % (shown, app)) == "approve"
+        return ask("money", MONEY, "This may move money.")
     if SIGN_IN.search(screen) and kind in ("click", "type", "set_value", "press"):
-        return runs.ask_human(run, "sign_in", "Allow '%s' in %s? This may sign in." % (shown, app)) == "approve"
+        return ask("sign_in", SIGN_IN, "This may sign in.")
     if graph.DESTRUCTIVE.search(screen):
-        return runs.ask_human(run, "destructive", "Allow '%s' in %s?" % (shown, app)) == "approve"
+        return ask("destructive", graph.DESTRUCTIVE, "This may send, delete or change something.")
     if CAPTCHA.search(screen):  # only reached when nothing riskier matched
         q = "Please solve the captcha in %s, then press done." % app
         return runs.ask_human(run, "captcha", q, ("done", "cancel")) == "done"
