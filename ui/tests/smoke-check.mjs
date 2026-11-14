@@ -11,12 +11,13 @@
  * If Google Chrome is not installed, prints SKIP with the reason and exits 0.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanupAll, killProcessTree, registerCleanup, spawnManaged } from "./process-cleanup.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -126,14 +127,14 @@ function launchChrome(chromePath, userDataDir) {
       "about:blank",
     ];
 
-    const proc = spawn(chromePath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawnManaged(chromePath, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stderrBuf = "";
     let settled = false;
 
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
-        try { proc.kill("SIGKILL"); } catch {}
+        killProcessTree(proc, "SIGKILL");
         reject(new Error(`Timed out waiting for Chrome DevTools port. stderr: ${stderrBuf.slice(-400)}`));
       }
     }, 15000);
@@ -465,15 +466,20 @@ async function main() {
   }
 
   const { server, port } = await startStaticServer(UI_DIR);
+  registerCleanup(() => {
+    try { server.closeAllConnections?.(); } catch {}
+    try { server.close(); } catch {}
+  });
   const baseUrl = `http://127.0.0.1:${port}`;
   const tmpProfile = fs.mkdtempSync(path.join(os.tmpdir(), "ui-smoke-chrome-"));
+  registerCleanup(() => {
+    fs.rmSync(tmpProfile, { recursive: true, force: true });
+  });
 
-  let chromeProc = null;
   let cdp = null;
 
   try {
     const launched = await launchChrome(chromePath, tmpProfile);
-    chromeProc = launched.proc;
 
     const targetRes = await fetch(`http://127.0.0.1:${launched.debugPort}/json/new?about:blank`, {
       method: "PUT",
@@ -483,6 +489,9 @@ async function main() {
     }
     const targetInfo = await targetRes.json();
     cdp = await createCdpClient(targetInfo.webSocketDebuggerUrl);
+    registerCleanup(() => {
+      try { cdp.close(); } catch {}
+    });
 
     await cdp.send("Page.enable");
     await cdp.send("Runtime.enable");
@@ -517,12 +526,7 @@ async function main() {
       console.log(`CHECK PASS (${cases.length} pages)`);
     }
   } finally {
-    if (cdp) cdp.close();
-    if (chromeProc) {
-      try { chromeProc.kill("SIGKILL"); } catch {}
-    }
-    server.close();
-    fs.rmSync(tmpProfile, { recursive: true, force: true });
+    cleanupAll();
   }
 }
 

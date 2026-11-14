@@ -25,6 +25,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { installCleanupHandlers, registerCleanup } from "./process-cleanup.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -249,6 +250,7 @@ function forwardApi(req, res, reqUrl, backend, options) {
 }
 
 function main() {
+  installCleanupHandlers();
   const options = parseArgs(process.argv.slice(2));
   const backend = parseCaUrl();
 
@@ -267,6 +269,11 @@ function main() {
     }
 
     serveStatic(req, res, reqUrl.pathname);
+  });
+
+  registerCleanup(() => {
+    try { server.closeAllConnections?.(); } catch {}
+    try { server.close(); } catch {}
   });
 
   server.listen(options.port, "127.0.0.1", () => {

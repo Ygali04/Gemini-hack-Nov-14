@@ -21,6 +21,7 @@ const CHECKS = [
   { name: "copy-check", file: "copy-check.mjs" },
   { name: "demo-check", file: "demo-check.mjs" },
   { name: "bridge-check", file: "bridge-check.mjs" },
+  { name: "cleanup-check", file: "cleanup-check.mjs" },
 ];
 
 const A11Y_FILES = [
