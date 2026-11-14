@@ -1620,7 +1620,9 @@
     });
 
     document.querySelectorAll("[data-view-panel]").forEach((panel) => {
-      panel.classList.toggle("active", panel.dataset.viewPanel === currentView);
+      const isActive = panel.dataset.viewPanel === currentView;
+      panel.classList.toggle("active", isActive);
+      panel.hidden = !isActive;
     });
   }
 
@@ -4685,6 +4687,106 @@
       const hashView = window.location.hash.replace(/^#/, "");
       if (hashView) {
         setView(hashView);
+      }
+    });
+
+    /* Keyboard accessibility:
+       - ArrowLeft / ArrowRight / Home / End on view tabs
+       - Enter / Space on SVG .sm-edge-group controls
+       - Escape closes the innermost open menu, inline form, confirmation, or detail */
+    document.addEventListener("keydown", (e) => {
+      const target = e.target;
+
+      if (target && target.matches && target.matches('[role="tab"][data-view-tab]')) {
+        const tabs = Array.from(document.querySelectorAll('[role="tab"][data-view-tab]'));
+        const idx = tabs.indexOf(target);
+        if (idx !== -1 && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "Home" || e.key === "End")) {
+          e.preventDefault();
+          let nextIdx = idx;
+          if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
+          else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
+          else if (e.key === "Home") nextIdx = 0;
+          else if (e.key === "End") nextIdx = tabs.length - 1;
+          const nextTab = tabs[nextIdx];
+          if (nextTab) {
+            setView(nextTab.dataset.viewTab);
+            nextTab.focus();
+          }
+          return;
+        }
+      }
+
+      if (target && target.matches && target.matches('.sm-edge-group[data-action="select-sm-edge"]')) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          const edgeId = target.dataset.edgeId || null;
+          selectedSmEdgeId = selectedSmEdgeId === edgeId ? null : edgeId;
+          renderNow();
+          return;
+        }
+      }
+
+      if (e.key !== "Escape") return;
+
+      if (attachMenu && attachMenu.classList.contains("open")) {
+        e.preventDefault();
+        attachMenu.classList.remove("open");
+        attachBtn?.setAttribute("aria-expanded", "false");
+        attachBtn?.focus();
+        return;
+      }
+
+      if (linkInputRow && !linkInputRow.classList.contains("hidden")) {
+        e.preventDefault();
+        if (linkInput) linkInput.value = "";
+        linkInputRow.classList.add("hidden");
+        attachBtn?.focus();
+        return;
+      }
+
+      if (currentView === "history-settings" && HistorySettingsState.confirmForgetId) {
+        e.preventDefault();
+        const mid = HistorySettingsState.confirmForgetId;
+        HistorySettingsState.confirmForgetId = null;
+        renderNow();
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-action="forget-memory"][data-memory-id="${mid}"]`)?.focus();
+        });
+        return;
+      }
+
+      if (currentView === "history-settings" && HistorySettingsState.editingMemoryId) {
+        e.preventDefault();
+        const mid = HistorySettingsState.editingMemoryId;
+        HistorySettingsState.editingMemoryId = null;
+        HistorySettingsState.editingMemoryDraft = "";
+        renderNow();
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-action="edit-memory"][data-memory-id="${mid}"]`)?.focus();
+        });
+        return;
+      }
+
+      if (currentView === "state-machine" && selectedSmEdgeId) {
+        e.preventDefault();
+        const prevEdge = selectedSmEdgeId;
+        selectedSmEdgeId = null;
+        renderNow();
+        requestAnimationFrame(() => {
+          document.querySelector(`.sm-edge-group[data-edge-id="${prevEdge}"]`)?.focus();
+        });
+        return;
+      }
+
+      if (currentView === "logs" && expandedTranscriptRunIds.size > 0) {
+        e.preventDefault();
+        const ids = Array.from(expandedTranscriptRunIds);
+        const lastId = ids[ids.length - 1];
+        expandedTranscriptRunIds.delete(lastId);
+        renderNow();
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-action="toggle-transcript-run"][data-run-id="${lastId}"]`)?.focus();
+        });
       }
     });
   }
