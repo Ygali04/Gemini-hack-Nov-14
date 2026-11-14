@@ -1,0 +1,116 @@
+{
+  "capabilities": {
+    "stop": true,
+    "memory": true
+  },
+  "runs": [
+    {
+      "id": "r1763140700-1",
+      "goal": "Prepare weekly budget sheet in Numbers",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 6.2,
+      "n_events": 3,
+      "result": null
+    },
+    {
+      "id": "r1763140700-2",
+      "goal": "Open budget template in Numbers",
+      "role": "cu",
+      "parent": "r1763140700-1",
+      "state": "acting",
+      "elapsed": 4.9,
+      "n_events": 4,
+      "result": null
+    },
+    {
+      "id": "r1763140690-1",
+      "goal": "Check open tabs in Safari",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "planning",
+      "elapsed": 2.3,
+      "n_events": 2,
+      "result": null
+    }
+  ],
+  "details": {
+    "r1763140700-1": {
+      "id": "r1763140700-1",
+      "goal": "Prepare weekly budget sheet in Numbers",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 6.2,
+      "n_events": 3,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        {
+          "t": 0.5,
+          "kind": "route",
+          "role": "cu",
+          "app": "Numbers",
+          "goal": "Prepare weekly budget sheet in Numbers",
+          "subtasks": [{ "goal": "Open budget template in Numbers", "app": "Numbers" }]
+        },
+        { "t": 0.5, "kind": "state", "state": "acting" }
+      ],
+      "result": null
+    },
+    "r1763140700-2": {
+      "id": "r1763140700-2",
+      "goal": "Open budget template in Numbers",
+      "role": "cu",
+      "parent": "r1763140700-1",
+      "state": "acting",
+      "elapsed": 4.9,
+      "n_events": 4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 1.1, "kind": "app_ready", "app": "Numbers", "method": "running", "seconds": 0.5 },
+        { "t": 1.2, "kind": "state", "state": "acting" },
+        { "t": 2.4, "kind": "decide", "ms": 480, "thought": "Selecting Personal Budget template", "action": "click" }
+      ],
+      "result": null
+    },
+    "r1763140690-1": {
+      "id": "r1763140690-1",
+      "goal": "Check open tabs in Safari",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "planning",
+      "elapsed": 2.3,
+      "n_events": 2,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.8, "kind": "msg", "role": "assistant", "agent": "ComputerAnything", "msg_kind": "plan", "text": "Checking Safari tabs." }
+      ],
+      "result": null
+    }
+  },
+  "help": [],
+  "agents": {
+    "r1763140700-2": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" },
+    "r1763140690-1": { "name": "ComputerAnything", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  },
+  "costs": {
+    "r1763140700-1": {
+      "run": "r1763140700-1",
+      "cost_usd": 0.0142,
+      "llm_calls": 3
+    },
+    "r1763140690-1": {
+      "run": "r1763140690-1",
+      "cost_usd": null,
+      "llm_calls": 1
+    }
+  },
+  "memory": [
+    {
+      "id": "mem-1",
+      "run": "r1763140700-1",
+      "text": "I'll remember you prefer Weekly Budget in Numbers."
+    }
+  ]
+}

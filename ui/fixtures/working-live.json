@@ -97,5 +97,14 @@
   "agents": {
     "r1763140600-2": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
     "r1763140600-3": { "name": "CU 2", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  },
+  "costs": {
+    "r1763140600-1": {
+      "run": "r1763140600-1",
+      "cost_usd": 0.0042,
+      "llm_calls": 2,
+      "prompt_tokens": 920,
+      "completion_tokens": 110
+    }
   }
 }

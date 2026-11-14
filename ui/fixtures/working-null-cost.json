@@ -1,0 +1,42 @@
+{
+  "runs": [
+    {
+      "id": "r1763140800-1",
+      "goal": "Summarize unread mail subjects",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 3.5,
+      "n_events": 3,
+      "result": null
+    }
+  ],
+  "details": {
+    "r1763140800-1": {
+      "id": "r1763140800-1",
+      "goal": "Summarize unread mail subjects",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 3.5,
+      "n_events": 3,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 1.1, "kind": "llm", "cost": null },
+        { "t": 1.4, "kind": "state", "state": "acting" }
+      ],
+      "result": null
+    }
+  },
+  "help": [],
+  "agents": {
+    "r1763140800-1": { "name": "ComputerAnything", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  },
+  "costs": {
+    "r1763140800-1": {
+      "run": "r1763140800-1",
+      "cost_usd": null,
+      "llm_calls": 1
+    }
+  }
+}

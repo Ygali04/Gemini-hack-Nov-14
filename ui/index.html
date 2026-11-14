@@ -788,6 +788,49 @@
       word-break: break-word;
     }
 
+    .run-outcome-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .run-live-cost {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .stop-notice-line {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      padding: 2px 8px;
+      word-break: break-word;
+    }
+
+    .memory-notice-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 0;
+      border-top: 1px solid var(--line-divider);
+      min-height: 32px;
+    }
+
+    .memory-notice-text {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
+    }
+
     /* Pending human help request inline inside timeline */
     .help-block {
       display: flex;
@@ -866,8 +909,16 @@
       border-radius: 8px;
     }
 
-    .step-row-btn {
+    .step-row-line {
+      display: flex;
+      align-items: center;
+      gap: 4px;
       width: 100%;
+    }
+
+    .step-row-btn {
+      flex: 1;
+      min-width: 0;
       min-height: 32px;
       padding: 4px 8px;
       border: none;
@@ -1480,6 +1531,8 @@
             help: normalizedHelp,
             agents: parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {},
             costs: parsed.costs && typeof parsed.costs === "object" ? parsed.costs : {},
+            capabilities: parsed.capabilities && typeof parsed.capabilities === "object" ? parsed.capabilities : {},
+            memory: Array.isArray(parsed.memory) ? parsed.memory : [],
           };
         }
 
@@ -1510,6 +1563,7 @@
               throw Object.assign(new Error(data.error || `HTTP ${res.status}`), {
                 status: res.status,
                 code: res.status === 403 ? "AUTH" : "HTTP",
+                data,
               });
             }
             return data;
@@ -1536,6 +1590,7 @@
             throw Object.assign(new Error(data.error || `HTTP ${res.status}`), {
               status: res.status,
               code: res.status === 403 ? "AUTH" : "HTTP",
+              data,
             });
           }
           return data;
@@ -1543,13 +1598,50 @@
 
         function handleFixtureRequest(method, path, options) {
           if (!fixtureState) throw new Error("Sample data unavailable");
-          if (method === "GET" && path === "/api/runs") {
+          const cleanPath = String(path || "").split("?")[0];
+          if (method === "GET" && cleanPath === "/api/runs") {
             return JSON.parse(JSON.stringify(fixtureState.runs));
           }
-          if (method === "GET" && path.startsWith("/api/runs/")) {
-            const subPath = path.slice("/api/runs/".length).split("?")[0];
+          if (method === "POST" && cleanPath.startsWith("/api/runs/") && cleanPath.endsWith("/stop")) {
+            if (!fixtureState.capabilities?.stop) {
+              throw Object.assign(new Error("not found"), {
+                status: 404,
+                code: "HTTP",
+                data: { error: "not found" },
+              });
+            }
+            const runId = decodeURIComponent(cleanPath.slice("/api/runs/".length, -"/stop".length));
+            const target = fixtureState.runs.find((r) => r.id === runId);
+            if (!target) {
+              throw Object.assign(new Error("no such run"), {
+                status: 404,
+                code: "HTTP",
+                data: { error: "no such run" },
+              });
+            }
+            const targets = [target, ...fixtureState.runs.filter((r) => r.parent === runId)];
+            const actCount = targets.reduce((sum, r) => {
+              const evs = Array.isArray(fixtureState.details?.[r.id]?.events) ? fixtureState.details[r.id].events : [];
+              return sum + evs.filter((e) => e?.kind === "act" || (e?.kind === "patch" && e.applied === true)).length;
+            }, 0);
+            for (const r of targets) {
+              if (r.state === "done" || r.state === "failed") continue;
+              r.state = "failed";
+              r.result = { ok: false, summary: actCount > 0 ? "Stopped by user" : "Stopped by user · Nothing was changed." };
+              const detail = fixtureState.details?.[r.id];
+              if (detail) {
+                detail.state = "failed";
+                detail.result = r.result;
+                if (!Array.isArray(detail.events)) detail.events = [];
+                detail.events.push({ t: (detail.elapsed || 1) + 0.1, kind: "state", state: "failed" });
+              }
+            }
+            return { ok: true, stopped: runId, changed_actions: actCount };
+          }
+          if (method === "GET" && cleanPath.startsWith("/api/runs/")) {
+            const subPath = cleanPath.slice("/api/runs/".length);
             if (subPath.endsWith("/cost")) {
-              const runId = subPath.slice(0, -"/cost".length);
+              const runId = decodeURIComponent(subPath.slice(0, -"/cost".length));
               const cost =
                 fixtureState.costs?.[runId] ||
                 fixtureState.details?.[runId]?.result?.digest?.task_cost ||
@@ -1561,11 +1653,43 @@
             if (!detail) throw new Error("Run not found");
             return JSON.parse(JSON.stringify(detail));
           }
-          if (method === "GET" && path === "/api/help") {
+          if (method === "GET" && cleanPath === "/api/help") {
             return JSON.parse(JSON.stringify(fixtureState.help.filter((h) => h.answer == null)));
           }
-          if (method === "GET" && path === "/api/agents") {
+          if (method === "GET" && cleanPath === "/api/agents") {
             return JSON.parse(JSON.stringify(fixtureState.agents || {}));
+          }
+          if (method === "GET" && cleanPath === "/api/memory") {
+            const hasMemory = fixtureState.capabilities?.memory === true || (fixtureState.memory && fixtureState.memory.length > 0);
+            if (fixtureState.capabilities?.memory === false || !hasMemory) {
+              throw Object.assign(new Error("not found"), {
+                status: 404,
+                code: "HTTP",
+                data: { error: "not found" },
+              });
+            }
+            return JSON.parse(JSON.stringify(fixtureState.memory || []));
+          }
+          if (method === "DELETE" && cleanPath.startsWith("/api/memory/")) {
+            const hasMemory = fixtureState.capabilities?.memory === true || (fixtureState.memory && fixtureState.memory.length > 0);
+            if (fixtureState.capabilities?.memory === false || !hasMemory) {
+              throw Object.assign(new Error("not found"), {
+                status: 404,
+                code: "HTTP",
+                data: { error: "not found" },
+              });
+            }
+            const memId = decodeURIComponent(cleanPath.slice("/api/memory/".length));
+            const before = fixtureState.memory.length;
+            fixtureState.memory = fixtureState.memory.filter((m) => String(m.id) !== memId);
+            if (fixtureState.memory.length === before) {
+              throw Object.assign(new Error("no such memory"), {
+                status: 404,
+                code: "HTTP",
+                data: { error: "no such memory" },
+              });
+            }
+            return { ok: true, id: memId };
           }
           if (method === "POST" && path.startsWith("/api/help/")) {
             const hid = path.slice("/api/help/".length);
@@ -1676,11 +1800,49 @@
       const WorkspaceAdapter = (function () {
         const NEUTRAL_AGENT_COLOR = "#5C6B7A";
 
+        const PRIMARY_SWATCHES = [
+          { key: "lagoon", name: "Lagoon", color: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" },
+          { key: "rose",   name: "Rose",   color: "#EECED6", edge: "#FFF0F1", ink: "#963F59" },
+          { key: "mint",   name: "Mint",   color: "#C0DED0", edge: "#E6FFF0", ink: "#396C5A" },
+          { key: "lilac",  name: "Lilac",  color: "#E1CDE8", edge: "#FBE8F7", ink: "#71388B" },
+          { key: "amber",  name: "Amber",  color: "#F0D9BE", edge: "#FFFCE0", ink: "#865733" },
+        ];
+
         const APPROVAL_KIND_WARNINGS = {
           destructive: "This can't be undone",
           sign_in: "This changes sign-in or security settings",
           money: "This spends money",
         };
+
+        function matchPrimarySwatch(rawSwatch) {
+          const val = String(rawSwatch || "").trim();
+          if (!val) return null;
+          const lower = val.toLowerCase();
+          const upper = val.toUpperCase();
+          return (
+            PRIMARY_SWATCHES.find((s) => s.key === lower || s.name.toLowerCase() === lower || s.color === upper) ||
+            null
+          );
+        }
+
+        function readPrimaryAgentPref(meta) {
+          let raw = meta && meta.primaryAgent ? meta.primaryAgent : null;
+          if (!raw) {
+            try {
+              if (typeof localStorage !== "undefined") {
+                const stored = localStorage.getItem("ca.primaryAgent");
+                if (stored) raw = JSON.parse(stored);
+              }
+            } catch {
+              raw = null;
+            }
+          }
+          if (!raw || typeof raw !== "object") return null;
+          const alias = typeof raw.alias === "string" ? raw.alias.trim() : "";
+          const swatch = matchPrimarySwatch(raw.swatch);
+          if (!alias && !swatch) return null;
+          return { alias, swatch };
+        }
 
         function normalizeHex(hex, fallback) {
           const s = String(hex || "").trim();
@@ -1824,7 +1986,8 @@
           rememberedMap,
           events,
           parentRouteEvent,
-          transcriptsById
+          transcriptsById,
+          primaryAgentPref
         ) {
           const recovered = extractEventOrTranscriptAgent(
             runObj,
@@ -1849,12 +2012,28 @@
               }
             : directRecord;
           const fallbackName = recovered.name || actorLabelForRole(runObj?.role);
-          const seed = hashString(String(runObj?.id || fallbackName || "agent")) % 10000;
-          const hasAgentColor = Boolean(record && (record.color || record.body));
+          const resolvedBackendName = String(record?.name || fallbackName).trim();
+          const isOrchestrator = runObj?.role === "orchestrator" || resolvedBackendName === "ComputerAnything";
+          const displayName =
+            isOrchestrator && primaryAgentPref && primaryAgentPref.alias
+              ? primaryAgentPref.alias
+              : resolvedBackendName;
+          const swatchOverride = isOrchestrator && primaryAgentPref ? primaryAgentPref.swatch : null;
+          const seed = hashString(String(runObj?.id || displayName || "agent")) % 10000;
+          const hasAgentColor = Boolean(swatchOverride || (record && (record.color || record.body)));
           if (hasAgentColor) {
-            const rawColor = normalizeHex(record.color || record.body, NEUTRAL_AGENT_COLOR);
-            const rawEdge = normalizeHex(record.edge, mixHex(rawColor, "#FFFFFF", 0.35));
-            const rawInk = normalizeHex(record.ink, mixHex(rawColor, "#000000", 0.45));
+            const rawColor = normalizeHex(
+              swatchOverride ? swatchOverride.color : record.color || record.body,
+              NEUTRAL_AGENT_COLOR
+            );
+            const rawEdge = normalizeHex(
+              swatchOverride ? swatchOverride.edge : record.edge,
+              mixHex(rawColor, "#FFFFFF", 0.35)
+            );
+            const rawInk = normalizeHex(
+              swatchOverride ? swatchOverride.ink : record.ink,
+              mixHex(rawColor, "#000000", 0.45)
+            );
             const shared = typeof window !== "undefined" ? window.AgentGlass : null;
             let palette;
             if (shared && typeof shared.resolveAgentPalette === "function") {
@@ -1877,7 +2056,7 @@
             }
             return {
               id: runObj?.id || `agent-${fallbackIndex}`,
-              name: String(record.name || fallbackName).trim(),
+              name: displayName,
               color: rawColor,
               rawEdge,
               rawInk,
@@ -1893,7 +2072,7 @@
           const ink = ensureContrastInk(body, derivedInk);
           return {
             id: runObj?.id || `agent-${fallbackIndex}`,
-            name: String(record?.name || fallbackName).trim(),
+            name: displayName,
             color: baseColor,
             rawEdge: edge,
             rawInk: derivedInk,
@@ -2223,7 +2402,8 @@
           isMockContext,
           rememberedMap,
           parentRouteEvent,
-          transcriptsById
+          transcriptsById,
+          primaryAgentPref
         ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role);
@@ -2234,7 +2414,8 @@
             rememberedMap,
             events,
             parentRouteEvent,
-            transcriptsById
+            transcriptsById,
+            primaryAgentPref
           );
           const app = extractRunApp(childRun, events, parentRouteEvent, fallbackIndex);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
@@ -2445,6 +2626,10 @@
 
           let costUsd = null;
           let costIsNull = false;
+          const isExplicitMockCost = Boolean(
+            (costData && costData.mock === true) ||
+            (rawDigest?.task_cost && costData == null && rawDigest.task_cost.mock === true)
+          );
           const llmNullInEvents = [parent, ...rawChildren].some((r) => {
             const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
             const llmEvs = evs.filter((e) => e?.kind === "llm");
@@ -2477,6 +2662,17 @@
             }
           }
 
+          const finalCostText = isExplicitMockCost
+            ? "$0 (mock run)"
+            : costIsNull
+            ? "—"
+            : formatCostUsd(costUsd);
+          const liveCostText = isExplicitMockCost
+            ? "$0 (mock run)"
+            : costIsNull || costUsd === null
+            ? "—"
+            : formatCostUsd(costUsd) || "—";
+
           return {
             summary: rawDigest?.summary ? String(rawDigest.summary) : "",
             timeText: formatSeconds(seconds),
@@ -2486,7 +2682,8 @@
             children,
             llm: rawDigest?.llm || null,
             costUsd,
-            costText: costIsNull ? "—" : formatCostUsd(costUsd),
+            costText: finalCostText,
+            liveCostText,
             actEvents,
             hasActEvents: actEvents.length > 0,
           };
@@ -2504,6 +2701,7 @@
           const transcriptsById =
             meta && meta.transcriptsById && typeof meta.transcriptsById === "object" ? meta.transcriptsById : {};
           const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : Date.now() / 1000;
+          const primaryAgentPref = readPrimaryAgentPref(meta);
           const byId = new Map(runsList.map((r) => [r.id, r]));
 
           /* Group child runs under parent orchestrator runs */
@@ -2523,12 +2721,19 @@
             const runObj = byId.get(agentId);
             if (runObj && (runObj.state === "done" || runObj.state === "failed")) continue;
             if (runObj && runObj.role === "orchestrator" && childrenByParent.has(runObj.id)) continue;
+            const entryName = String(entry.name || actorLabelForRole(runObj?.role)).trim();
+            const isOrchAgent = runObj?.role === "orchestrator" || entryName === "ComputerAnything";
+            const customSwatch = isOrchAgent && primaryAgentPref ? primaryAgentPref.swatch : null;
+            const displayName =
+              isOrchAgent && primaryAgentPref && primaryAgentPref.alias
+                ? primaryAgentPref.alias
+                : entryName;
             liveAgents.push({
               id: agentId,
-              name: String(entry.name || actorLabelForRole(runObj?.role)).trim(),
-              color: normalizeHex(entry.color || entry.body, NEUTRAL_AGENT_COLOR),
-              edge: normalizeHex(entry.edge, "#E0E3E6"),
-              ink: normalizeHex(entry.ink, "#323B43"),
+              name: displayName,
+              color: normalizeHex(customSwatch ? customSwatch.color : entry.color || entry.body, NEUTRAL_AGENT_COLOR),
+              edge: normalizeHex(customSwatch ? customSwatch.edge : entry.edge, "#E0E3E6"),
+              ink: normalizeHex(customSwatch ? customSwatch.ink : entry.ink, "#323B43"),
             });
           }
 
@@ -2622,7 +2827,8 @@
                 isSampleContext,
                 rememberedMap,
                 parentRouteEvent,
-                transcriptsById
+                transcriptsById,
+                primaryAgentPref
               );
             });
             const stepById = new Map(steps.map((s) => [s.id, s]));
@@ -2810,6 +3016,96 @@
       let ttsSpeakText = "";
       let hasInitializedSpokenBaseline = false;
       const seenSpokenEventKeys = new Set();
+      const finalCostsFetched = new Set();
+      let stopRouteSupported = false;
+      let stopProbeKey = "";
+      const stopNoticesByRunId = new Map();
+      const pendingStopIds = new Set();
+      let memoryItems = [];
+      let memoryRouteMissing = false;
+      let memoryProbeKey = "";
+      const pendingUndoMemoryIds = new Set();
+
+      const PRIMARY_AGENT_SWATCHES = [
+        { key: "lagoon", name: "Lagoon", color: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" },
+        { key: "rose",   name: "Rose",   color: "#EECED6", edge: "#FFF0F1", ink: "#963F59" },
+        { key: "mint",   name: "Mint",   color: "#C0DED0", edge: "#E6FFF0", ink: "#396C5A" },
+        { key: "lilac",  name: "Lilac",  color: "#E1CDE8", edge: "#FBE8F7", ink: "#71388B" },
+        { key: "amber",  name: "Amber",  color: "#F0D9BE", edge: "#FFFCE0", ink: "#865733" },
+      ];
+
+      function resolvePrimaryAgentDisplay(backendName, backendColor) {
+        const cleanName = String(backendName || "").trim();
+        const result = { name: cleanName, color: backendColor || "" };
+        if (cleanName !== "ComputerAnything") return result;
+        try {
+          const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ca.primaryAgent") : null;
+          if (!raw) return result;
+          const parsed = JSON.parse(raw);
+          if (!parsed || typeof parsed !== "object") return result;
+          const alias = typeof parsed.alias === "string" ? parsed.alias.trim() : "";
+          const swatchVal = String(parsed.swatch || "").trim();
+          const lower = swatchVal.toLowerCase();
+          const upper = swatchVal.toUpperCase();
+          const swatch = swatchVal
+            ? PRIMARY_AGENT_SWATCHES.find((s) => s.key === lower || s.name.toLowerCase() === lower || s.color === upper) || null
+            : null;
+          if (alias) result.name = alias;
+          if (swatch) result.color = swatch.color;
+        } catch {
+          // Ignore invalid stored primaryAgent preference
+        }
+        return result;
+      }
+
+      function getProbeConnectionKey() {
+        if (!Transport.isConnected()) return "";
+        return fixtureParam ? `fixture:${fixtureParam}` : "live";
+      }
+
+      function resetCapabilityState() {
+        finalCostsFetched.clear();
+        stopRouteSupported = false;
+        stopProbeKey = "";
+        stopNoticesByRunId.clear();
+        pendingStopIds.clear();
+        memoryItems = [];
+        memoryRouteMissing = false;
+        memoryProbeKey = "";
+        pendingUndoMemoryIds.clear();
+      }
+
+      function buildStopSummary(runId, resp) {
+        if (resp && typeof resp.summary === "string" && resp.summary.trim()) {
+          return resp.summary.trim();
+        }
+        if (resp && typeof resp.changed === "string" && resp.changed.trim()) {
+          return `Stopped. ${resp.changed.trim()}`;
+        }
+        const targetIds = [runId, ...rawRuns.filter((r) => r.parent === runId).map((r) => r.id)];
+        let patchCount = 0;
+        let actCount = 0;
+        for (const id of targetIds) {
+          const evs = Array.isArray(detailsById[id]?.events) ? detailsById[id].events : [];
+          for (const ev of evs) {
+            if (ev?.kind === "patch" && ev.applied === true) patchCount += 1;
+            else if (ev?.kind === "act") actCount += 1;
+          }
+        }
+        if (patchCount > 0) {
+          return `Stopped. ${patchCount} change${patchCount === 1 ? "" : "s"} already applied.`;
+        }
+        if (actCount > 0) {
+          return `Stopped. ${actCount} action${actCount === 1 ? "" : "s"} already ran.`;
+        }
+        return "Stopped. Nothing was changed.";
+      }
+
+      function getVisibleMemoriesForRun(activeRun) {
+        if (!activeRun || !Array.isArray(memoryItems) || !memoryItems.length) return [];
+        const groupIds = new Set([activeRun.id, ...activeRun.steps.map((s) => s.id)]);
+        return memoryItems.filter((m) => m && m.id && (!m.run || groupIds.has(m.run)));
+      }
 
       const prefersReducedMotion = () =>
         Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -3510,6 +3806,13 @@
           }
         }
 
+        if (!activeRun.isFinished) {
+          const liveCostEl = timelineScroll.querySelector(`[data-run-live-cost="${CSS.escape(activeRun.id)}"]`);
+          if (liveCostEl) {
+            liveCostEl.textContent = `Cost ${activeRun.digest.liveCostText}`;
+          }
+        }
+
         return !expiryCrossed;
       }
 
@@ -3524,11 +3827,14 @@
         const stepsKey = activeRun.steps
           .map(
             (s) =>
-              `${s.id}:${s.stateSymbolWord}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.app}:${s.latestSummary}:${expandedStepIds.has(s.id) ? 1 : 0}:${s.detailLines.length}`
+              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.app}:${s.latestSummary}:${expandedStepIds.has(s.id) ? 1 : 0}:${s.detailLines.length}`
           )
           .join("|");
         const replayOpen = openReplayRunIds.has(activeRun.id) ? 1 : 0;
         const replayIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
+        const memoryKey = getVisibleMemoriesForRun(activeRun)
+          .map((m) => `${m.id}:${m.text || ""}:${pendingUndoMemoryIds.has(m.id) ? 1 : 0}`)
+          .join("|");
         const otherKey = vm.runs
           .filter((r) => r.id !== activeRun.id)
           .map((r) => `${r.id}:${r.stateSymbolWord}:${r.goal}`)
@@ -3538,6 +3844,9 @@
           vm.connectionStatus,
           vm.isSampleData ? 1 : 0,
           sendErrorText,
+          stopRouteSupported ? 1 : 0,
+          pendingStopIds.has(activeRun.id) ? 1 : 0,
+          stopNoticesByRunId.get(activeRun.id) || "",
           activeRun.id,
           activeRun.goal,
           activeRun.appLabel,
@@ -3550,7 +3859,9 @@
           activeRun.digest.totalSteps,
           activeRun.digest.memorySteps,
           activeRun.digest.costText,
+          activeRun.digest.liveCostText,
           helpKey,
+          memoryKey,
           stepsKey,
           replayOpen,
           replayIdx,
@@ -3743,29 +4054,37 @@
               `;
             }
 
+            const stopStepBtnHtml =
+              stopRouteSupported && step.isWorking
+                ? `<button type="button" class="btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" aria-label="Stop ${escapeHtml(step.agentIdentity.name)}" ${pendingStopIds.has(step.id) ? "disabled" : ""}>Stop</button>`
+                : "";
+
             return `
               <div class="step-item ${highlightClass} ${enterClass}">
-                <button
-                  type="button"
-                  class="step-row-btn"
-                  data-step-id="${escapeHtml(step.id)}"
-                  aria-expanded="${isExpanded ? "true" : "false"}"
-                >
-                  <span class="step-left">
-                    <span class="state-text ${escapeHtml(step.stateColorClass)}">${escapeHtml(step.stateSymbolWord)}</span>
-                    <span
-                      class="agent-chip"
-                      style="--chip-bg: ${escapeHtml(step.agentIdentity.palette.body)}; --chip-edge: ${escapeHtml(step.agentIdentity.palette.edge)}; --chip-ink: ${escapeHtml(step.agentIdentity.palette.ink)};"
-                      data-agent-chip="${escapeHtml(step.id)}"
-                      data-agent-has-color="${step.agentIdentity.hasAgentColor ? "1" : "0"}"
-                      data-agent-name="${escapeHtml(step.agentIdentity.name)}"
-                      data-agent-color="${escapeHtml(step.agentIdentity.color)}"
-                      data-agent-edge="${escapeHtml(step.agentIdentity.rawEdge || step.agentIdentity.palette.edge)}"
-                      data-agent-ink="${escapeHtml(step.agentIdentity.rawInk || step.agentIdentity.palette.ink)}"
-                    ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
-                    <span class="step-event-text">${escapeHtml(stepSummaryText)}</span>
-                  </span>
-                </button>
+                <div class="step-row-line">
+                  <button
+                    type="button"
+                    class="step-row-btn"
+                    data-step-id="${escapeHtml(step.id)}"
+                    aria-expanded="${isExpanded ? "true" : "false"}"
+                  >
+                    <span class="step-left">
+                      <span class="state-text ${escapeHtml(step.stateColorClass)}">${escapeHtml(step.stateSymbolWord)}</span>
+                      <span
+                        class="agent-chip"
+                        style="--chip-bg: ${escapeHtml(step.agentIdentity.palette.body)}; --chip-edge: ${escapeHtml(step.agentIdentity.palette.edge)}; --chip-ink: ${escapeHtml(step.agentIdentity.palette.ink)};"
+                        data-agent-chip="${escapeHtml(step.id)}"
+                        data-agent-has-color="${step.agentIdentity.hasAgentColor ? "1" : "0"}"
+                        data-agent-name="${escapeHtml(step.agentIdentity.name)}"
+                        data-agent-color="${escapeHtml(step.agentIdentity.color)}"
+                        data-agent-edge="${escapeHtml(step.agentIdentity.rawEdge || step.agentIdentity.palette.edge)}"
+                        data-agent-ink="${escapeHtml(step.agentIdentity.rawInk || step.agentIdentity.palette.ink)}"
+                      ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
+                      <span class="step-event-text">${escapeHtml(stepSummaryText)}</span>
+                    </span>
+                  </button>
+                  ${stopStepBtnHtml}
+                </div>
                 ${detailHtml}
               </div>
             `;
@@ -3836,10 +4155,48 @@
           `;
         }
 
-        const runAgainHtml =
-          activeRun.state === "failed"
-            ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
-            : "";
+        const outcomeActionParts = [];
+        if (!activeRun.isFinished) {
+          outcomeActionParts.push(
+            `<span class="run-live-cost" data-run-live-cost="${escapeHtml(activeRun.id)}">Cost ${escapeHtml(activeRun.digest.liveCostText)}</span>`
+          );
+          if (stopRouteSupported) {
+            outcomeActionParts.push(
+              `<button type="button" class="btn" data-action="stop-run" data-run-id="${escapeHtml(activeRun.id)}" ${pendingStopIds.has(activeRun.id) ? "disabled" : ""}>Stop all</button>`
+            );
+          }
+        }
+        if (activeRun.state === "failed") {
+          outcomeActionParts.push(
+            `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
+          );
+        }
+        const runOutcomeActionsHtml = outcomeActionParts.length
+          ? `<div class="run-outcome-actions">${outcomeActionParts.join("")}</div>`
+          : "";
+
+        const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
+        const stopNoticeHtml = stopNoticeText
+          ? `<div class="stop-notice-line">${escapeHtml(stopNoticeText)}</div>`
+          : "";
+
+        const visibleMemories = getVisibleMemoriesForRun(activeRun);
+        const memoryNoticeHtml = visibleMemories
+          .map((m) => {
+            const rawText = String(m.text || m.summary || m.content || "").trim();
+            const label = /^i['’]ll remember/i.test(rawText)
+              ? rawText
+              : rawText
+              ? `I'll remember: ${rawText}`
+              : "I'll remember this for next time.";
+            return `
+              <div class="memory-notice-row" data-memory-id="${escapeHtml(m.id)}">
+                <span class="memory-notice-text">${escapeHtml(label)}</span>
+                <button type="button" class="btn" data-action="undo-memory" data-memory-id="${escapeHtml(m.id)}" ${pendingUndoMemoryIds.has(String(m.id)) ? "disabled" : ""}>Undo</button>
+              </div>
+            `;
+          })
+          .join("");
 
         const appLineHtml = activeRun.appLabel
           ? `<div class="run-app-line">${activeRun.apps.length > 1 ? "Apps" : "App"}: ${escapeHtml(activeRun.appLabel)}</div>`
@@ -3874,8 +4231,9 @@
                   <span class="state-text ${escapeHtml(activeRun.stateColorClass)}">${escapeHtml(activeRun.stateSymbolWord)}</span>
                   ${activeRun.stateFact ? `<span class="run-summary-text">${escapeHtml(activeRun.stateFact)}</span>` : ""}
                 </div>
-                ${runAgainHtml}
+                ${runOutcomeActionsHtml}
               </div>
+              ${stopNoticeHtml}
               ${digestRowHtml}
               ${mockBannerHtml}
               ${speakHtml}
@@ -3883,6 +4241,7 @@
             </div>
             ${liveStepHtml}
             ${helpHtml}
+            ${memoryNoticeHtml}
             <div class="steps-list">
               ${stepsHtml}
             </div>
@@ -3953,6 +4312,7 @@
         }
         connectionError = "";
         connectionStatus = "loading";
+        resetCapabilityState();
         renderNow();
         await pollAll();
       }
@@ -3981,6 +4341,46 @@
           if (action === "run-again") {
             const p = actionBtn.dataset.prompt || "";
             if (p) submitTask(p, []);
+            return;
+          }
+          if (action === "stop-run" || action === "stop-agent") {
+            const targetRunId = actionBtn.dataset.runId || selectedRunId;
+            if (!targetRunId || pendingStopIds.has(targetRunId)) return;
+            const targetRunObj = rawRuns.find((r) => r.id === targetRunId);
+            const parentNoticeId =
+              action === "stop-run" ? targetRunId : targetRunObj?.parent || selectedRunId || targetRunId;
+            pendingStopIds.add(targetRunId);
+            renderNow();
+            try {
+              const resp = await Transport.request(
+                "POST",
+                `/api/runs/${encodeURIComponent(targetRunId)}/stop`,
+                {}
+              );
+              stopNoticesByRunId.set(parentNoticeId, buildStopSummary(targetRunId, resp));
+              await pollAll();
+            } catch (err) {
+              sendErrorText = err.message || "Could not stop";
+            } finally {
+              pendingStopIds.delete(targetRunId);
+              renderNow();
+            }
+            return;
+          }
+          if (action === "undo-memory") {
+            const memId = actionBtn.dataset.memoryId;
+            if (!memId || pendingUndoMemoryIds.has(memId)) return;
+            pendingUndoMemoryIds.add(memId);
+            renderNow();
+            try {
+              await Transport.request("DELETE", `/api/memory/${encodeURIComponent(memId)}`);
+              memoryItems = memoryItems.filter((m) => String(m.id) !== String(memId));
+            } catch (err) {
+              sendErrorText = err.message || "Could not undo memory";
+            } finally {
+              pendingUndoMemoryIds.delete(memId);
+              renderNow();
+            }
             return;
           }
           if (action === "toggle-steps") {
@@ -4098,12 +4498,15 @@
             })
           );
 
-          const finishedParents = parents.filter(
-            (p) => (p.state === "done" || p.state === "failed") && !costsById[p.id]
-          );
-          if (finishedParents.length) {
+          const costTargets = parents.filter((p) => {
+            const isFinishedParent = p.state === "done" || p.state === "failed";
+            if (!isFinishedParent) return true;
+            return !finalCostsFetched.has(p.id);
+          });
+          if (costTargets.length) {
             await Promise.all(
-              finishedParents.map(async (p) => {
+              costTargets.map(async (p) => {
+                const wasFinished = p.state === "done" || p.state === "failed";
                 try {
                   const costResp = await Transport.request(
                     "GET",
@@ -4112,11 +4515,56 @@
                   if (costResp && typeof costResp === "object") {
                     costsById[p.id] = costResp;
                   }
+                  if (wasFinished) finalCostsFetched.add(p.id);
                 } catch {
-                  // Ignore missing cost endpoint or transient errors
+                  if (wasFinished) finalCostsFetched.add(p.id);
                 }
               })
             );
+          }
+
+          const probeKey = getProbeConnectionKey();
+          if (probeKey && stopProbeKey !== probeKey) {
+            try {
+              await Transport.request("POST", "/api/runs/__ca_probe_nonexistent__/stop", {});
+              stopRouteSupported = true;
+              stopProbeKey = probeKey;
+            } catch (err) {
+              const errMsg = String(err?.data?.error || err?.message || "").toLowerCase();
+              if (err?.status === 404 && errMsg === "not found") {
+                stopRouteSupported = false;
+                stopProbeKey = probeKey;
+              } else if (err?.status === 400 || (err?.status === 404 && errMsg && errMsg !== "not found")) {
+                stopRouteSupported = true;
+                stopProbeKey = probeKey;
+              } else if (err?.status && err.status !== 403) {
+                stopRouteSupported = false;
+                stopProbeKey = probeKey;
+              }
+            }
+          }
+
+          if (probeKey && (!memoryRouteMissing || memoryProbeKey !== probeKey)) {
+            try {
+              const memResp = await Transport.request("GET", "/api/memory");
+              const rawList = Array.isArray(memResp)
+                ? memResp
+                : Array.isArray(memResp?.items)
+                ? memResp.items
+                : Array.isArray(memResp?.memories)
+                ? memResp.memories
+                : [];
+              memoryItems = rawList.filter((m) => m && m.id != null);
+              memoryRouteMissing = false;
+              memoryProbeKey = probeKey;
+            } catch (err) {
+              const errMsg = String(err?.data?.error || err?.message || "").toLowerCase();
+              if (err?.status === 404 && errMsg === "not found") {
+                memoryRouteMissing = true;
+                memoryProbeKey = probeKey;
+                memoryItems = [];
+              }
+            }
           }
 
           for (const [aid, info] of Object.entries(nextAgents)) {
@@ -4184,6 +4632,7 @@
             Transport.clearConnection();
             rememberedAgentsById = {};
             costsById = {};
+            resetCapabilityState();
             connectionStatus = "disconnected";
             connectionError = "Paste the address the backend printed";
           } else {
@@ -4249,7 +4698,25 @@
         ro.observe(panelView);
       }
 
-      window.__ca = { Transport, addAttachments, setState, escapeHtml, syncSizeAndBridge, getCurrentState };
+      window.__ca = {
+        Transport,
+        addAttachments,
+        setState,
+        escapeHtml,
+        syncSizeAndBridge,
+        getCurrentState,
+        resolvePrimaryAgent: resolvePrimaryAgentDisplay,
+      };
+
+      window.addEventListener("storage", (e) => {
+        if (!e.key || e.key === "ca.primaryAgent") {
+          renderNow();
+        }
+      });
+
+      window.addEventListener("focus", () => {
+        if (hasLoadedOnce) renderNow();
+      });
 
       window.addEventListener("shell-event", (e) => {
         const msg = e.detail || {};
@@ -4532,31 +4999,124 @@
             </form>
           </div>`);
         $("chat-close").onclick = () => ca().Transport.post("closeWindow");
-        let shown = -1;
+        let shownKey = "";
+        let lastChatMsgs = [];
+        let chatMemories = [];
+        let chatMemoryMissing = false;
+
+        function renderChatBody() {
+          const log = $("chat-log");
+          const resolvePrimary = ca().resolvePrimaryAgent;
+          const visibleMemories = chatMemories.filter((m) => m && m.id != null && (!m.run || m.run === run));
+          const key =
+            lastChatMsgs.length +
+            "::" +
+            visibleMemories.map((m) => `${m.id}:${m.text || ""}`).join("|") +
+            "::" +
+            (resolvePrimary ? resolvePrimary("ComputerAnything", "").name + resolvePrimary("ComputerAnything", "").color : "");
+          if (key === shownKey) return;
+          shownKey = key;
+
+          const msgsHtml = lastChatMsgs.length
+            ? lastChatMsgs
+                .map((m) => {
+                  const who =
+                    m.role === "user"
+                      ? { name: "You", color: "" }
+                      : resolvePrimary
+                      ? resolvePrimary(m.agent, m.color)
+                      : { name: m.agent, color: m.color };
+                  return `
+                <div class="${m.kind === "step" ? "msg-step" : "msg"}">
+                  <span class="msg-who"${m.role === "user" ? "" : paint(who.color)}>${esc(who.name)}</span>${esc(m.text)}
+                </div>`;
+                })
+                .join("")
+            : `<div class="timeline-fact">Waiting for the first message…</div>`;
+
+          const memHtml = visibleMemories
+            .map((m) => {
+              const rawText = String(m.text || m.summary || m.content || "").trim();
+              const label = /^i['’]ll remember/i.test(rawText)
+                ? rawText
+                : rawText
+                ? `I'll remember: ${rawText}`
+                : "I'll remember this for next time.";
+              return `
+                <div class="memory-notice-row" data-memory-id="${esc(m.id)}">
+                  <span class="memory-notice-text">${esc(label)}</span>
+                  <button type="button" class="btn" data-undo-memory="${esc(m.id)}">Undo</button>
+                </div>`;
+            })
+            .join("");
+
+          log.innerHTML = msgsHtml + memHtml;
+          log.scrollTop = log.scrollHeight;
+        }
+
         async function poll() {
           try {
             const [msgs, info] = await Promise.all([
               req("GET", `/api/runs/${encodeURIComponent(run)}/transcript`),
               req("GET", `/api/runs/${encodeURIComponent(run)}?since=1000000`),
             ]);
+            if (!chatMemoryMissing) {
+              try {
+                const memResp = await req("GET", "/api/memory");
+                const list = Array.isArray(memResp)
+                  ? memResp
+                  : Array.isArray(memResp?.items)
+                  ? memResp.items
+                  : Array.isArray(memResp?.memories)
+                  ? memResp.memories
+                  : [];
+                chatMemories = list.filter((m) => m && m.id != null);
+              } catch (memErr) {
+                const memMsg = String(memErr?.data?.error || memErr?.message || "").toLowerCase();
+                if (memErr?.status === 404 && memMsg === "not found") {
+                  chatMemoryMissing = true;
+                  chatMemories = [];
+                }
+              }
+            }
             $("chat-title").textContent = info.goal || "Conversation";
             const [word, cls] = STATE_WORD[info.state] || ["… Working", "state-working"];
             $("chat-state").textContent = word;
             $("chat-state").className = "state-text " + cls;
-            if (msgs.length !== shown) {
-              shown = msgs.length;
-              const log = $("chat-log");
-              log.innerHTML = msgs.length ? msgs.map((m) => `
-                <div class="${m.kind === "step" ? "msg-step" : "msg"}">
-                  <span class="msg-who"${m.role === "user" ? "" : paint(m.color)}>${esc(m.role === "user" ? "You" : m.agent)}</span>${esc(m.text)}
-                </div>`).join("") : `<div class="timeline-fact">Waiting for the first message…</div>`;
-              log.scrollTop = log.scrollHeight;
-            }
+            lastChatMsgs = Array.isArray(msgs) ? msgs : [];
+            renderChatBody();
           } catch (err) {
             $("chat-state").textContent = "Reconnecting…";
             $("chat-state").className = "state-text state-warning";
           }
         }
+
+        $("chat-log").addEventListener("click", async (e) => {
+          const btn = e.target.closest("[data-undo-memory]");
+          if (!btn) return;
+          const memId = btn.dataset.undoMemory;
+          if (!memId) return;
+          btn.disabled = true;
+          try {
+            await req("DELETE", `/api/memory/${encodeURIComponent(memId)}`);
+            chatMemories = chatMemories.filter((m) => String(m.id) !== String(memId));
+            shownKey = "";
+            renderChatBody();
+          } catch {
+            btn.disabled = false;
+          }
+        });
+
+        window.addEventListener("storage", (e) => {
+          if (!e.key || e.key === "ca.primaryAgent") {
+            shownKey = "";
+            renderChatBody();
+          }
+        });
+        window.addEventListener("focus", () => {
+          shownKey = "";
+          renderChatBody();
+        });
         $("chat-form").addEventListener("submit", async (e) => {
           e.preventDefault();
           const input = $("chat-input");
@@ -4591,16 +5151,22 @@
           const ids = [...help.map((h) => "h:" + h.id), ...notes.map((n) => "n:" + n.id)];
           const fresh = ids.some((id) => !seen.has(id));
           ids.forEach((id) => seen.add(id));
-          $("notes").innerHTML = help.map((h) => `
+          const resolvePrimary = ca().resolvePrimaryAgent;
+          $("notes").innerHTML = help.map((h) => {
+              const agentLabel = h.agent
+                ? (resolvePrimary ? resolvePrimary(h.agent, h.color).name : h.agent)
+                : "An agent";
+              return `
               <div class="note">
-                <span class="note-title state-warning">${esc(h.agent || "An agent")} needs you</span>
+                <span class="note-title state-warning">${esc(agentLabel)} needs you</span>
                 <span>${esc(h.question)}</span>
                 ${h.detail ? `<div class="note-detail">${esc(typeof h.detail === "string" ? h.detail : JSON.stringify(h.detail))}</div>` : ""}
                 <div class="note-actions">
                   <button type="button" class="btn" data-open="${esc(h.thread)}">Open chat</button>
                   ${h.options.map((o, i) => `<button type="button" class="btn${i === 0 ? " btn-primary" : ""}" data-help="${esc(h.id)}" data-choice="${esc(o)}">${esc(o[0].toUpperCase() + o.slice(1))}</button>`).join("")}
                 </div>
-              </div>`).join("") + notes.map((n) => `
+              </div>`;
+            }).join("") + notes.map((n) => `
               <div class="note">
                 <span class="note-title"><span class="state-text ${n.ok === false ? "state-danger" : "state-success"}">${n.ok === false ? "× Failed" : "✓ Done"}</span> ${esc(n.title)}</span>
                 <span>${esc(n.text)}</span>
