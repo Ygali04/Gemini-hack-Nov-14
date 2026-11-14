@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 import Carbon
 import Speech
 import AVFoundation
+import PDFKit
+import ImageIO
 
 // Option-Space reaches the delegate through this pointer (a Carbon handler cannot capture).
 nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
@@ -24,15 +26,172 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 @MainActor
 final class ShellWebView: WKWebView {
     var onFiles: (([[String: Any]]) -> Void)?
+    var onFileURLs: (([URL]) -> Void)?
+
+    private let promiseQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.qualityOfService = .userInitiated
+        return q
+    }()
+
+    override init(frame: CGRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        let promiseTypes = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        registerForDraggedTypes([.fileURL, .png, .tiff, .URL, .string] + promiseTypes)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let superOp = super.draggingEntered(sender)
+        if superOp.isEmpty && canAcceptPasteboard(sender.draggingPasteboard) {
+            return .copy
+        }
+        return superOp
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let superOp = super.draggingUpdated(sender)
+        if superOp.isEmpty && canAcceptPasteboard(sender.draggingPasteboard) {
+            return .copy
+        }
+        return superOp
+    }
+
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        if let onFiles, !urls.isEmpty {
-            onFiles(urls.map { ["name": $0.lastPathComponent, "path": $0.path] })
+        if handlePasteboard(sender.draggingPasteboard) {
             return true
         }
         return super.performDragOperation(sender)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "v",
+           window?.isKeyWindow == true,
+           isDescendantResponder(window?.firstResponder) {
+            if handlePasteboard(NSPasteboard.general) {
+                return true
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    private func isDescendantResponder(_ responder: NSResponder?) -> Bool {
+        var cur = responder
+        while let r = cur {
+            if r === self { return true }
+            if let view = r as? NSView {
+                cur = view.superview
+            } else {
+                break
+            }
+        }
+        return false
+    }
+
+    private func canAcceptPasteboard(_ pb: NSPasteboard) -> Bool {
+        if pb.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) {
+            return true
+        }
+        if pb.canReadObject(forClasses: [NSFilePromiseReceiver.self], options: nil) {
+            return true
+        }
+        if pb.types?.contains(.png) == true || pb.types?.contains(.tiff) == true {
+            return true
+        }
+        return pb.canReadObject(forClasses: [NSImage.self], options: nil)
+    }
+
+    private func handlePasteboard(_ pb: NSPasteboard) -> Bool {
+        // 1. Finder / local file URLs
+        let urls = pb.readObjects(forClasses: [NSURL.self],
+                                  options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if !urls.isEmpty {
+            deliverURLs(urls)
+            return true
+        }
+
+        // 2. File promises (Photos, Mail, screenshot thumbnail)
+        let receivers = pb.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
+        if !receivers.isEmpty {
+            let destDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ca-drop-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var receivedURLs: [URL] = []
+
+            for receiver in receivers {
+                group.enter()
+                receiver.receivePromisedFiles(atDestination: destDir, options: [:], operationQueue: promiseQueue) { fileURL, error in
+                    if error == nil {
+                        lock.lock()
+                        receivedURLs.append(fileURL)
+                        lock.unlock()
+                    }
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) { [weak self] in
+                if !receivedURLs.isEmpty {
+                    self?.deliverURLs(receivedURLs)
+                }
+            }
+            return true
+        }
+
+        // 3. Raw image data (screenshot clipboard, browser image drags — takes image data, ignores link)
+        if let pngURL = writeTempPNG(from: pb) {
+            deliverURLs([pngURL])
+            return true
+        }
+
+        return false
+    }
+
+    private func deliverURLs(_ urls: [URL]) {
+        if let onFileURLs {
+            onFileURLs(urls)
+        } else if let onFiles {
+            onFiles(urls.map { ["name": $0.lastPathComponent, "path": $0.path] })
+        }
+    }
+
+    private func writeTempPNG(from pb: NSPasteboard) -> URL? {
+        var pngData: Data?
+        if let rawPNG = pb.data(forType: .png), !rawPNG.isEmpty {
+            pngData = rawPNG
+        } else if let tiffData = pb.data(forType: .tiff),
+                  let rep = NSBitmapImageRep(data: tiffData),
+                  let converted = rep.representation(using: .png, properties: [:]) {
+            pngData = converted
+        } else if pb.canReadObject(forClasses: [NSImage.self], options: nil),
+                  let images = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+                  let img = images.first,
+                  let tiff = img.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let converted = rep.representation(using: .png, properties: [:]) {
+            pngData = converted
+        }
+
+        guard let data = pngData, !data.isEmpty else { return nil }
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("image-\(UUID().uuidString.prefix(8)).png")
+        do {
+            try data.write(to: dest)
+            return dest
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -72,6 +231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // Session-only connection state (never persisted to disk)
     private var connectionBaseURL: URL?
     private var connectionToken: String?
+
+    // Attachment metadata & PDF text sidecars (mirroring backend/computeranything/core/attach.py)
+    private let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"]
+    private let maxTextProbeBytes = 4096
+    private let maxTextFileSize = 1_000_000
+    private let maxThumbnailPixelSize = 128
+    private let maxPDFPages = 50
+    private let multipartTimeoutSeconds: TimeInterval = 120.0
+    private var pendingPDFTextFiles: [String: URL] = [:]
 
     // On-device voice (Apple Speech framework STT + AVSpeechSynthesizer TTS)
     private var speechRecognizer: SFSpeechRecognizer?
@@ -251,9 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         config.userContentController = sharedContentController
 
         let notchWeb = ShellWebView(frame: NSRect(origin: .zero, size: currentSize), configuration: config)
-        notchWeb.onFiles = { [weak self, weak notchWeb] files in
-            self?.postToWeb(["type": "filesDropped", "files": files], to: notchWeb)
-        }
+        wireDropTarget(notchWeb)
         webView = notchWeb
         webView.autoresizingMask = [.width, .height]
         webView.navigationDelegate = self
@@ -395,9 +561,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             let config = WKWebViewConfiguration()
             config.userContentController = sharedContentController
 
-            let wv = WKWebView(frame: NSRect(origin: .zero, size: initialRect.size), configuration: config)
+            let wv = ShellWebView(frame: NSRect(origin: .zero, size: initialRect.size), configuration: config)
             wv.autoresizingMask = [.width, .height]
             wv.navigationDelegate = self
+            wireDropTarget(wv)
             win.contentView = wv
 
             workspaceWindow = win
@@ -474,6 +641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         wv.autoresizingMask = [.width, .height]
         wv.navigationDelegate = self
         wv.setValue(false, forKey: "drawsBackground")
+        wireDropTarget(wv)
         return wv
     }
 
@@ -608,13 +776,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
 
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15.0)
+        let filePaths = body["filePaths"] as? [String] ?? []
+        let timeout: TimeInterval = filePaths.isEmpty ? 15.0 : multipartTimeoutSeconds
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue(token, forHTTPHeaderField: "X-CA-Token")
         // Ensure no Origin header is sent (backend rejects foreign Origin headers)
         request.setValue(nil, forHTTPHeaderField: "Origin")
 
-        let filePaths = body["filePaths"] as? [String] ?? []
+        var tempTextURLsToDelete: [URL] = []
         if !filePaths.isEmpty {
             let boundary = "Boundary-\(UUID().uuidString)"
             var data = Data()
@@ -623,6 +793,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             data.append("--\(boundary)\r\n".data(using: .utf8)!)
             data.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
             data.append("\(prompt)\r\n".data(using: .utf8)!)
+
+            if let thread = (body["thread"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !thread.isEmpty {
+                data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                data.append("Content-Disposition: form-data; name=\"thread\"\r\n\r\n".data(using: .utf8)!)
+                data.append("\(thread)\r\n".data(using: .utf8)!)
+            }
 
             for filePath in filePaths {
                 let fileURL = URL(fileURLWithPath: filePath)
@@ -634,6 +811,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     data.append(fileData)
                     data.append("\r\n".data(using: .utf8)!)
                 }
+
+                if fileURL.pathExtension.lowercased() == "pdf" {
+                    let stdPath = fileURL.standardizedFileURL.path
+                    let txtURL = pendingPDFTextFiles.removeValue(forKey: stdPath) ?? extractPDFText(for: fileURL).txtURL
+                    if let txtURL, let txtData = try? Data(contentsOf: txtURL), !txtData.isEmpty {
+                        let txtFilename = fileURL.deletingPathExtension().lastPathComponent
+                            .replacingOccurrences(of: "\"", with: "_") + ".txt"
+                        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+                        data.append("Content-Disposition: form-data; name=\"files\"; filename=\"\(txtFilename)\"\r\n".data(using: .utf8)!)
+                        data.append("Content-Type: text/plain; charset=utf-8\r\n\r\n".data(using: .utf8)!)
+                        data.append(txtData)
+                        data.append("\r\n".data(using: .utf8)!)
+                        tempTextURLsToDelete.append(txtURL)
+                    }
+                }
             }
             data.append("--\(boundary)--\r\n".data(using: .utf8)!)
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -644,6 +836,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
 
         let task = URLSession.shared.dataTask(with: request) { [weak self, weak senderWebView] data, response, error in
+            for txtURL in tempTextURLsToDelete {
+                try? FileManager.default.removeItem(at: txtURL)
+            }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let errText = error?.localizedDescription ?? ""
@@ -678,15 +873,132 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         NSApp.activate(ignoringOtherApps: true)
         let response = openPanel.runModal()
-        var picked: [[String: String]] = []
+        var picked: [[String: Any]] = []
         if response == .OK {
-            picked = openPanel.urls.map { ["name": $0.lastPathComponent, "path": $0.path] }
+            picked = describeFiles(for: openPanel.urls)
         }
         postToWeb([
             "type": "filesPicked",
             "id": reqId,
             "files": picked
         ], to: senderWebView)
+    }
+
+    private func wireDropTarget(_ wv: ShellWebView) {
+        wv.onFileURLs = { [weak self, weak wv] urls in
+            guard let self, let wv else { return }
+            let items = self.describeFiles(for: urls)
+            if !items.isEmpty {
+                self.postToWeb(["type": "filesDropped", "files": items], to: wv)
+            }
+        }
+    }
+
+    private func describeFiles(for urls: [URL]) -> [[String: Any]] {
+        urls.map { describeFile(at: $0) }
+    }
+
+    private func describeFile(at url: URL) -> [String: Any] {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        let exists = fm.fileExists(atPath: url.path, isDirectory: &isDir)
+        if exists && isDir.boolValue {
+            return [
+                "path": url.path,
+                "name": url.lastPathComponent,
+                "size": 0,
+                "kind": "folder"
+            ]
+        }
+
+        let size = (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        let ext = url.pathExtension.lowercased()
+
+        if imageExtensions.contains(ext) {
+            var item: [String: Any] = [
+                "path": url.path,
+                "name": url.lastPathComponent,
+                "size": size,
+                "kind": "image"
+            ]
+            if let thumb = makeThumbnailDataURL(for: url) {
+                item["thumbnail"] = thumb
+            }
+            return item
+        }
+
+        if ext == "pdf" {
+            let extracted = extractPDFText(for: url)
+            if let txtURL = extracted.txtURL {
+                pendingPDFTextFiles[url.standardizedFileURL.path] = txtURL
+            }
+            return [
+                "path": url.path,
+                "name": url.lastPathComponent,
+                "size": size,
+                "kind": "pdf",
+                "pageCount": extracted.pageCount,
+                "textExtracted": extracted.txtURL != nil
+            ]
+        }
+
+        let kind = isTextFile(at: url, size: size) ? "text" : "other"
+        return [
+            "path": url.path,
+            "name": url.lastPathComponent,
+            "size": size,
+            "kind": kind
+        ]
+    }
+
+    private func makeThumbnailDataURL(for url: URL) -> String? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxThumbnailPixelSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
+            return nil
+        }
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        guard let jpegData = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+            return nil
+        }
+        return "data:image/jpeg;base64,\(jpegData.base64EncodedString())"
+    }
+
+    private func isTextFile(at url: URL, size: Int) -> Bool {
+        guard size <= maxTextFileSize else { return false }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let probe = try? handle.read(upToCount: maxTextProbeBytes) else { return false }
+        return !probe.contains(0)
+    }
+
+    private func extractPDFText(for url: URL) -> (pageCount: Int, txtURL: URL?) {
+        guard let doc = PDFDocument(url: url) else { return (0, nil) }
+        let totalPages = doc.pageCount
+        let limit = min(totalPages, maxPDFPages)
+        var chunks: [String] = []
+        for idx in 0..<limit {
+            if let text = doc.page(at: idx)?.string,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chunks.append(text)
+            }
+        }
+        let joined = chunks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !joined.isEmpty else { return (totalPages, nil) }
+
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let txtURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ca-pdf-\(UUID().uuidString.prefix(8))-\(baseName).txt")
+        do {
+            try joined.write(to: txtURL, atomically: true, encoding: .utf8)
+            return (totalPages, txtURL)
+        } catch {
+            return (totalPages, nil)
+        }
     }
 
     private func handleReadFixture(_ body: [String: Any], to senderWebView: WKWebView?) {

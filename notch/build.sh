@@ -2,7 +2,7 @@
 set -euo pipefail
 
 mkdir -p notch/build
-swiftc -O notch/NotchApp.swift -o notch/build/AgentNotch -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation
+swiftc -O notch/NotchApp.swift -o notch/build/AgentNotch -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation -framework PDFKit
 
 echo "Built notch/build/AgentNotch"
 echo "Start the notch app with:"
