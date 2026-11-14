@@ -1,0 +1,130 @@
+{
+  "workspaceState": {
+    "status": "partial",
+    "succeededEndpoints": [
+      { "key": "runs", "label": "Runs", "path": "/api/runs" },
+      { "key": "help", "label": "Approvals", "path": "/api/help" },
+      { "key": "agents", "label": "Agent identities", "path": "/api/agents" },
+      { "key": "graph", "label": "Memory graph", "path": "/api/graph" }
+    ],
+    "failedEndpoints": [
+      { "key": "actions", "label": "Action trail", "path": "/api/actions" },
+      { "key": "analytics", "label": "Analytics", "path": "/api/analytics" }
+    ]
+  },
+  "agents": {
+    "r1763140500-3": {
+      "name": "Kestrel",
+      "color": "#EECED6",
+      "edge": "#FFF0F1",
+      "ink": "#963F59",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r1763140500-1",
+      "goal": "Verify 8 units at $31.00 equals $248.00 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 5.8,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator",
+        "steps": 2
+      }
+    },
+    {
+      "id": "r1763140500-3",
+      "goal": "Compute 8 × 31 in Calculator",
+      "role": "cu",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 5.6,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator",
+        "steps": 2
+      }
+    }
+  ],
+  "details": {
+    "r1763140500-1": {
+      "id": "r1763140500-1",
+      "goal": "Verify 8 units at $31.00 equals $248.00 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 5.8,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator"
+      },
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "planning" },
+        { "t": 0.8, "kind": "decide", "thought": "Delegate calculation to Calculator agent", "action": "route:cu" },
+        { "t": 5.7, "kind": "verify", "ok": true, "reason": "Calculator shows 248" },
+        { "t": 5.8, "kind": "result", "ok": true, "summary": "Verified 8 × 31 = 248 in Calculator" }
+      ]
+    },
+    "r1763140500-3": {
+      "id": "r1763140500-3",
+      "goal": "Compute 8 × 31 in Calculator",
+      "role": "cu",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 5.6,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator"
+      },
+      "events": [
+        { "t": 1.0, "kind": "decide", "thought": "Open Calculator and compute 8 * 31", "action": "click(8)" },
+        { "t": 4.2, "kind": "act", "app": "Calculator", "action": "press(=)", "outcome": "ok" },
+        { "t": 5.6, "kind": "result", "ok": true, "summary": "Verified 8 × 31 = 248 in Calculator" }
+      ]
+    }
+  },
+  "help": [],
+  "transcripts": [
+    {
+      "id": 1,
+      "ts": 1763140500,
+      "run": "r1763140500-1",
+      "role": "user",
+      "agent": null,
+      "kind": "prompt",
+      "text": "Verify 8 units at $31.00 equals $248.00 in Calculator"
+    },
+    {
+      "id": 2,
+      "ts": 1763140505,
+      "run": "r1763140500-1",
+      "role": "assistant",
+      "agent": "Kestrel",
+      "kind": "result",
+      "text": "Verified 8 × 31 = 248 in Calculator"
+    }
+  ],
+  "actions": {
+    "total": 0,
+    "actions": []
+  },
+  "graph": {
+    "screens": 2,
+    "transitions": 1,
+    "skills": 1,
+    "apps": ["Calculator"],
+    "mean_edge_p": 0.75,
+    "destructive_edges": 0,
+    "actions_logged": 1,
+    "agents": ["Kestrel"]
+  },
+  "analytics": null,
+  "costs": {}
+}

@@ -1,0 +1,35 @@
+{
+  "workspaceState": {
+    "status": "disconnected",
+    "error": "Paste the address the backend printed"
+  },
+  "agents": {},
+  "runs": [],
+  "details": {},
+  "help": [],
+  "transcripts": [],
+  "actions": {
+    "total": 0,
+    "actions": []
+  },
+  "graph": {
+    "screens": 0,
+    "transitions": 0,
+    "skills": 0,
+    "apps": [],
+    "mean_edge_p": null,
+    "destructive_edges": 0,
+    "actions_logged": 0,
+    "agents": []
+  },
+  "analytics": {
+    "tasks": 0,
+    "cost_usd": 0,
+    "llm_calls": 0,
+    "mean_cost_per_task": null,
+    "by_role": [],
+    "by_purpose": [],
+    "by_app": []
+  },
+  "costs": {}
+}
