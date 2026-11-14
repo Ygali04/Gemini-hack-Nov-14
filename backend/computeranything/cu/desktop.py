@@ -105,10 +105,12 @@ def flatten(tree):
     return out
 
 
-def snapshot(app=None, interactive=True):
-    """(app, window title, elements). Retries once on a stale/timeout envelope."""
+def snapshot(app=None, interactive=True, window_id=None):
+    """(app, window title, elements) for one window: the pinned window_id when given (an agent's own
+    window), else the app's focused window. Retries once on a stale/timeout envelope."""
     app = app or frontmost_app()
-    args = ["snapshot", "--app", app, "--compact", "--include-bounds", *_window_args(app)]
+    win = ["--window-id", window_id] if window_id else _window_args(app)
+    args = ["snapshot", "--app", app, "--compact", "--include-bounds", *win]
     if interactive:
         args.append("-i")
     for attempt in (0, 1):
