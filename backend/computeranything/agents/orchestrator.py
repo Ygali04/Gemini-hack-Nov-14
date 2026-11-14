@@ -7,6 +7,7 @@ inside cu_agent (it calls runs.ask_human); this module only passes goals through
 
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -30,7 +31,11 @@ Roles:
 Reply with JSON only: {"role": "qa"|"marketing"|"cu", "app": str|null, "repo": str|null (absolute or ~ path),
 "url": str|null, "goal": str (one clear sentence),
 "subtasks": [{"goal": str, "app": str}] (cu only: when the request has independent parts in different apps,
-one entry per part so separate agents can run them in parallel; otherwise [])}."""
+one entry per part so separate agents can run them in parallel; otherwise []),
+"names": [str] (a short, friendly, distinct first name for each agent you start, which they go by:
+one per subtask (or one if no subtasks) for cu, two for qa (the tester, then the developer), one for marketing)}."""
+
+NAME_POOL = ["Mark", "Ava", "Leo", "Maya", "Kai", "Nora", "Sam", "Iris", "Theo", "Zoe", "Omar", "Lena", "Ravi", "Mia"]
 
 QA_SYS = """You are a QA engineer. From test output and UI check notes, list real bugs only.
 Reply with JSON only: {"bugs": [{"id": str, "title": str, "severity": "high"|"med"|"low",
@@ -87,6 +92,7 @@ def route(prompt, attachments=(), run=None):
         for t in (subs if isinstance(subs, list) else [])
         if isinstance(t, dict) and t.get("goal")
     ][:MAX_PARALLEL]
+    out["names"] = [str(n).strip() for n in (r.get("names") or []) if isinstance(n, str)]
     out["goal"] = out["goal"] or prompt.strip()
     if out["repo"]:
         out["repo"] = os.path.abspath(os.path.expanduser(out["repo"]))
@@ -101,6 +107,8 @@ def route(prompt, attachments=(), run=None):
 def submit(prompt, attachments=()):
     """Start the pipeline on a daemon thread; return the parent Run at once (.thread to join)."""
     parent = runs.Run(prompt, role="orchestrator")
+    names = [os.path.basename(str(a)) for a in attachments]
+    runs.say(parent, "user", "prompt", prompt, attachments=names)
     t = threading.Thread(target=_pipeline, args=(parent, prompt, tuple(attachments)), daemon=True)
     parent.thread = t
     t.start()
@@ -113,20 +121,23 @@ def _pipeline(parent, prompt, attachments):
         parent.set("planning")
         r = route(prompt, attachments, run=parent)
         parent.emit("route", **r)
+        runs.say(parent, "assistant", "plan", _plan_line(r), route=r)
         parent.set("acting")
         if r["role"] == "qa":
             repo = r["repo"] or next((os.path.abspath(a) for a in attachments if os.path.isdir(str(a))), None)
-            res, children = qa_loop(parent, repo, r["url"], r["goal"])
+            res, children = qa_loop(parent, repo, r["url"], r["goal"], names=r.get("names") or ())
         elif r["role"] == "marketing":
-            res, children = marketing(parent, r["url"] or r["app"], r["goal"])
+            res, children = marketing(parent, r["url"] or r["app"], r["goal"], names=r.get("names") or ())
         else:
-            res, children = cu(parent, r["goal"], r["app"], r.get("subtasks"))
+            res, children = cu(parent, r["goal"], r["app"], r.get("subtasks"), r.get("names") or ())
         parent.result = {"ok": bool(res.get("ok")), "summary": res.get("summary", "")}
         parent.result["digest"] = runs.digest(parent, children)
+        runs.say(parent, "assistant", "result", parent.result["summary"] or ("Done." if res.get("ok") else "Failed."))
         parent.set("done" if parent.result["ok"] else "failed")
     except Exception as e:  # noqa: BLE001
         parent.emit("error", error="%s: %s" % (type(e).__name__, e))
         parent.result = {"ok": False, "summary": "orchestrator error: %s" % e}
+        runs.say(parent, "assistant", "error", "Something broke: %s" % e)
         try:
             parent.result["digest"] = runs.digest(parent, children)
         except Exception:  # noqa: BLE001
@@ -140,8 +151,50 @@ def _cu():
     return cu_agent
 
 
+def _plan_line(r):
+    """Code-written plan sentence for the transcript (no model call)."""
+    who = {"qa": "QA and Dev agents", "marketing": "the Marketing agent"}.get(r["role"])
+    subs = r.get("subtasks") or []
+    if who:
+        where = r.get("repo") or r.get("url")
+        return "Handing this to %s%s." % (who, " on " + where if where else "")
+    if len(subs) > 1:
+        return "Splitting this into %d agents working in parallel: %s." % (
+            len(subs),
+            "; ".join(t["goal"] for t in subs),
+        )
+    return "One agent will do this%s." % (" in " + r["app"] if r.get("app") else "")
+
+
+def _lc(goal):
+    goal = goal.strip().rstrip(".")
+    return goal[:1].lower() + goal[1:] if goal[:2] != goal[:2].upper() else goal
+
+
+def _pick_names(wanted, n):
+    """The agents' own names (from the router), made valid and unique among agents still working."""
+    live = {getattr(r, "agent_name", None) for r in list(runs.RUNS.values()) if r.state not in ("done", "failed")}
+    out = []
+    for i in range(n):
+        name = wanted[i] if i < len(wanted) else ""
+        ok = re.fullmatch(r"[A-Za-z][A-Za-z'-]{1,11}", name or "") and name not in live and name not in out
+        if not ok:
+            name = random.choice([x for x in NAME_POOL if x not in live and x not in out] or ["Agent%d" % (i + 1)])
+        out.append(name)
+    return out
+
+
+def spawn(parent, goal, role, name, job):
+    """A new agent: its own Run, its own name, and a hello in the transcript when it first appears."""
+    child = runs.Run(goal, role=role, parent=parent.id)
+    child.agent_name = name
+    runs.say(child, "agent", "hello", "Hi, I'm %s! %s" % (name, job), agent_role=role)
+    return child
+
+
 def _finish(run, ok, summary, **extra):
     run.result = {"ok": ok, "summary": summary, **extra}
+    runs.say(run, "agent", "result", summary or ("Done." if ok else "Stopped."), ok=ok)
     if run.state not in ("done", "failed"):
         run.set("done" if ok else "failed")
     return run.result
@@ -150,7 +203,7 @@ def _finish(run, ok, summary, **extra):
 # ---------------------------------------------------------------- cu role
 
 
-def cu(parent, goal, app=None, subtasks=None):
+def cu(parent, goal, app=None, subtasks=None, names=()):
     """One CU agent, or several in parallel (one per independent subtask). Each child is its own agent:
     own Run, own cursor on screen, own trail in the action graph."""
     tasks = subtasks if subtasks and len(subtasks) > 1 else [{"goal": goal, "app": app}]
@@ -170,10 +223,9 @@ def cu(parent, goal, app=None, subtasks=None):
     from ..cu import desk
 
     desk.plan(len(tasks))  # one lane per agent on the stage display, so windows never cover each other
-    for i, t in enumerate(tasks):
-        child = runs.Run(t["goal"], role="cu", parent=parent.id)
-        child.agent_name = "CU %d" % (i + 1)
-        children.append(child)
+    for t, name in zip(tasks, _pick_names(list(names), len(tasks)), strict=True):
+        where = " in %s" % t["app"] if t.get("app") else ""
+        children.append(spawn(parent, t["goal"], "cu", name, "I'll %s%s." % (_lc(t["goal"]), where)))
     threads = [threading.Thread(target=work, args=(i, t), daemon=True) for i, t in enumerate(tasks)]
     for th in threads:
         th.start()
@@ -350,12 +402,11 @@ def commit_patch(dev, repo, patch, explanation, rnd):
     dev.emit("commit", files=touched, ok=code == 0, out=out.strip()[:300])
 
 
-def qa_loop(parent, repo, url, goal, max_rounds=5):
+def qa_loop(parent, repo, url, goal, max_rounds=5, names=()):
     """QA agent finds bugs, dev agent patches them, until clean, stuck, or out of rounds."""
-    qa = runs.Run(goal, role="qa", parent=parent.id)
-    qa.agent_name = "QA"
-    dev = runs.Run(goal, role="dev", parent=parent.id)
-    dev.agent_name = "Dev"
+    tester, coder = _pick_names(list(names), 2)
+    qa = spawn(parent, goal, "qa", tester, "I'm your QA tester. I'll run the tests and look for bugs.")
+    dev = spawn(parent, goal, "dev", coder, "I'm the developer. I'll fix what %s finds." % tester)
     children = [qa, dev]
     if not repo or not os.path.isdir(repo):
         msg = "no project folder to test (got %r)" % repo
@@ -393,9 +444,9 @@ def _shot(path):
     return path if code == 0 and os.path.exists(path) else None
 
 
-def marketing(parent, url_or_app, goal):
-    child = runs.Run(goal, role="marketing", parent=parent.id)
-    child.agent_name = "Marketing"
+def marketing(parent, url_or_app, goal, names=()):
+    (name,) = _pick_names(list(names), 1)
+    child = spawn(parent, goal, "marketing", name, "I do marketing. I'll tour the product and write the launch brief.")
     child.set("acting")
     out_dir = os.path.join(runs.HOME, "marketing", child.id)
     os.makedirs(out_dir, exist_ok=True)
@@ -533,6 +584,17 @@ def selftest():
     p2 = submit("add lunch at noon to my calendar")
     p2.thread.join(10)
     assert p2.state == "done" and calls[-1] == ("add lunch at noon", "Calendar"), (p2.state, calls)
+    from ..core import store
+
+    kinds = [(m["role"], m["kind"]) for m in store.transcript(p2.id)]
+    assert kinds[:2] == [("user", "prompt"), ("assistant", "plan")], kinds
+    assert ("agent", "hello") in kinds and ("agent", "result") in kinds, kinds
+    assert kinds[-1] == ("assistant", "result"), kinds
+    hello = next(m for m in store.transcript(p2.id) if m["kind"] == "hello")
+    assert hello["text"].startswith("Hi, I'm %s!" % hello["agent"]), hello
+    assert any(m["run"] == p2.id for m in store.search_messages("lunch at noon")), "search"
+    names = _pick_names(["Mark", "Mark", "bad name!", ""], 4)
+    assert names[0] == "Mark" and len(set(names)) == 4 and all(re.fullmatch(r"[A-Za-z'-]+\d*", n) for n in names), names
     llm.mock(
         json.dumps(
             {"tagline": "Math, fixed.", "launch_script": "Meet calc.", "shot_list": ["hero"], "palette": ["#112233"]}

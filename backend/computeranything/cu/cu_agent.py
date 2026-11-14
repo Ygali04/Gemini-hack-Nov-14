@@ -408,6 +408,10 @@ def _run(run, goal, app, max_steps, me):
                 app=(d.get("text") or app) if kind == "launch" else app,
             )
             history.append("step %d: %s %s" % (step, akey, "'%s'" % d["text"] if d.get("text") else ""))
+            secure = (el or {}).get("role") in ("securetextfield", "AXSecureTextField")
+            why = None if secure or source == "memory" else d.get("thought")
+            line = (why + " " if why else "") + "[%s]" % akey
+            runs.say(run, "agent", "step", line, step=step, source=source, app=app)
             trail.append(akey)
             pending = (nid, akey, t_act, source)
         except desktop.DesktopError as e:

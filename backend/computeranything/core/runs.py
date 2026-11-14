@@ -72,6 +72,15 @@ class Run:
         }
 
 
+def say(run, role, kind, text, **meta):
+    """Add one turn to the task's chat transcript (also emitted as a "msg" event for live views).
+    role: user | assistant | agent. Never pass secrets: transcripts are stored."""
+    agent = getattr(run, "agent_name", None) or {"orchestrator": "ComputerAnything"}.get(run.role, run.role)
+    text = str(text or "").strip()
+    run.emit("msg", role=role, agent=agent, msg_kind=kind, text=text)
+    _store(store.message, run.id, role, agent, kind, text, meta)
+
+
 def ask_human(run, kind, question, options=("approve", "deny"), timeout=300, detail=None):
     """Block until the UI answers. kind: captcha | sign_in | money | destructive | clarify.
     Returns the chosen option, 'deny' on timeout. In CA_AUTO_APPROVE=1 test mode returns options[0]."""
@@ -90,11 +99,13 @@ def ask_human(run, kind, question, options=("approve", "deny"), timeout=300, det
     HELP[hid] = req
     run.set("awaiting_human")
     run.emit("help", id=hid, help_kind=kind, question=question, options=list(options))
+    say(run, "agent", "ask", question, help=hid, help_kind=kind, options=list(options))  # detail stays out
     if os.environ.get("CA_AUTO_APPROVE") == "1":
         answer(hid, options[0])
     got = req["event"].wait(timeout)
     ans = req["answer"] if got else "deny"
     run.emit("help_answer", id=hid, answer=ans, timed_out=not got)
+    say(run, "user", "answer", ans + (" (no answer in %ds, counted as deny)" % timeout if not got else ""), help=hid)
     run.set("acting")
     return ans
 

@@ -165,7 +165,16 @@ class Handler(BaseHTTPRequestHandler):
                     v.pop("events", None)
                     views.append(v)
                 return self._send(200, views)
-            if p.startswith("/api/runs/") and not p.endswith("/cost"):
+            if p.startswith("/api/runs/") and p.endswith("/transcript"):  # the task's chat, all its agents
+                from ..core import store
+
+                return self._send(200, store.transcript(p[len("/api/runs/") : -len("/transcript")]))
+            if p == "/api/transcripts":  # search every conversation: ?q=lunch
+                from ..core import store
+
+                q = (parse_qs(u.query).get("q") or [""])[0].strip()
+                return self._send(200, store.search_messages(q) if q else [])
+            if p.startswith("/api/runs/") and not p.endswith(("/cost", "/transcript")):
                 r = runs.RUNS.get(p[len("/api/runs/") :])
                 if not r:
                     return self._send(404, {"error": "no such run"})
