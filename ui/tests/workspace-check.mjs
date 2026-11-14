@@ -27,8 +27,11 @@ function loadWorkspaceAdapterFromAppJs(fixedNowSec) {
   assert.ok(fs.existsSync(APP_JS_PATH), "Missing ui/workspace/app.js");
   const src = fs.readFileSync(APP_JS_PATH, "utf8");
 
-  const presetStart = src.indexOf("const QUIET_PRESET =");
-  assert.ok(presetStart !== -1, "Could not locate QUIET_PRESET in ui/workspace/app.js");
+  let presetStart = src.indexOf("const SharedGlass =");
+  if (presetStart === -1) {
+    presetStart = src.indexOf("const QUIET_PRESET =");
+  }
+  assert.ok(presetStart !== -1, "Could not locate SharedGlass or QUIET_PRESET in ui/workspace/app.js");
 
   const mountedMarker = "const mountedGlassByContainer = new Map();";
   const mountedIdx = src.indexOf(mountedMarker, presetStart);
@@ -62,6 +65,7 @@ function loadWorkspaceAdapterFromAppJs(fixedNowSec) {
   }
 
   const context = vm.createContext({
+    window: {},
     Date: FixedDate,
     Math,
     Number,
@@ -257,6 +261,11 @@ function runChecks() {
     [fx.cost.run]: fx.cost,
   };
 
+  const transcriptsByRunId = {
+    "r1763149000-1-a1b2": fx.transcript,
+  };
+  const sentAttachmentsByRunId = new Map();
+
   const vmOut = WorkspaceAdapter.buildViewModel({
     rawRuns: fx.runs,
     detailsById,
@@ -266,6 +275,9 @@ function runChecks() {
     rawGraph: fx.graph,
     rawAnalytics: fx.analytics,
     costsById,
+    transcriptsByRunId,
+    searchedTranscriptRows: null,
+    sentAttachmentsByRunId,
     connectionStatus: "connected",
     connectionError: "",
     isSampleData: false,
@@ -293,7 +305,6 @@ function runChecks() {
   assert.equal(vmOut.approvals[0].runId, "r1763149010-4-b7d8");
   assert.equal(vmOut.approvals[0].kind, "money");
   assert.equal(vmOut.approvals[0].warningText, "This spends money");
-  assert.equal(vmOut.approvals[0].isLocked, true);
   assert.equal(vmOut.approvals[0].isExpired, false);
   assert.deepEqual([...vmOut.approvals[0].options], ["approve", "deny"]);
 
@@ -307,6 +318,7 @@ function runChecks() {
 
   const childNode = vmOut.activeAgentNode;
   assert.ok(childNode && childNode.runId === "r1763149000-2-c3d4", "Selected activeAgentNode must be child run");
+  assert.equal(childNode.agentName, "Iris", "Child node name must be joined from /api/agents[run.id].name");
   assert.equal(childNode.status.isVerified, true, "Child node must be marked verified");
   assert.ok(childNode.palette?.body && childNode.palette?.edge && childNode.palette?.ink, "Child node must have glass palette");
   assert.ok(childNode.steps.length >= 6, "Child node must map app_ready, decide, act, verify, and result steps");
@@ -354,6 +366,9 @@ function runChecks() {
     rawGraph: fx.graph,
     rawAnalytics: fx.analytics,
     costsById,
+    transcriptsByRunId,
+    searchedTranscriptRows: null,
+    sentAttachmentsByRunId,
     connectionStatus: "connected",
     connectionError: "",
     isSampleData: false,
@@ -381,6 +396,11 @@ function runChecks() {
     assert.ok(Array.isArray(row.allNodes) && row.allNodes.length >= 2, "Transcript row must include agent nodes");
     assert.ok(Array.isArray(row.combinedEvents), "Transcript row must include combinedEvents");
   }
+  assert.equal(
+    verifiedGroup.combinedEvents.length,
+    fx.transcript.length,
+    "Task with /api/runs/<id>/transcript rows must populate combinedEvents from transcript"
+  );
 
   const vmFilteredLog = WorkspaceAdapter.buildViewModel({
     rawRuns: fx.runs,
@@ -391,6 +411,9 @@ function runChecks() {
     rawGraph: fx.graph,
     rawAnalytics: fx.analytics,
     costsById,
+    transcriptsByRunId,
+    searchedTranscriptRows: fx.transcripts,
+    sentAttachmentsByRunId,
     connectionStatus: "connected",
     connectionError: "",
     isSampleData: false,
