@@ -1,0 +1,193 @@
+"""Durable store for everything the agents do: runs, events, model calls, graph actions.
+
+One SQLite file (CA_HOME/ca.sqlite, WAL mode) so analytics are SQL queries, not log parsing.
+The JSONL files stay as an append-only audit copy.
+"""
+
+import json
+import os
+import sqlite3
+import threading
+import time
+
+HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
+PATH = os.path.join(HOME, "ca.sqlite")
+_lock = threading.Lock()
+_db = None
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY, parent TEXT, role TEXT, agent TEXT, goal TEXT, state TEXT,
+  started REAL, ended REAL, ok INTEGER, summary TEXT);
+CREATE TABLE IF NOT EXISTS events (
+  run TEXT, seq INTEGER, t REAL, kind TEXT, data TEXT, PRIMARY KEY (run, seq));
+CREATE TABLE IF NOT EXISTS llm_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, agent TEXT, purpose TEXT, model TEXT,
+  ms INTEGER, prompt_tokens INTEGER, completion_tokens INTEGER, cost REAL, ok INTEGER, error TEXT);
+CREATE TABLE IF NOT EXISTS actions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, agent TEXT, app TEXT, from_node TEXT,
+  action TEXT, to_node TEXT, outcome TEXT, ms INTEGER, source TEXT, detail TEXT);
+CREATE INDEX IF NOT EXISTS llm_run ON llm_calls(run);
+CREATE INDEX IF NOT EXISTS act_run ON actions(run);
+CREATE INDEX IF NOT EXISTS runs_parent ON runs(parent);
+"""
+
+
+def db():
+    global _db
+    with _lock:
+        if _db is None:
+            os.makedirs(HOME, exist_ok=True)
+            _db = sqlite3.connect(PATH, check_same_thread=False, isolation_level=None)
+            _db.execute("PRAGMA journal_mode=WAL")
+            _db.executescript(SCHEMA)
+        return _db
+
+
+def _x(sql, args=()):
+    c = db()
+    with _lock:
+        return c.execute(sql, args)
+
+
+def run_upsert(r):
+    res = r.result or {}
+    _x(
+        "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state, "
+        "ended=excluded.ended, ok=excluded.ok, summary=excluded.summary, agent=excluded.agent",
+        (
+            r.id,
+            r.parent,
+            r.role,
+            getattr(r, "agent_name", None),
+            r.goal,
+            r.state,
+            r.started,
+            r.ended,
+            None if not res else int(bool(res.get("ok"))),
+            res.get("summary"),
+        ),
+    )
+
+
+def event(run_id, seq, t, kind, data):
+    _x("INSERT OR REPLACE INTO events VALUES (?,?,?,?,?)", (run_id, seq, t, kind, json.dumps(data, default=str)))
+
+
+def llm_call(run_id, agent, purpose, model, ms, usage, ok=True, error=None):
+    _x(
+        "INSERT INTO llm_calls (ts,run,agent,purpose,model,ms,prompt_tokens,completion_tokens,cost,ok,error) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            time.time(),
+            run_id,
+            agent,
+            purpose,
+            model,
+            int(ms),
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+            float(usage.get("cost") or 0),
+            int(ok),
+            error,
+        ),
+    )
+
+
+def action(row):
+    _x(
+        "INSERT INTO actions (ts,run,agent,app,from_node,action,to_node,outcome,ms,source,detail) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            row["ts"],
+            row.get("run"),
+            row.get("agent"),
+            row.get("app"),
+            row.get("from"),
+            row["action"],
+            row.get("to"),
+            row["outcome"],
+            row.get("ms", 0),
+            row.get("source"),
+            json.dumps(row.get("detail"), default=str),
+        ),
+    )
+
+
+def _tree(run_id):
+    """The run and all its descendants (a task's child agents)."""
+    ids, frontier = [run_id], [run_id]
+    while frontier:
+        q = "SELECT id FROM runs WHERE parent IN (%s)" % ",".join("?" * len(frontier))
+        frontier = [r[0] for r in _x(q, frontier).fetchall()]
+        ids += frontier
+    return ids
+
+
+def task_cost(run_id):
+    """Spend and effort for one task, including every child agent."""
+    ids = _tree(run_id)
+    ph = ",".join("?" * len(ids))
+    calls, pt, ct, cost, ms = _x(
+        "SELECT COUNT(*), COALESCE(SUM(prompt_tokens),0), COALESCE(SUM(completion_tokens),0), "
+        "COALESCE(SUM(cost),0), COALESCE(SUM(ms),0) FROM llm_calls WHERE run IN (%s)" % ph,
+        ids,
+    ).fetchone()
+    acts = dict(_x("SELECT outcome, COUNT(*) FROM actions WHERE run IN (%s) GROUP BY outcome" % ph, ids).fetchall())
+    by_agent = [
+        dict(zip(("agent", "calls", "cost", "ms"), r, strict=True))
+        for r in _x(
+            "SELECT COALESCE(agent,'-'), COUNT(*), SUM(cost), SUM(ms) FROM llm_calls WHERE run IN (%s) GROUP BY agent"
+            % ph,
+            ids,
+        ).fetchall()
+    ]
+    return {
+        "run": run_id,
+        "agents": len(ids),
+        "llm_calls": calls,
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "cost_usd": round(cost, 6),
+        "model_seconds": round(ms / 1000, 1),
+        "actions": acts,
+        "by_agent": by_agent,
+    }
+
+
+def summary(since=0):
+    """Totals across tasks: per role and per agent, success rate, mean cost and time per task."""
+    roles = [
+        dict(zip(("role", "runs", "ok", "mean_seconds"), r, strict=True))
+        for r in _x(
+            "SELECT role, COUNT(*), SUM(ok), AVG(ended-started) FROM runs WHERE started>=? AND ended IS NOT NULL "
+            "GROUP BY role",
+            (since,),
+        ).fetchall()
+    ]
+    spend = [
+        dict(zip(("purpose", "calls", "cost_usd", "mean_ms"), r, strict=True))
+        for r in _x(
+            "SELECT purpose, COUNT(*), ROUND(SUM(cost),6), ROUND(AVG(ms)) FROM llm_calls WHERE ts>=? GROUP BY purpose",
+            (since,),
+        ).fetchall()
+    ]
+    apps = [
+        dict(zip(("app", "actions", "ok", "failed", "denied"), r, strict=True))
+        for r in _x(
+            "SELECT app, COUNT(*), SUM(outcome='ok'), SUM(outcome='failed'), SUM(outcome='denied') FROM actions "
+            "WHERE ts>=? GROUP BY app ORDER BY 2 DESC",
+            (since,),
+        ).fetchall()
+    ]
+    tasks = _x("SELECT COUNT(*) FROM runs WHERE parent IS NULL AND started>=?", (since,)).fetchone()[0]
+    total = _x("SELECT COALESCE(SUM(cost),0), COUNT(*) FROM llm_calls WHERE ts>=?", (since,)).fetchone()
+    return {
+        "tasks": tasks,
+        "cost_usd": round(total[0], 6),
+        "llm_calls": total[1],
+        "mean_cost_per_task": round(total[0] / tasks, 6) if tasks else None,
+        "by_role": roles,
+        "by_purpose": spend,
+        "by_app": apps,
+    }

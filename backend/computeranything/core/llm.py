@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import re
+import time
 import urllib.request
 
 from . import net
@@ -39,11 +40,57 @@ def mock(*replies):
     _mock.extend(replies)
 
 
-def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=0.2):
-    """One completion. images = PNG/JPEG paths. Returns text (or a dict when json_mode)."""
+def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=0.2, run=None, purpose=""):
+    """One completion. images = PNG/JPEG paths. Returns text (or a dict when json_mode).
+    With `run`, tokens, cost and latency are charged to that run and stored per call (purpose: route,
+    decide, verify, qa, dev, marketing...), so spend is known per task and per agent."""
+    t0 = time.time()
+    try:
+        out, usage = _chat(system, user, images, json_mode, max_tokens, temperature)
+    except Exception as e:
+        _record(run, purpose, t0, {}, ok=False, error=str(e)[:300])
+        raise
+    _record(run, purpose, t0, usage)
+    return out
+
+
+def _record(run, purpose, t0, usage, ok=True, error=None):
+    ms = (time.time() - t0) * 1000
+    if run is not None:
+        for k in ("prompt_tokens", "completion_tokens"):
+            run.usage[k] += usage.get(k, 0)
+        run.usage["cost"] += float(usage.get("cost") or 0)
+        run.usage["calls"] += 1
+        run.usage["ms"] += int(ms)
+        run.emit(
+            "llm",
+            purpose=purpose,
+            ms=int(ms),
+            cost=usage.get("cost"),
+            tokens=usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0),
+            ok=ok,
+        )
+    try:
+        from . import store
+
+        store.llm_call(
+            getattr(run, "id", None),
+            getattr(run, "agent_name", None) or getattr(run, "role", None),
+            purpose,
+            MODEL,
+            ms,
+            usage,
+            ok,
+            error,
+        )
+    except Exception as e:  # noqa: BLE001 - analytics must never break a task
+        print("store warning: llm_call: %s" % e, flush=True)
+
+
+def _chat(system, user, images, json_mode, max_tokens, temperature):
     if os.environ.get("CA_MOCK") == "1":
         out = _mock.pop(0) if _mock else ('{"action":"done","reason":"mock"}' if json_mode else "ok")
-        return parse_json(out) if json_mode else out
+        return (parse_json(out) if json_mode else out), {"mock": True}
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set (put it in backend/.env)")
@@ -79,7 +126,7 @@ def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=
     USAGE["completion_tokens"] += u.get("completion_tokens", 0)
     USAGE["cost"] += float(u.get("cost") or 0)
     text = r["choices"][0]["message"]["content"] or ""
-    return parse_json(text) if json_mode else text
+    return (parse_json(text) if json_mode else text), u
 
 
 def parse_json(text):

@@ -165,7 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                     v.pop("events", None)
                     views.append(v)
                 return self._send(200, views)
-            if p.startswith("/api/runs/"):
+            if p.startswith("/api/runs/") and not p.endswith("/cost"):
                 r = runs.RUNS.get(p[len("/api/runs/") :])
                 if not r:
                     return self._send(404, {"error": "no such run"})
@@ -193,6 +193,15 @@ class Handler(BaseHTTPRequestHandler):
                     rows = []
                 sel = [r for r in rows[since:] if not agent or r.get("agent") == agent]
                 return self._send(200, {"total": len(rows), "actions": sel[-500:]})
+            if p == "/api/analytics":  # spend, success and effort across tasks, per role / purpose / app
+                from ..core import store
+
+                q = parse_qs(urlparse(self.path).query)
+                return self._send(200, store.summary(float((q.get("since") or ["0"])[0] or 0)))
+            if p.startswith("/api/runs/") and p.endswith("/cost"):  # one task, all its child agents
+                from ..core import store
+
+                return self._send(200, store.task_cost(p[len("/api/runs/") : -len("/cost")]))
             if p == "/api/agents":  # live cursors: which agents are on screen, in which color
                 from ..cu import overlay
 

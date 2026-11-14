@@ -10,6 +10,8 @@ import os
 import threading
 import time
 
+from . import store
+
 HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
 RUNS_DIR = os.path.join(HOME, "runs")
 _ids = itertools.count(1)
@@ -19,18 +21,30 @@ HELP = {}  # help id -> request dict
 _help_ids = itertools.count(1)
 
 
+def _store(fn, *a):
+    """Write to the durable store; a storage failure is reported, never allowed to stop an agent."""
+    try:
+        return fn(*a)
+    except Exception as e:  # noqa: BLE001
+        print("store warning: %s: %s" % (getattr(fn, "__name__", fn), e), flush=True)
+        return None
+
+
 class Run:
     def __init__(self, goal, role="cu", parent=None):
-        self.id = "r%d-%d" % (int(time.time()), next(_ids))
+        self.id = "r%d-%d-%s" % (int(time.time()), next(_ids), os.urandom(2).hex())  # unique across processes
         self.goal, self.role, self.parent = goal, role, parent
         self.state, self.started, self.ended = "queued", time.time(), None
         self.events, self.result = [], None
+        self.usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0, "ms": 0}
         with _lock:
             RUNS[self.id] = self
+        _store(store.run_upsert, self)
 
     def emit(self, _kind, **data):
         ev = {"t": round(time.time() - self.started, 2), **data, "kind": _kind}
         self.events.append(ev)
+        _store(store.event, self.id, len(self.events) - 1, ev["t"], _kind, data)
         os.makedirs(RUNS_DIR, exist_ok=True)
         with open(os.path.join(RUNS_DIR, self.id + ".jsonl"), "a") as f:
             f.write(json.dumps(ev, default=str) + "\n")
@@ -42,6 +56,7 @@ class Run:
         self.emit("state", state=state)
         if state in ("done", "failed"):
             self.ended = time.time()
+        _store(store.run_upsert, self)
 
     def view(self, since=0):
         return {
@@ -100,7 +115,6 @@ def pending_help():
 def digest(run, children=()):
     """End-of-task report: what it did, how long, how many steps, cost, outcome."""
     acts = [e for e in run.events if e["kind"] == "act"]
-    from . import llm
 
     return {
         "run": run.id,
@@ -112,6 +126,7 @@ def digest(run, children=()):
         "steps": len(acts),
         "help_requests": sum(e["kind"] == "help" for e in run.events),
         "memory_steps": sum(e.get("source") == "memory" for e in acts),
-        "llm": dict(llm.USAGE),
+        "llm": dict(run.usage),
+        "task_cost": _store(store.task_cost, run.id),
         "children": [c.id for c in children],
     }

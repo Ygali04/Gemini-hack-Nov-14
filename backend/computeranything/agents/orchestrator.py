@@ -70,11 +70,11 @@ def _keyword_route(prompt):
     }
 
 
-def route(prompt, attachments=()):
+def route(prompt, attachments=(), run=None):
     """LLM router with a keyword fallback when the call raises or returns junk."""
     try:
         user = prompt + ("\nAttachments: " + ", ".join(map(str, attachments)) if attachments else "")
-        r = llm.chat(ROUTER_SYS, user, json_mode=True, max_tokens=400)
+        r = llm.chat(ROUTER_SYS, user, json_mode=True, max_tokens=400, run=run, purpose="route")
         if not isinstance(r, dict) or r.get("role") not in ROLES:
             raise ValueError("bad router reply: %r" % (r,))
     except Exception as e:  # noqa: BLE001 - any failure falls back to keywords
@@ -111,7 +111,7 @@ def _pipeline(parent, prompt, attachments):
     children = []
     try:
         parent.set("planning")
-        r = route(prompt, attachments)
+        r = route(prompt, attachments, run=parent)
         parent.emit("route", **r)
         parent.set("acting")
         if r["role"] == "qa":
@@ -245,7 +245,7 @@ def qa_round(qa, repo, url, goal, rnd):
         tail,
         json.dumps(ui) if ui else "not run",
     )
-    report = llm.chat(QA_SYS, user, json_mode=True, max_tokens=1500)
+    report = llm.chat(QA_SYS, user, json_mode=True, max_tokens=1500, run=qa, purpose="qa")
     bugs = report.get("bugs") if isinstance(report, dict) else None
     bugs = [b for b in (bugs or []) if isinstance(b, dict) and b.get("title")]
     return bugs, tail
@@ -297,7 +297,7 @@ def dev_fix(dev, repo, bugs, test_out, rnd):
         ask = (
             user if not err else user + "\n\nYour previous patch failed `git apply`:\n%s\nSend a corrected patch." % err
         )
-        r = llm.chat(DEV_SYS, ask, json_mode=True, max_tokens=4000)
+        r = llm.chat(DEV_SYS, ask, json_mode=True, max_tokens=4000, run=dev, purpose="dev")
         patch = (r.get("patch") or "") if isinstance(r, dict) else ""
         if not patch.strip():
             dev.emit("patch", round=rnd, attempt=attempt, applied=False, error="empty patch")
@@ -427,7 +427,13 @@ def marketing(parent, url_or_app, goal):
             shots.append(p)
             child.emit("artifact", path=p, type="screenshot")
     brief = llm.chat(
-        MKT_SYS, "Goal: %s\nProduct: %s" % (goal, target or app), images=shots, json_mode=True, max_tokens=2000
+        MKT_SYS,
+        "Goal: %s\nProduct: %s" % (goal, target or app),
+        images=shots,
+        json_mode=True,
+        max_tokens=2000,
+        run=child,
+        purpose="marketing",
     )
     brief = (
         {k: brief.get(k) for k in ("tagline", "launch_script", "shot_list", "palette")}

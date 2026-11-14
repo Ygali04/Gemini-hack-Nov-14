@@ -143,6 +143,12 @@ class Graph:
                     row["detail"] = detail
                 with open(log, "a") as f:
                     f.write(json.dumps(row) + "\n")
+                try:
+                    from ..core import store
+
+                    store.action(row)
+                except Exception as ex:  # noqa: BLE001 - the JSONL copy above is already written
+                    print("store warning: action: %s" % ex, flush=True)
 
     @staticmethod
     def p(e):
