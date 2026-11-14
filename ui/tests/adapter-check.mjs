@@ -518,7 +518,7 @@ function runChecks() {
     result: null,
   };
 
-  // Real pending_help() payload from core/runs.py:111-112
+  // Real pending_help() payload from core/runs.py:122-131
   const rawPendingHelp = approvalCases.map((c, idx) => ({
     id: c.id,
     run: "r-help-child",
@@ -528,6 +528,8 @@ function runChecks() {
     detail: idx % 2 === 0 ? null : `Detail for ${c.id}`,
     answer: null,
     asked: nowSec - 15,
+    agent: "CU 1",
+    thread: "r-help-parent",
   }));
 
   const helpVm = WorkspaceAdapter.mapRuns(
@@ -571,10 +573,18 @@ function runChecks() {
     const bsCost = readBackendFixture("backend-shape-cost.json");
     const bsTranscripts = readBackendFixture("backend-shape-transcripts.json");
     const bsTranscript = readBackendFixture("backend-shape-transcript.json");
+    const bsNotifications = readBackendFixture("backend-shape-notifications.json");
+    const bsNotificationsDismiss = readBackendFixture("backend-shape-notifications-dismiss.json");
+    const bsFiles = readBackendFixture("backend-shape-files.json");
+    const bsProfile = readBackendFixture("backend-shape-profile.json");
+    const bsTaskPost = readBackendFixture("backend-shape-task.json");
+    const bsHelpPost = readBackendFixture("backend-shape-help-post.json");
 
     assert.ok(Array.isArray(bsRuns) && bsRuns.length === 4, "backend-shape-runs.json must have 4 run views");
     assert.equal(bsRunDetail.id, "r1763149000-2-c3d4", "backend-shape-run.json must be child run view");
     assert.ok(Array.isArray(bsHelp) && bsHelp.length === 1, "backend-shape-help.json must have 1 pending help item");
+    assert.equal(bsHelp[0].agent, "Leo", "backend-shape-help.json must include agent");
+    assert.equal(bsHelp[0].thread, "r1763149010-3-e5f6", "backend-shape-help.json must include thread");
     assert.equal(typeof bsAgents, "object", "backend-shape-agents.json must be an object");
     assert.ok(Array.isArray(bsActions.actions), "backend-shape-actions.json must have actions array");
     assert.equal(bsGraph.screens, 5, "backend-shape-graph.json must have screens count");
@@ -582,6 +592,14 @@ function runChecks() {
     assert.equal(bsCost.run, "r1763149000-1-a1b2", "backend-shape-cost.json must match parent run");
     assert.ok(Array.isArray(bsTranscripts) && bsTranscripts.length >= 1, "backend-shape-transcripts.json must be array");
     assert.ok(Array.isArray(bsTranscript) && bsTranscript.length >= 1, "backend-shape-transcript.json must be array");
+    assert.ok(bsTranscript.some((m) => m.role === "agent" && typeof m.color === "string"), "backend-shape-transcript.json agent rows must include color");
+    assert.ok(Array.isArray(bsNotifications) && bsNotifications.length >= 1, "backend-shape-notifications.json must be array");
+    assert.equal(bsNotificationsDismiss.ok, true, "backend-shape-notifications-dismiss.json must have ok: true");
+    assert.ok(Array.isArray(bsFiles) && bsFiles.length >= 1, "backend-shape-files.json must be array");
+    assert.equal(typeof bsProfile.model, "string", "backend-shape-profile.json must include model");
+    assert.equal(typeof bsTaskPost.run, "string", "backend-shape-task.json must include run");
+    assert.equal(typeof bsTaskPost.thread, "string", "backend-shape-task.json must include thread");
+    assert.equal(bsHelpPost.ok, true, "backend-shape-help-post.json must have ok: true");
 
     const bsNowSec = 1763149020;
     const vmBackend = WorkspaceAdapter.mapRuns(

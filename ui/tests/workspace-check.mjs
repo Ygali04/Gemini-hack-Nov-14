@@ -96,7 +96,7 @@ function loadWorkspaceAdapterFromAppJs(fixedNowSec) {
 }
 
 /**
- * Verify all 10 backend-shape-*.json files strictly match origin/main backend shapes.
+ * Verify all backend-shape-*.json files strictly match backend shapes.
  */
 function assertBackendShapeFixtures() {
   const runs = readFixtureJson("backend-shape-runs.json");
@@ -109,6 +109,12 @@ function assertBackendShapeFixtures() {
   const cost = readFixtureJson("backend-shape-cost.json");
   const transcripts = readFixtureJson("backend-shape-transcripts.json");
   const transcript = readFixtureJson("backend-shape-transcript.json");
+  const notifications = readFixtureJson("backend-shape-notifications.json");
+  const notificationsDismiss = readFixtureJson("backend-shape-notifications-dismiss.json");
+  const files = readFixtureJson("backend-shape-files.json");
+  const profile = readFixtureJson("backend-shape-profile.json");
+  const taskPost = readFixtureJson("backend-shape-task.json");
+  const helpPost = readFixtureJson("backend-shape-help-post.json");
 
   // 1. /api/runs: Run.view() with `events` popped
   assert.ok(Array.isArray(runs) && runs.length >= 2, "backend-shape-runs.json must be a non-empty array");
@@ -137,7 +143,7 @@ function assertBackendShapeFixtures() {
 
   // 3. /api/help: runs.pending_help()
   assert.ok(Array.isArray(help) && help.length >= 1, "backend-shape-help.json must be a non-empty array");
-  const expectedHelpKeys = ["answer", "asked", "detail", "id", "kind", "options", "question", "run"];
+  const expectedHelpKeys = ["agent", "answer", "asked", "detail", "id", "kind", "options", "question", "run", "thread"];
   for (const h of help) {
     assert.deepEqual(
       Object.keys(h).sort(),
@@ -145,6 +151,8 @@ function assertBackendShapeFixtures() {
       `Help item ${h.id} in backend-shape-help.json must have exact pending_help() keys`
     );
     assert.equal(h.answer, null, "Pending help item must have answer: null");
+    assert.equal(typeof h.agent, "string", `Help item ${h.id} must have string agent`);
+    assert.equal(typeof h.thread, "string", `Help item ${h.id} must have string thread`);
   }
 
   // 4. /api/agents: overlay.CURSORS
@@ -224,16 +232,61 @@ function assertBackendShapeFixtures() {
     "backend-shape-cost.json must match store.task_cost() keys"
   );
 
-  // 9 & 10. /api/transcripts and /api/runs/<id>/transcript: store._msg_rows()
-  const expectedMsgKeys = ["agent", "id", "kind", "meta", "role", "run", "text", "ts"];
+  // 9 & 10. /api/transcripts (store.search_messages) and /api/runs/<id>/transcript (store.transcript + color)
+  const expectedTranscriptsKeys = ["agent", "id", "kind", "meta", "role", "run", "text", "ts"];
+  const expectedTranscriptKeys = ["agent", "color", "id", "kind", "meta", "role", "run", "text", "ts"];
   assert.ok(Array.isArray(transcripts) && transcripts.length >= 1, "backend-shape-transcripts.json must be non-empty");
   for (const m of transcripts) {
-    assert.deepEqual(Object.keys(m).sort(), expectedMsgKeys, "backend-shape-transcripts.json row keys");
+    assert.deepEqual(Object.keys(m).sort(), expectedTranscriptsKeys, "backend-shape-transcripts.json row keys");
   }
   assert.ok(Array.isArray(transcript) && transcript.length >= 3, "backend-shape-transcript.json must be non-empty");
   for (const m of transcript) {
-    assert.deepEqual(Object.keys(m).sort(), expectedMsgKeys, "backend-shape-transcript.json row keys");
+    assert.deepEqual(Object.keys(m).sort(), expectedTranscriptKeys, "backend-shape-transcript.json row keys");
+    if (m.role === "agent") {
+      assert.equal(typeof m.color, "string", "backend-shape-transcript.json agent row must have color string");
+    } else {
+      assert.equal(m.color, null, "backend-shape-transcript.json non-agent row must have color: null");
+    }
   }
+
+  // 11. /api/notifications: server.notifications()
+  const expectedNotificationKeys = ["body", "edge", "id", "ink", "kind", "ok", "text", "thread", "title", "ts"];
+  assert.ok(Array.isArray(notifications) && notifications.length >= 1, "backend-shape-notifications.json must be non-empty");
+  for (const n of notifications) {
+    assert.deepEqual(
+      Object.keys(n).sort(),
+      expectedNotificationKeys,
+      `Notification ${n.id} in backend-shape-notifications.json must match notifications() keys`
+    );
+  }
+
+  // 12. POST /api/notifications/<id>/dismiss
+  assert.deepEqual(Object.keys(notificationsDismiss).sort(), ["ok"], "backend-shape-notifications-dismiss.json keys");
+  assert.equal(notificationsDismiss.ok, true, "backend-shape-notifications-dismiss.json ok must be true");
+
+  // 13. GET /api/files?q=: server.find_files()
+  const expectedFileKeys = ["dir", "name", "path", "where"];
+  assert.ok(Array.isArray(files) && files.length >= 1, "backend-shape-files.json must be non-empty");
+  for (const f of files) {
+    assert.deepEqual(Object.keys(f).sort(), expectedFileKeys, `File ${f.name} in backend-shape-files.json keys`);
+    assert.equal(typeof f.dir, "boolean", `File ${f.name} dir must be boolean`);
+  }
+
+  // 14. GET/POST /api/profile: profile.view()
+  const expectedProfileKeys = ["call_me", "decide_model", "model", "voice_id"];
+  assert.deepEqual(Object.keys(profile).sort(), expectedProfileKeys, "backend-shape-profile.json keys");
+  for (const k of expectedProfileKeys) {
+    assert.equal(typeof profile[k], "string", `backend-shape-profile.json ${k} must be string`);
+  }
+
+  // 15. POST /api/task
+  assert.deepEqual(Object.keys(taskPost).sort(), ["run", "thread"], "backend-shape-task.json keys");
+  assert.equal(typeof taskPost.run, "string");
+  assert.equal(typeof taskPost.thread, "string");
+
+  // 16. POST /api/help/<id>
+  assert.deepEqual(Object.keys(helpPost).sort(), ["ok"], "backend-shape-help-post.json keys");
+  assert.equal(typeof helpPost.ok, "boolean");
 
   return {
     runs,
