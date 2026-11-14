@@ -20,6 +20,8 @@ import sys
 import tempfile
 import urllib.request
 
+from ..core import net
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_BIN = os.path.join(HERE, "..", "..", "overlay", "overlay")
 FIFO = os.environ.get("CA_FIFO", "")  # set by run.sh to a FIFO in a private 0700 dir
@@ -101,7 +103,7 @@ def post_json(url, payload, headers):
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", **headers}
     )
-    with urllib.request.urlopen(req, timeout=90) as r:
+    with net.urlopen(req, timeout=90) as r:
         return r.read()
 
 
@@ -173,7 +175,7 @@ def listen():
         data=parts,
         headers={"xi-api-key": key, "Content-Type": "multipart/form-data; boundary=" + boundary},
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with net.urlopen(req, timeout=60) as r:
         return json.loads(r.read())["text"]
 
 

@@ -9,6 +9,8 @@ import os
 import re
 import urllib.request
 
+from . import net
+
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
@@ -68,7 +70,7 @@ def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=
         data=json.dumps(body).encode(),
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "X-Title": "ComputerAnything"},
     )
-    r = json.load(urllib.request.urlopen(req, timeout=120))
+    r = json.load(net.urlopen(req, timeout=120))
     if "error" in r:
         raise RuntimeError("OpenRouter: %s" % r["error"])
     u = r.get("usage") or {}
