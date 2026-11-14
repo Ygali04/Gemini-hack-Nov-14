@@ -15,6 +15,9 @@ from . import net
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
+# Per-step decisions are the hot loop: a fast Gemini tier can take them while Argon keeps routing,
+# planning and verifying. Unset means Argon everywhere.
+DECIDE_MODEL = os.environ.get("CA_DECIDE_MODEL") or None
 USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
 _mock = []  # queued fake replies (tests)
 
@@ -40,21 +43,21 @@ def mock(*replies):
     _mock.extend(replies)
 
 
-def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=0.2, run=None, purpose=""):
+def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=0.2, run=None, purpose="", model=None):
     """One completion. images = PNG/JPEG paths. Returns text (or a dict when json_mode).
     With `run`, tokens, cost and latency are charged to that run and stored per call (purpose: route,
     decide, verify, qa, dev, marketing...), so spend is known per task and per agent."""
     t0 = time.time()
     try:
-        out, usage = _chat(system, user, images, json_mode, max_tokens, temperature)
+        out, usage = _chat(system, user, images, json_mode, max_tokens, temperature, model or MODEL)
     except Exception as e:
-        _record(run, purpose, t0, {}, ok=False, error=str(e)[:300])
+        _record(run, purpose, t0, {}, ok=False, error=str(e)[:300], model=model or MODEL)
         raise
-    _record(run, purpose, t0, usage)
+    _record(run, purpose, t0, usage, model=model or MODEL)
     return out
 
 
-def _record(run, purpose, t0, usage, ok=True, error=None):
+def _record(run, purpose, t0, usage, ok=True, error=None, model=MODEL):
     ms = (time.time() - t0) * 1000
     if run is not None:
         for k in ("prompt_tokens", "completion_tokens"):
@@ -77,7 +80,7 @@ def _record(run, purpose, t0, usage, ok=True, error=None):
             getattr(run, "id", None),
             getattr(run, "agent_name", None) or getattr(run, "role", None),
             purpose,
-            MODEL,
+            model,
             ms,
             usage,
             ok,
@@ -87,7 +90,7 @@ def _record(run, purpose, t0, usage, ok=True, error=None):
         print("store warning: llm_call: %s" % e, flush=True)
 
 
-def _chat(system, user, images, json_mode, max_tokens, temperature):
+def _chat(system, user, images, json_mode, max_tokens, temperature, model):
     if os.environ.get("CA_MOCK") == "1":
         out = _mock.pop(0) if _mock else ('{"action":"done","reason":"mock"}' if json_mode else "ok")
         return (parse_json(out) if json_mode else out), {"mock": True}
@@ -104,7 +107,7 @@ def _chat(system, user, images, json_mode, max_tokens, temperature):
             }
         )
     body = {
-        "model": MODEL,
+        "model": model,
         "max_tokens": max_tokens,
         "temperature": temperature,
         "usage": {"include": True},

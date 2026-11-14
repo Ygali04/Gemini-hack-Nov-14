@@ -30,7 +30,7 @@ RISKY_SCRIPT = re.compile(
 )
 MESSAGING_APP = re.compile(r"messages|whatsapp|slack|telegram|signal|discord|mail|outlook|teams|messenger", re.I)
 SUBMIT_KEY = re.compile(r"^((cmd|ctrl|shift|alt|option)\+)?(return|enter|kp_enter)$", re.I)
-CONTROL_ROLES = {"button", "menuitem", "link", "menubutton", "popupbutton", "checkbox", "radiobutton"}
+NAV_KEY = re.compile(r"^(escape|esc|tab|shift\+tab|up|down|left|right|page_?up|page_?down|home|end|cmd\+[flt])$", re.I)
 SCRIPT_PREVIEW = 4000  # longest AppleScript shown in full for approval; longer ones are refused
 CAPTCHA = re.compile(r"captcha|i'?m not a robot|verify you are human", re.I)
 
@@ -69,25 +69,19 @@ def _screenshot():
     return p if os.path.exists(p) else None
 
 
-def _gate(run, app, kind, el, text, els=(), after_search=False):
+def _gate(run, app, kind, el, text, els=()):
     """Code decides what needs a person; the model never gets to skip this."""
     label = "%s %s %s" % (kind, el["name"] if el else "", text or "")
-    if (
-        kind == "press"
-        and MESSAGING_APP.search(app or "")
-        and SUBMIT_KEY.match((text or "").strip())
-        and not after_search
-    ):
+    if kind == "press" and MESSAGING_APP.search(app or "") and SUBMIT_KEY.match((text or "").strip()):
         # Return in a compose box sends a message, and messaging apps often show no Send button to read
         q = "Press %s in %s? If a message box has focus, this sends a message." % (text, app)
         return runs.ask_human(run, "destructive", q) == "approve"
     if kind == "launch" and SENSITIVE_APP.search(text or ""):
         return runs.ask_human(run, "money", "Let the agent open %s?" % text) == "approve"
-    if kind == "press":
-        # Any key can submit the focused form (return, space, shift+return...), so fail closed: judge
-        # every key press by what is on screen, not by the key name.
-        # only controls, not message text: content on screen is untrusted and must not drive the gate
-        label += " " + " ".join(e["name"] for e in els if e.get("ref") and e["role"] in CONTROL_ROLES)
+    if kind == "press" and not NAV_KEY.match((text or "").strip()):
+        # Any key that is not pure navigation can submit the focused form, so fail closed: judge it by
+        # every actionable element on screen, not by the key name.
+        label += " " + " ".join(e["name"] for e in els if e.get("ref"))
     if kind == "run_applescript" and len(text or "") > SCRIPT_PREVIEW:
         return False  # never run code beyond what the approval preview shows
     if kind == "run_applescript":  # fail closed: no keyword list can make arbitrary script safe
@@ -127,7 +121,14 @@ def _decide(goal, app, title, els, history, hints, shot, run=None):
         "\n".join(hints) or "(none)",
     )
     return llm.chat(
-        SYSTEM, user, images=[shot] if shot else (), json_mode=True, max_tokens=600, run=run, purpose="decide"
+        SYSTEM,
+        user,
+        images=[shot] if shot else (),
+        json_mode=True,
+        max_tokens=600,
+        run=run,
+        purpose="decide",
+        model=llm.DECIDE_MODEL,
     )
 
 
@@ -363,7 +364,7 @@ def _run(run, goal, app, max_steps, me):
             history.append("step %d FAILED: press needs a key" % step)
             continue
         akey = graph.action_key(kind, el, d.get("text"), key)
-        if not _gate(run, app, kind, el, key if kind == "press" else d.get("text"), els, ctx.get("after_search")):
+        if not _gate(run, app, kind, el, key if kind == "press" else d.get("text"), els):
             log(akey, "denied", source=source)
             history.append("step %d: the user denied %s" % (step, kind))
             summary = "Stopped: you denied %s." % kind
@@ -382,9 +383,6 @@ def _run(run, goal, app, max_steps, me):
             history.append("step %d: %s %s" % (step, akey, "'%s'" % d["text"] if d.get("text") else ""))
             trail.append(akey)
             pending = (nid, akey, t_act, source)
-            ctx["after_search"] = (
-                kind in ("type", "set_value") and bool(el) and "search" in (el["name"] + el["role"]).lower()
-            )
         except desktop.DesktopError as e:
             log(akey, "failed", ms=(time.time() - t_act) * 1000, source=source, detail=str(e)[:200])
             history.append("step %d FAILED: %s -> %s" % (step, akey, e))
