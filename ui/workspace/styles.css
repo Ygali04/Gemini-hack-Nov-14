@@ -1379,6 +1379,66 @@ select:focus-visible,
   border-top: 1px solid var(--line-divider);
 }
 
+/* ---------------- HISTORY & SETTINGS ---------------- */
+.history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-subtle);
+}
+
+.history-list-row:last-child {
+  border-bottom: none;
+}
+
+.history-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 240px;
+  flex: 1;
+}
+
+.history-list-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.history-list-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.history-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-goal-text {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.inline-select {
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line-divider);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
 /* ---------------- SKELETON SHIMMER ---------------- */
 @keyframes shimmerMove {
   0% { background-position: 200% 0; }

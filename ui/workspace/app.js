@@ -1439,6 +1439,83 @@
   let attachments = [];
   let sendErrorText = "";
 
+  const HistorySettingsState = {
+    searchQuery: "",
+    outcomeFilter: "all",
+    costFilter: "all",
+    confirmForgetId: null,
+    editingMemoryId: null,
+    editingMemoryDraft: "",
+    memories: [
+      {
+        id: "mem-1",
+        key: "Preferred name",
+        value: "Ryosuke",
+        source: "Onboarding",
+        updated: "Today",
+      },
+      {
+        id: "mem-2",
+        key: "Default browser",
+        value: "Safari",
+        source: "Observed in tasks",
+        updated: "Today",
+      },
+      {
+        id: "mem-3",
+        key: "Invoice folder",
+        value: "Save downloaded invoices to Downloads",
+        source: "Observed in tasks",
+        updated: "Yesterday",
+      },
+    ],
+    appPermissions: [
+      { app: "Calculator", standard: "allow" },
+      { app: "Safari", standard: "ask" },
+      { app: "Finder", standard: "ask" },
+      { app: "Terminal", standard: "ask" },
+    ],
+    dailyCapUsd: 5.0,
+    dailyCapDraft: "5.00",
+    dailyCapSavedNote: "",
+    sampleTodaySpendUsd: 0.08,
+    sampleHistoryRuns: [
+      {
+        id: "sample-hist-1",
+        goal: "Compute monthly budget total in Calculator",
+        apps: ["Calculator"],
+        outcomeKey: "success",
+        outcomeLabel: "✓ Success",
+        costUsd: 0.0049,
+        elapsedText: "18s",
+        hasException: false,
+        exceptionNote: "",
+      },
+      {
+        id: "sample-hist-2",
+        goal: "Export billing receipt from Safari portal",
+        apps: ["Safari", "Finder"],
+        outcomeKey: "failed",
+        outcomeLabel: "× Failed",
+        costUsd: 0.064,
+        elapsedText: "42s",
+        hasException: true,
+        exceptionNote: "Cost spike · Denied sign-in action",
+      },
+      {
+        id: "sample-hist-3",
+        goal: "Check disk usage and clean build cache in Terminal",
+        apps: ["Terminal"],
+        outcomeKey: "success",
+        outcomeLabel: "✓ Success",
+        costUsd: 0.012,
+        elapsedText: "25s",
+        hasException: false,
+        exceptionNote: "",
+      },
+    ],
+  };
+
   function normalizeViewName(raw) {
     const v = String(raw || "").toLowerCase().trim();
     if (v === "b1" || v === "graph" || v === "agent-graph") return "graph";
@@ -1446,6 +1523,7 @@
     if (v === "b2" || v === "logs" || v === "transcript" || v === "transcripts") return "logs";
     if (v === "b3" || v === "analytics" || v === "cost") return "analytics";
     if (v === "b4" || v === "onboarding" || v === "setup") return "onboarding";
+    if (v === "b5" || v === "history" || v === "settings" || v === "history-settings") return "history-settings";
     return "graph";
   }
 
@@ -3293,6 +3371,411 @@
     }
   }
 
+  function buildHistoryRows(vm) {
+    const usingSample = !vm.taskGroups.length;
+    if (usingSample) {
+      return {
+        usingSample: true,
+        rows: HistorySettingsState.sampleHistoryRuns,
+      };
+    }
+    const actionsByRun = new Map();
+    for (const act of Array.isArray(rawActions) ? rawActions : []) {
+      const rid = act?.run;
+      const app = act?.app;
+      if (!rid || !app) continue;
+      if (!actionsByRun.has(rid)) actionsByRun.set(rid, new Set());
+      actionsByRun.get(rid).add(app);
+    }
+    const rows = vm.taskGroups.map((g) => {
+      const appSet = new Set();
+      for (const n of g.allNodes || []) {
+        const set = actionsByRun.get(n.runId);
+        if (set) {
+          for (const a of set) appSet.add(a);
+        }
+      }
+      const apps = Array.from(appSet).sort();
+      const costUsd = typeof g.cost?.cost_usd === "number" ? g.cost.cost_usd : null;
+      const isFailed = g.overallStatus?.filterKey === "failed";
+      const isSpike = costUsd !== null && costUsd >= 0.05;
+      const hasDenied = (g.combinedEvents || []).some(
+        (ev) => ev?.kind === "help" && /denied|deny/i.test(String(ev?.text || ev?.detail || ""))
+      );
+      const exceptionParts = [];
+      if (isFailed) exceptionParts.push("Failed run");
+      if (hasDenied) exceptionParts.push("Denied action");
+      if (isSpike) exceptionParts.push("Cost spike");
+      return {
+        id: g.id,
+        goal: g.goal || "Untitled task",
+        apps,
+        outcomeKey: g.overallStatus?.filterKey || "running",
+        outcomeLabel: g.overallStatus?.symbolWord || "Running",
+        costUsd,
+        elapsedText: g.elapsedText || "—",
+        hasException: exceptionParts.length > 0,
+        exceptionNote: exceptionParts.join(" · "),
+        canOpenRun: true,
+      };
+    });
+    return { usingSample: false, rows };
+  }
+
+  function renderHistorySettingsView(vm) {
+    const container = document.getElementById("b5-content");
+    if (!container) return;
+
+    const searchInput = document.getElementById("history-search-input");
+    const searchHadFocus = searchInput && document.activeElement === searchInput;
+    const searchCursor = searchHadFocus ? searchInput.selectionStart : null;
+
+    const { usingSample, rows } = buildHistoryRows(vm);
+    const query = HistorySettingsState.searchQuery.trim().toLowerCase();
+    const outcomeFilter = HistorySettingsState.outcomeFilter;
+    const costFilter = HistorySettingsState.costFilter;
+
+    const filteredRows = rows.filter((row) => {
+      if (outcomeFilter !== "all" && row.outcomeKey !== outcomeFilter) return false;
+      if (costFilter === "under-1c" && !(row.costUsd !== null && row.costUsd < 0.01)) return false;
+      if (costFilter === "1c-5c" && !(row.costUsd !== null && row.costUsd >= 0.01 && row.costUsd <= 0.05)) return false;
+      if (costFilter === "over-5c" && !(row.costUsd !== null && row.costUsd > 0.05)) return false;
+      if (costFilter === "spike" && !row.hasException) return false;
+      if (query) {
+        const hay = `${row.goal} ${row.apps.join(" ")} ${row.exceptionNote}`.toLowerCase();
+        if (!hay.includes(query)) return false;
+      }
+      return true;
+    });
+
+    const historyRowsHtml = filteredRows.length
+      ? filteredRows
+          .map((row) => {
+            const costText = row.costUsd !== null ? `$${row.costUsd.toFixed(4)}` : "—";
+            const appsText = row.apps.length ? row.apps.join(", ") : "General";
+            const outcomeHtml = row.hasException
+              ? `<span class="state-text state-danger">${escapeHtml(row.outcomeLabel)}</span>${
+                  row.exceptionNote
+                    ? `<div class="section-subtitle">${escapeHtml(row.exceptionNote)}</div>`
+                    : ""
+                }`
+              : `<span class="state-text state-neutral">${escapeHtml(row.outcomeLabel)}</span>`;
+            const openBtnHtml = row.canOpenRun
+              ? `<button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(row.id)}">Open run</button>`
+              : `<span class="section-subtitle">Sample</span>`;
+            return `
+              <tr>
+                <td>
+                  <div class="history-goal-text">${escapeHtml(row.goal)}</div>
+                </td>
+                <td>${escapeHtml(appsText)}</td>
+                <td>${outcomeHtml}</td>
+                <td class="num-cell">${escapeHtml(costText)}</td>
+                <td class="num-cell">${escapeHtml(row.elapsedText)}</td>
+                <td>${openBtnHtml}</td>
+              </tr>
+            `;
+          })
+          .join("")
+      : `
+        <tr>
+          <td colspan="6" class="section-subtitle">No tasks match the current search and filters.</td>
+        </tr>
+      `;
+
+    const memoriesHtml = HistorySettingsState.memories.length
+      ? HistorySettingsState.memories
+          .map((mem) => {
+            const isEditing = HistorySettingsState.editingMemoryId === mem.id;
+            const isConfirming = HistorySettingsState.confirmForgetId === mem.id;
+            const valueHtml = isEditing
+              ? `
+                <div class="inline-input-row">
+                  <label for="memory-edit-input-${escapeHtml(mem.id)}" class="visually-hidden">Edit ${escapeHtml(mem.key)}</label>
+                  <input
+                    type="text"
+                    id="memory-edit-input-${escapeHtml(mem.id)}"
+                    class="inline-text-input"
+                    data-memory-edit-input="${escapeHtml(mem.id)}"
+                    value="${escapeHtml(HistorySettingsState.editingMemoryDraft)}"
+                  />
+                  <button type="button" class="btn btn-primary" data-action="save-memory" data-memory-id="${escapeHtml(mem.id)}">Save</button>
+                  <button type="button" class="btn" data-action="cancel-edit-memory" data-memory-id="${escapeHtml(mem.id)}">Cancel</button>
+                </div>
+              `
+              : `<span>${escapeHtml(mem.value)}</span>`;
+
+            const actionHtml = isEditing
+              ? ""
+              : isConfirming
+              ? `
+                <div class="filter-group" role="group" aria-label="Confirm forgetting ${escapeHtml(mem.key)}">
+                  <span class="section-subtitle">Forget this memory?</span>
+                  <button type="button" class="btn btn-destructive" data-action="confirm-forget-memory" data-memory-id="${escapeHtml(mem.id)}">Delete</button>
+                  <button type="button" class="btn" data-action="cancel-forget-memory" data-memory-id="${escapeHtml(mem.id)}">Keep</button>
+                </div>
+              `
+              : `
+                <div class="filter-group">
+                  <button type="button" class="btn" data-action="edit-memory" data-memory-id="${escapeHtml(mem.id)}">Edit</button>
+                  <button type="button" class="btn" data-action="forget-memory" data-memory-id="${escapeHtml(mem.id)}">Forget</button>
+                </div>
+              `;
+
+            return `
+              <div class="history-list-row" data-memory-row="${escapeHtml(mem.id)}">
+                <div class="history-list-main">
+                  <div class="history-list-title">${escapeHtml(mem.key)}</div>
+                  <div class="history-list-value">${valueHtml}</div>
+                  <div class="section-subtitle">${escapeHtml(mem.source)} &middot; ${escapeHtml(mem.updated)}</div>
+                </div>
+                <div class="history-list-actions">
+                  ${actionHtml}
+                </div>
+              </div>
+            `;
+          })
+          .join("")
+      : `<p class="section-subtitle">No saved memories in this session.</p>`;
+
+    const permsHtml = HistorySettingsState.appPermissions
+      .map((perm) => {
+        return `
+          <tr>
+            <td><strong>${escapeHtml(perm.app)}</strong></td>
+            <td>
+              <div class="filter-group" role="group" aria-label="Standard actions for ${escapeHtml(perm.app)}">
+                <button
+                  type="button"
+                  class="btn ${perm.standard === "ask" ? "btn-active" : ""}"
+                  aria-pressed="${perm.standard === "ask" ? "true" : "false"}"
+                  data-action="set-app-perm"
+                  data-app="${escapeHtml(perm.app)}"
+                  data-mode="ask"
+                >Ask first</button>
+                <button
+                  type="button"
+                  class="btn ${perm.standard === "allow" ? "btn-active" : ""}"
+                  aria-pressed="${perm.standard === "allow" ? "true" : "false"}"
+                  data-action="set-app-perm"
+                  data-app="${escapeHtml(perm.app)}"
+                  data-mode="allow"
+                >Allow automatically</button>
+              </div>
+            </td>
+            <td class="section-subtitle">Money, sign-in, and destructive actions are locked to ask first.</td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const hasLiveSpend = typeof vm.analytics?.cost_usd === "number";
+    const todaySpend = hasLiveSpend ? vm.analytics.cost_usd : HistorySettingsState.sampleTodaySpendUsd;
+    const capReached = todaySpend >= HistorySettingsState.dailyCapUsd;
+
+    container.innerHTML = `
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">History and settings</h2>
+          <p class="section-subtitle">Search past tasks, review what the agent knows, and set app permissions and spend limits</p>
+        </div>
+      </div>
+
+      <section class="onboarding-block" aria-labelledby="history-tasks-heading">
+        <div class="section-header-row">
+          <div>
+            <h3 id="history-tasks-heading" class="section-title">Task history</h3>
+            <p class="section-subtitle">${
+              usingSample
+                ? "Sample data — no live runs recorded yet. Searchable by goal and app."
+                : "Searchable by goal and app. Exceptions mark failed runs, denied actions, or cost spikes."
+            }</p>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="inline-input-row" style="flex: 1; min-width: 220px; max-width: 360px;">
+            <label for="history-search-input" class="visually-hidden">Search task history by goal or app</label>
+            <input
+              type="search"
+              id="history-search-input"
+              class="inline-text-input"
+              placeholder="Search by goal or app…"
+              value="${escapeHtml(HistorySettingsState.searchQuery)}"
+            />
+          </div>
+
+          <div class="filter-group" role="group" aria-label="Filter by outcome">
+            <button type="button" class="btn ${outcomeFilter === "all" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "all" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="all">All</button>
+            <button type="button" class="btn ${outcomeFilter === "success" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "success" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="success">Success</button>
+            <button type="button" class="btn ${outcomeFilter === "failed" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "failed" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="failed">Failed</button>
+            <button type="button" class="btn ${outcomeFilter === "waiting" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "waiting" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="waiting">Waiting</button>
+          </div>
+
+          <div class="filter-group">
+            <label for="history-cost-filter" class="section-subtitle">Cost</label>
+            <select id="history-cost-filter" class="inline-select" data-action="set-history-cost">
+              <option value="all" ${costFilter === "all" ? "selected" : ""}>All costs</option>
+              <option value="under-1c" ${costFilter === "under-1c" ? "selected" : ""}>Under $0.01</option>
+              <option value="1c-5c" ${costFilter === "1c-5c" ? "selected" : ""}>$0.01 to $0.05</option>
+              <option value="over-5c" ${costFilter === "over-5c" ? "selected" : ""}>Over $0.05</option>
+              <option value="spike" ${costFilter === "spike" ? "selected" : ""}>Exceptions only</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Goal</th>
+                <th>Apps</th>
+                <th>Outcome</th>
+                <th>Cost</th>
+                <th>Time</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${historyRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="onboarding-block" aria-labelledby="history-memory-heading">
+        <div class="section-header-row">
+          <div>
+            <h3 id="history-memory-heading" class="section-title">Memory viewer</h3>
+            <p class="section-subtitle">Sample data — no backend memory endpoint yet. Changes apply to this session only.</p>
+          </div>
+        </div>
+        <div class="history-list">
+          ${memoriesHtml}
+        </div>
+      </section>
+
+      <section class="onboarding-block" aria-labelledby="history-perms-heading">
+        <div class="section-header-row">
+          <div>
+            <h3 id="history-perms-heading" class="section-title">Per-app permissions</h3>
+            <p class="section-subtitle">Sample data — no backend permissions endpoint yet. Saved in this session only.</p>
+          </div>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>App</th>
+                <th>Standard actions</th>
+                <th>Protected actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${permsHtml}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="onboarding-block" aria-labelledby="history-cap-heading">
+        <div class="section-header-row">
+          <div>
+            <h3 id="history-cap-heading" class="section-title">Daily spend cap</h3>
+            <p class="section-subtitle">Session setting — no backend spend cap endpoint yet. Pauses agents when daily spend reaches the limit.</p>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-group">
+            <span class="section-subtitle">${hasLiveSpend ? "Today's spend:" : "Sample today's spend:"}</span>
+            <strong>$${todaySpend.toFixed(4)}</strong>
+            <span class="state-text ${capReached ? "state-danger" : "state-success"}">
+              ${capReached ? "&times; Paused &middot; Daily cap reached" : "&#10003; Active &middot; Within daily cap"}
+            </span>
+          </div>
+
+          <div class="inline-input-row">
+            <label for="daily-cap-input" class="section-subtitle">Daily cap ($)</label>
+            <input
+              type="number"
+              id="daily-cap-input"
+              class="inline-text-input"
+              style="width: 110px;"
+              min="0.50"
+              step="0.50"
+              value="${escapeHtml(HistorySettingsState.dailyCapDraft)}"
+            />
+            <button type="button" class="btn" data-action="save-daily-cap">Save cap</button>
+          </div>
+        </div>
+        ${
+          HistorySettingsState.dailyCapSavedNote
+            ? `<p class="section-subtitle">${escapeHtml(HistorySettingsState.dailyCapSavedNote)}</p>`
+            : ""
+        }
+      </section>
+    `;
+
+    const nextSearchInput = document.getElementById("history-search-input");
+    if (nextSearchInput) {
+      nextSearchInput.addEventListener("input", (e) => {
+        HistorySettingsState.searchQuery = e.target.value;
+        renderHistorySettingsView(getViewModel());
+      });
+      if (searchHadFocus) {
+        nextSearchInput.focus();
+        if (searchCursor != null) {
+          try {
+            nextSearchInput.setSelectionRange(searchCursor, searchCursor);
+          } catch {
+            // Ignore
+          }
+        }
+      }
+    }
+
+    const capInput = document.getElementById("daily-cap-input");
+    if (capInput) {
+      capInput.addEventListener("input", (e) => {
+        HistorySettingsState.dailyCapDraft = e.target.value;
+      });
+      attachImeSafeEnter(capInput, () => {
+        const val = parseFloat(HistorySettingsState.dailyCapDraft);
+        if (!Number.isNaN(val) && val > 0) {
+          HistorySettingsState.dailyCapUsd = val;
+          HistorySettingsState.dailyCapDraft = val.toFixed(2);
+          HistorySettingsState.dailyCapSavedNote = `Daily cap set to $${val.toFixed(2)} for this session.`;
+          renderNow();
+        }
+      });
+    }
+
+    if (HistorySettingsState.editingMemoryId) {
+      const editInput = container.querySelector(
+        `[data-memory-edit-input="${HistorySettingsState.editingMemoryId}"]`
+      );
+      if (editInput) {
+        editInput.addEventListener("input", (e) => {
+          HistorySettingsState.editingMemoryDraft = e.target.value;
+        });
+        attachImeSafeEnter(editInput, () => {
+          const item = HistorySettingsState.memories.find(
+            (m) => m.id === HistorySettingsState.editingMemoryId
+          );
+          const clean = HistorySettingsState.editingMemoryDraft.trim();
+          if (item && clean) {
+            item.value = clean;
+            item.updated = "Just now";
+          }
+          HistorySettingsState.editingMemoryId = null;
+          HistorySettingsState.editingMemoryDraft = "";
+          renderNow();
+        });
+      }
+    }
+  }
+
   function renderNow() {
     const vm = getViewModel();
     if (!selectedTaskRunId && vm.taskGroups[0]) {
@@ -3323,6 +3806,8 @@
       renderAnalyticsView(vm);
     } else if (currentView === "onboarding") {
       renderOnboardingView(vm);
+    } else if (currentView === "history-settings") {
+      renderHistorySettingsView(vm);
     }
   }
 
@@ -4061,6 +4546,110 @@
           break;
         }
 
+        case "set-history-outcome":
+          HistorySettingsState.outcomeFilter = actionEl.dataset.outcome || "all";
+          renderNow();
+          break;
+
+        case "edit-memory": {
+          const mid = actionEl.dataset.memoryId;
+          const mem = HistorySettingsState.memories.find((m) => m.id === mid);
+          if (mem) {
+            HistorySettingsState.confirmForgetId = null;
+            HistorySettingsState.editingMemoryId = mid;
+            HistorySettingsState.editingMemoryDraft = mem.value;
+            renderNow();
+            requestAnimationFrame(() => {
+              document.querySelector(`[data-memory-edit-input="${mid}"]`)?.focus();
+            });
+          }
+          break;
+        }
+
+        case "save-memory": {
+          const mid = actionEl.dataset.memoryId;
+          const mem = HistorySettingsState.memories.find((m) => m.id === mid);
+          const clean = HistorySettingsState.editingMemoryDraft.trim();
+          if (mem && clean) {
+            mem.value = clean;
+            mem.updated = "Just now";
+          }
+          HistorySettingsState.editingMemoryId = null;
+          HistorySettingsState.editingMemoryDraft = "";
+          renderNow();
+          break;
+        }
+
+        case "cancel-edit-memory": {
+          const mid = actionEl.dataset.memoryId;
+          HistorySettingsState.editingMemoryId = null;
+          HistorySettingsState.editingMemoryDraft = "";
+          renderNow();
+          if (mid) {
+            requestAnimationFrame(() => {
+              document.querySelector(`[data-action="edit-memory"][data-memory-id="${mid}"]`)?.focus();
+            });
+          }
+          break;
+        }
+
+        case "forget-memory": {
+          const mid = actionEl.dataset.memoryId;
+          if (mid) {
+            HistorySettingsState.editingMemoryId = null;
+            HistorySettingsState.confirmForgetId = mid;
+            renderNow();
+            requestAnimationFrame(() => {
+              document.querySelector(`[data-action="cancel-forget-memory"][data-memory-id="${mid}"]`)?.focus();
+            });
+          }
+          break;
+        }
+
+        case "confirm-forget-memory": {
+          const mid = actionEl.dataset.memoryId;
+          if (mid) {
+            HistorySettingsState.memories = HistorySettingsState.memories.filter((m) => m.id !== mid);
+            HistorySettingsState.confirmForgetId = null;
+            renderNow();
+          }
+          break;
+        }
+
+        case "cancel-forget-memory": {
+          const mid = actionEl.dataset.memoryId;
+          HistorySettingsState.confirmForgetId = null;
+          renderNow();
+          if (mid) {
+            requestAnimationFrame(() => {
+              document.querySelector(`[data-action="forget-memory"][data-memory-id="${mid}"]`)?.focus();
+            });
+          }
+          break;
+        }
+
+        case "set-app-perm": {
+          const appName = actionEl.dataset.app;
+          const mode = actionEl.dataset.mode;
+          const perm = HistorySettingsState.appPermissions.find((p) => p.app === appName);
+          if (perm && (mode === "ask" || mode === "allow")) {
+            perm.standard = mode;
+            renderNow();
+          }
+          break;
+        }
+
+        case "save-daily-cap": {
+          const val = parseFloat(HistorySettingsState.dailyCapDraft);
+          if (!Number.isNaN(val) && val > 0) {
+            HistorySettingsState.dailyCapUsd = val;
+            HistorySettingsState.dailyCapDraft = val.toFixed(2);
+            HistorySettingsState.dailyCapSavedNote = `Daily cap set to $${val.toFixed(2)} for this session.`;
+            renderNow();
+          }
+          break;
+        }
+
         default:
           break;
       }
@@ -4079,6 +4668,9 @@
         } else if (key === "text_size" || key === "cursor_palette") {
           OnboardingState.a11y[key] = target.value;
         }
+        renderNow();
+      } else if (target && target.matches('[data-action="set-history-cost"]')) {
+        HistorySettingsState.costFilter = target.value || "all";
         renderNow();
       }
     });
