@@ -1093,7 +1093,7 @@
     .file-search.hidden, .side-view.hidden, .timeline-scroll.hidden { display: none; }
     .file-search-results { display: flex; flex-direction: column; max-height: 200px; overflow-y: auto; }
     .file-hit { display: flex; flex-direction: column; align-items: flex-start; }
-    .file-hit-where { font-size: 11px; line-height: 14px; color: var(--text-muted); }
+    .file-hit-where { font-size: 12px; line-height: 16px; color: var(--text-muted); }
     .panel-footer { display: flex; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line-divider); }
     .side-view { display: flex; flex-direction: column; gap: 12px; }
     .side-head { display: flex; align-items: center; justify-content: space-between; }
@@ -1122,9 +1122,43 @@
     .note { background: var(--bg-app); border: 1px solid var(--line-divider); border-radius: 12px; padding: 10px 12px;
             display: flex; flex-direction: column; gap: 6px; }
     .note-title { font-size: 12px; line-height: 16px; font-weight: 600; }
-    .note-detail { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); white-space: pre-wrap;
+    .note-detail { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-secondary); white-space: pre-wrap;
                    max-height: 96px; overflow-y: auto; }
     .note-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+    /* ---------------- ON-DEVICE VOICE (STT mic + AVSpeechSynthesizer) ---------------- */
+    .btn-icon.hidden { display: none; }
+    .btn-icon.is-listening {
+      background: var(--btn-hover);
+      color: var(--state-danger);
+    }
+    .voice-status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: var(--bg-raised);
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+    }
+    .voice-status-bar.hidden { display: none; }
+    .voice-status-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
+    }
+    .voice-status-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body data-state="collapsed">
@@ -1176,6 +1210,20 @@
             <span class="enter-action-hint">Enter &middot; send to agents</span>
           </div>
 
+          <button
+            type="button"
+            id="mic-btn"
+            class="btn btn-icon hidden"
+            aria-label="Dictate prompt with microphone"
+            aria-pressed="false"
+            title="Dictate prompt"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="6" y="2.25" width="4" height="7" rx="2" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M3.75 7.5A4.25 4.25 0 0 0 12.25 7.5M8 11.75V13.75M5.75 13.75H10.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+          </button>
+
           <button type="submit" id="send-btn" class="btn btn-primary" aria-label="Send to agents">
             <span>Send</span>
           </button>
@@ -1220,6 +1268,8 @@
           />
           <div id="file-search-results" class="file-search-results" role="listbox" aria-label="Matching files"></div>
         </div>
+
+        <div id="voice-status-bar" class="voice-status-bar hidden" role="status" aria-live="polite"></div>
 
         <div id="attachments-list" class="attachments-list"></div>
       </form>
@@ -1346,12 +1396,19 @@
           }
           if (hasShellBridge()) {
             const cfg = await callShell("getConfig");
+            const voiceMeta = {
+              speechAvailable: Boolean(cfg && cfg.speechAvailable),
+              onDeviceSpeech: Boolean(cfg && cfg.onDeviceSpeech),
+              isDictating: Boolean(cfg && cfg.isDictating),
+              isSpeaking: Boolean(cfg && cfg.isSpeaking),
+              speakText: cfg && cfg.speakText ? String(cfg.speakText) : "",
+            };
             if (cfg && cfg.connected) {
               sessionBaseUrl = cfg.baseUrl || "shell";
               sessionToken = "shell-session"; /* same marker as setConnection: the real token stays in the shell */
-              return { connected: true, isSampleData: false };
+              return { connected: true, isSampleData: false, ...voiceMeta };
             }
-            return { connected: false, isSampleData: false };
+            return { connected: false, isSampleData: false, ...voiceMeta };
           }
           if (sessionToken && window.location.protocol.startsWith("http")) {
             return { connected: true, isSampleData: false };
@@ -1701,23 +1758,97 @@
           return h >>> 0;
         }
 
-        function extractEventAgentName(events) {
+        function extractEventAgentName(events, parentRouteEvent, fallbackIndex) {
           const list = Array.isArray(events) ? events : [];
           for (let i = list.length - 1; i >= 0; i--) {
             const ev = list[i];
-            if ((ev?.kind === "act" || (ev?.kind === "msg" && ev.role === "agent")) && ev.agent) {
+            if ((ev?.kind === "route" || ev?.kind === "act" || (ev?.kind === "msg" && ev.role === "agent")) && ev.agent) {
               return String(ev.agent).trim();
+            }
+          }
+          if (parentRouteEvent) {
+            if (Array.isArray(parentRouteEvent.names) && parentRouteEvent.names[fallbackIndex]) {
+              return String(parentRouteEvent.names[fallbackIndex]).trim();
+            }
+            if (parentRouteEvent.agent) {
+              return String(parentRouteEvent.agent).trim();
             }
           }
           return "";
         }
 
-        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex, rememberedMap, events) {
-          const record =
+        function extractEventOrTranscriptAgent(runObj, events, transcriptsById, parentRouteEvent, fallbackIndex) {
+          const list = Array.isArray(events) ? events : [];
+          let evColor = "";
+          let evEdge = "";
+          let evInk = "";
+          for (let i = list.length - 1; i >= 0; i--) {
+            const ev = list[i];
+            if ((ev?.kind === "route" || ev?.kind === "act" || (ev?.kind === "msg" && ev.role === "agent")) && (ev.color || ev.body)) {
+              evColor = ev.color || ev.body;
+              evEdge = ev.edge || "";
+              evInk = ev.ink || "";
+              break;
+            }
+          }
+          const evName = extractEventAgentName(list, parentRouteEvent, fallbackIndex);
+          const allRows = [];
+          if (transcriptsById && runObj?.id && Array.isArray(transcriptsById[runObj.id])) {
+            allRows.push(...transcriptsById[runObj.id]);
+          }
+          if (transcriptsById && runObj?.parent && Array.isArray(transcriptsById[runObj.parent])) {
+            allRows.push(...transcriptsById[runObj.parent]);
+          }
+          let trName = "";
+          let trColor = "";
+          for (const row of allRows) {
+            if (!row || row.role !== "agent") continue;
+            if (row.run === runObj?.id || (evName && row.agent === evName)) {
+              if (!trName && row.agent) trName = String(row.agent).trim();
+              if (!trColor && (row.color || row.body)) trColor = row.color || row.body;
+              if (trName && trColor) break;
+            }
+          }
+          return {
+            name: evName || trName,
+            color: evColor || trColor,
+            edge: evEdge,
+            ink: evInk,
+          };
+        }
+
+        function resolveAgentIdentity(
+          runObj,
+          agentsMap,
+          fallbackIndex,
+          rememberedMap,
+          events,
+          parentRouteEvent,
+          transcriptsById
+        ) {
+          const recovered = extractEventOrTranscriptAgent(
+            runObj,
+            events,
+            transcriptsById,
+            parentRouteEvent,
+            fallbackIndex
+          );
+          const directRecord =
             (agentsMap && runObj?.id ? agentsMap[runObj.id] : null) ||
             (rememberedMap && runObj?.id ? rememberedMap[runObj.id] : null) ||
+            (rememberedMap && recovered.name ? rememberedMap[`agent:${recovered.name}`] : null) ||
             null;
-          const fallbackName = extractEventAgentName(events) || actorLabelForRole(runObj?.role);
+          const record = directRecord && (directRecord.color || directRecord.body)
+            ? directRecord
+            : recovered.color
+            ? {
+                name: directRecord?.name || recovered.name,
+                color: recovered.color,
+                edge: recovered.edge,
+                ink: recovered.ink,
+              }
+            : directRecord;
+          const fallbackName = recovered.name || actorLabelForRole(runObj?.role);
           const seed = hashString(String(runObj?.id || fallbackName || "agent")) % 10000;
           const hasAgentColor = Boolean(record && (record.color || record.body));
           if (hasAgentColor) {
@@ -1893,7 +2024,15 @@
               if (ev.state === "done") return "Finished";
               if (ev.state === "failed") return "Stopped";
               return "";
+            case "graph": {
+              const target = ev.to != null && ev.to !== "" ? ` -> ${ev.to}` : "";
+              return ev.action ? `${sentenceCase(summarizeActPlain(ev))}${target}` : "";
+            }
             case "route":
+              if (Array.isArray(ev.names) && ev.names.length) {
+                return `Assigned to ${ev.names.join(", ")}`;
+              }
+              if (ev.agent) return `Assigned to ${ev.agent}`;
               return `Assigned to ${actorLabelForRole(ev.role)}`;
             case "app_ready":
               return ev.app ? `Opened ${ev.app}` : "Opened app";
@@ -2083,11 +2222,20 @@
           fallbackIndex,
           isMockContext,
           rememberedMap,
-          parentRouteEvent
+          parentRouteEvent,
+          transcriptsById
         ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role);
-          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex, rememberedMap, events);
+          const agentIdentity = resolveAgentIdentity(
+            childRun,
+            agentsMap,
+            fallbackIndex,
+            rememberedMap,
+            events,
+            parentRouteEvent,
+            transcriptsById
+          );
           const app = extractRunApp(childRun, events, parentRouteEvent, fallbackIndex);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
           const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
@@ -2296,12 +2444,37 @@
             : rawChildren.map((c) => c.id);
 
           let costUsd = null;
-          if (costData && typeof costData.cost_usd === "number") {
+          let costIsNull = false;
+          const llmNullInEvents = [parent, ...rawChildren].some((r) => {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            const llmEvs = evs.filter((e) => e?.kind === "llm");
+            return llmEvs.length > 0 && llmEvs.some((e) => e.cost === null) && llmEvs.every((e) => e.cost == null || e.cost === 0);
+          });
+          if (costData && costData.cost_usd === null) {
+            costIsNull = true;
+          } else if (costData && typeof costData.cost_usd === "number") {
             costUsd = costData.cost_usd;
+            if (costUsd === 0 && llmNullInEvents) costIsNull = true;
+          } else if (rawDigest?.task_cost && costData == null && rawDigest.task_cost.cost_usd === null) {
+            costIsNull = true;
           } else if (rawDigest?.task_cost && typeof rawDigest.task_cost.cost_usd === "number") {
             costUsd = rawDigest.task_cost.cost_usd;
+            if (costUsd === 0 && llmNullInEvents) costIsNull = true;
+          } else if (rawDigest?.llm && rawDigest.llm.cost === null) {
+            costIsNull = true;
           } else if (rawDigest?.llm && typeof rawDigest.llm.cost === "number" && (rawDigest.llm.calls > 0 || rawDigest.llm.cost > 0)) {
             costUsd = rawDigest.llm.cost;
+            if (costUsd === 0 && llmNullInEvents) costIsNull = true;
+          } else if (llmNullInEvents) {
+            costIsNull = true;
+          }
+
+          if (Array.isArray(rawDigest?.task_cost?.actions)) {
+            for (const actItem of rawDigest.task_cost.actions) {
+              if (actItem && actItem.to == null) {
+                // Explicitly allow null target node on action records
+              }
+            }
           }
 
           return {
@@ -2313,7 +2486,7 @@
             children,
             llm: rawDigest?.llm || null,
             costUsd,
-            costText: formatCostUsd(costUsd),
+            costText: costIsNull ? "—" : formatCostUsd(costUsd),
             actEvents,
             hasActEvents: actEvents.length > 0,
           };
@@ -2328,6 +2501,8 @@
               ? meta.rememberedAgentsById
               : {};
           const costsById = meta && meta.costsById && typeof meta.costsById === "object" ? meta.costsById : {};
+          const transcriptsById =
+            meta && meta.transcriptsById && typeof meta.transcriptsById === "object" ? meta.transcriptsById : {};
           const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : Date.now() / 1000;
           const byId = new Map(runsList.map((r) => [r.id, r]));
 
@@ -2446,7 +2621,8 @@
                 idx,
                 isSampleContext,
                 rememberedMap,
-                parentRouteEvent
+                parentRouteEvent,
+                transcriptsById
               );
             });
             const stepById = new Map(steps.map((s) => [s.id, s]));
@@ -2594,6 +2770,8 @@
       const attachmentsList = document.getElementById("attachments-list");
       const sampleBanner = document.getElementById("sample-banner");
       const timelineScroll = document.getElementById("timeline-scroll");
+      const micBtn = document.getElementById("mic-btn");
+      const voiceStatusBar = document.getElementById("voice-status-bar");
 
       /* Each attachment item: { id, name, kind: "file" | "link", file?: File, path?: string, url?: string } */
       let attachments = [];
@@ -2603,6 +2781,7 @@
       let agentsById = {};
       let rememberedAgentsById = {};
       let costsById = {};
+      let transcriptsById = {};
       let optimisticRuns = [];
       let sendErrorText = "";
       let connectionStatus = "loading"; // "loading" | "disconnected" | "stale" | "connected"
@@ -2621,6 +2800,16 @@
       let lastPanelStructureKey = "";
       let lastViewModel = null;
       let lastPostedResize = { width: 0, height: 0, state: "" };
+      let speechAvailable = false;
+      let onDeviceSpeech = false;
+      let voiceState = "idle"; // "idle" | "requesting_permission" | "listening" | "denied" | "unavailable" | "error"
+      let voiceReason = "";
+      let voiceNextStep = "";
+      let dictationBaseText = "";
+      let ttsSpeaking = false;
+      let ttsSpeakText = "";
+      let hasInitializedSpokenBaseline = false;
+      const seenSpokenEventKeys = new Set();
 
       const prefersReducedMotion = () =>
         Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -2785,7 +2974,119 @@
           });
         } else {
           destroyAllAgentChips();
+          if (voiceState === "listening") {
+            Transport.post("stopDictation");
+          }
         }
+      }
+
+      function renderVoiceStatusBar() {
+        if (micBtn) {
+          micBtn.classList.toggle("hidden", !speechAvailable);
+          const listening = voiceState === "listening";
+          micBtn.classList.toggle("is-listening", listening);
+          micBtn.setAttribute("aria-pressed", listening ? "true" : "false");
+          micBtn.setAttribute(
+            "aria-label",
+            listening ? "Stop dictating prompt" : "Dictate prompt with microphone"
+          );
+          micBtn.title = listening ? "Stop voice input" : "Voice input";
+        }
+        if (!voiceStatusBar) return;
+
+        const parts = [];
+        if (ttsSpeaking) {
+          parts.push(`
+            <div class="voice-status-main">
+              <span class="state-text state-working">&#9679; Speaking</span>
+            </div>
+            <div class="voice-status-actions">
+              <button type="button" id="stop-speaking-btn" class="btn">Stop</button>
+            </div>
+          `);
+        } else if (voiceState === "listening") {
+          const modeLabel = onDeviceSpeech ? "Listening on this Mac" : "Listening";
+          parts.push(`
+            <div class="voice-status-main">
+              <span class="state-text state-danger">&#9679; ${escapeHtml(modeLabel)} &middot; speak into prompt, click mic to stop</span>
+            </div>
+            <div class="voice-status-actions">
+              <button type="button" id="stop-dictation-btn" class="btn">Stop</button>
+            </div>
+          `);
+        } else if (voiceState === "requesting_permission") {
+          parts.push(`
+            <div class="voice-status-main">
+              <span>${escapeHtml(voiceReason || "Allow Microphone and Speech Recognition to dictate prompts on this Mac.")}</span>
+            </div>
+          `);
+        } else if (voiceState === "denied" || voiceState === "unavailable" || voiceState === "error") {
+          const label = voiceState === "denied" ? "Voice blocked" : voiceState === "unavailable" ? "Voice unavailable" : "Voice error";
+          const privacySection = String(voiceReason || "").toLowerCase().includes("microphone")
+            ? "Privacy_Microphone"
+            : "Privacy_SpeechRecognition";
+          parts.push(`
+            <div class="voice-status-main">
+              <span class="state-text state-warning">! ${escapeHtml(label)}</span>
+              <span>${escapeHtml(voiceReason)}${voiceNextStep ? " &middot; " + escapeHtml(voiceNextStep) : ""}</span>
+            </div>
+            <div class="voice-status-actions">
+              ${voiceState === "denied" && hasShellBridge() ? `<button type="button" id="voice-open-settings-btn" class="btn" data-privacy-section="${privacySection}">Settings</button>` : ""}
+              <button type="button" id="voice-dismiss-btn" class="btn">Dismiss</button>
+            </div>
+          `);
+        }
+
+        if (!parts.length) {
+          voiceStatusBar.innerHTML = "";
+          voiceStatusBar.classList.add("hidden");
+        } else {
+          voiceStatusBar.innerHTML = parts.join("");
+          voiceStatusBar.classList.remove("hidden");
+        }
+        syncSizeAndBridge();
+      }
+
+      if (micBtn) {
+        micBtn.addEventListener("click", () => {
+          if (!hasShellBridge() || !speechAvailable) return;
+          if (voiceState === "listening") {
+            Transport.post("stopDictation");
+          } else {
+            dictationBaseText = promptInput.value.trimEnd();
+            voiceState = "requesting_permission";
+            voiceReason = "Requesting Speech Recognition and Microphone access to dictate into the prompt box.";
+            voiceNextStep = "";
+            renderVoiceStatusBar();
+            Transport.post("startDictation");
+          }
+        });
+      }
+
+      if (voiceStatusBar) {
+        voiceStatusBar.addEventListener("click", (e) => {
+          if (e.target.closest("#stop-speaking-btn")) {
+            Transport.post("stopSpeaking");
+            return;
+          }
+          if (e.target.closest("#stop-dictation-btn")) {
+            Transport.post("stopDictation");
+            return;
+          }
+          const settingsBtn = e.target.closest("#voice-open-settings-btn");
+          if (settingsBtn) {
+            Transport.post("openPrivacySettings", {
+              section: settingsBtn.dataset.privacySection || "Privacy_SpeechRecognition",
+            });
+            return;
+          }
+          if (e.target.closest("#voice-dismiss-btn")) {
+            voiceState = "idle";
+            voiceReason = "";
+            voiceNextStep = "";
+            renderVoiceStatusBar();
+          }
+        });
       }
 
       pillTrigger.addEventListener("keydown", (e) => {
@@ -3145,6 +3446,14 @@
 
         if (vm.connectionStatus === "disconnected") {
           setPillHtml(`<span class="state-text state-warning">&oslash; Not connected</span>`);
+          return;
+        }
+
+        if (ttsSpeaking) {
+          setPillHtml(`
+            <span class="state-text state-working">&#9679; Speaking</span>
+            <span class="pill-sub">&middot; Click to stop</span>
+          `);
           return;
         }
 
@@ -3625,6 +3934,7 @@
           agentsById,
           rememberedAgentsById,
           costsById,
+          transcriptsById,
         });
         renderPill(vm);
         renderPanel(vm);
@@ -3815,12 +4125,59 @@
             }
           }
 
+          /* Recover finished runs' agent names and colors from transcripts when /api/agents is empty */
+          const transcriptTargets = parents.filter((p) => {
+            const isActive = p.state !== "done" && p.state !== "failed";
+            if (!isActive && Array.isArray(transcriptsById[p.id])) return false;
+            const groupIds = nextRuns.filter((r) => r.id === p.id || r.parent === p.id).map((r) => r.id);
+            const missingColor = groupIds.some((gid) => {
+              const live = nextAgents[gid];
+              const rem = rememberedAgentsById[gid];
+              return !(live && (live.color || live.body)) && !(rem && (rem.color || rem.body));
+            });
+            return missingColor;
+          });
+          if (transcriptTargets.length) {
+            await Promise.all(
+              transcriptTargets.map(async (p) => {
+                try {
+                  const rows = await Transport.request(
+                    "GET",
+                    `/api/runs/${encodeURIComponent(p.id)}/transcript`
+                  );
+                  if (Array.isArray(rows)) {
+                    transcriptsById[p.id] = rows;
+                    for (const row of rows) {
+                      if (row && row.role === "agent" && row.agent && (row.color || row.body)) {
+                        const info = {
+                          name: String(row.agent).trim(),
+                          color: row.color || row.body,
+                          edge: row.edge || "",
+                          ink: row.ink || "",
+                        };
+                        if (row.run && !rememberedAgentsById[row.run]) {
+                          rememberedAgentsById[row.run] = info;
+                        }
+                        if (!rememberedAgentsById[`agent:${info.name}`]) {
+                          rememberedAgentsById[`agent:${info.name}`] = info;
+                        }
+                      }
+                    }
+                  }
+                } catch {
+                  // Ignore missing transcript endpoint or transient errors
+                }
+              })
+            );
+          }
+
           rawRuns = nextRuns;
           pendingHelp = nextHelp;
           agentsById = nextAgents;
           hasLoadedOnce = true;
           connectionStatus = "connected";
           connectionError = "";
+          processSpokenReplies(nextRuns);
           renderNow();
         } catch (err) {
           if (err.code === "AUTH") {
@@ -3833,6 +4190,57 @@
             connectionStatus = hasLoadedOnce ? "stale" : "disconnected";
           }
           renderNow();
+        }
+      }
+
+      function processSpokenReplies(runsList) {
+        const list = Array.isArray(runsList) ? runsList : [];
+        const newSpeaks = [];
+        const newResults = [];
+
+        for (const r of list) {
+          const detail = detailsById[r.id];
+          const evs = Array.isArray(detail?.events) ? detail.events : [];
+          evs.forEach((ev, idx) => {
+            if (!ev) return;
+            const isExplicitSpeak = ev.kind === "speak" || (ev.kind === "msg" && ev.msg_kind === "speak");
+            const isResultReply =
+              ev.kind === "msg" &&
+              ev.msg_kind === "result" &&
+              (ev.role === "assistant" || ev.role === "agent");
+            if (!isExplicitSpeak && !isResultReply) return;
+
+            const rawText = String(ev.text || ev.msg || ev.message || "").trim();
+            if (!rawText) return;
+            const key = `${r.id}:${idx}:${ev.kind}:${ev.msg_kind || ""}`;
+            if (seenSpokenEventKeys.has(key)) return;
+            seenSpokenEventKeys.add(key);
+
+            if (!hasInitializedSpokenBaseline) return;
+            if (isExplicitSpeak) {
+              newSpeaks.push(rawText);
+            } else {
+              newResults.push({ role: ev.role, text: rawText });
+            }
+          });
+        }
+
+        if (!hasInitializedSpokenBaseline) {
+          hasInitializedSpokenBaseline = true;
+          return;
+        }
+        if (isSampleData || !hasShellBridge()) return;
+
+        let chosenText = "";
+        if (newSpeaks.length) {
+          chosenText = newSpeaks[newSpeaks.length - 1];
+        } else if (newResults.length) {
+          const specific = newResults.filter((m) => m.text !== "Finished.");
+          const pool = specific.length ? specific : newResults;
+          chosenText = pool[pool.length - 1].text;
+        }
+        if (chosenText) {
+          Transport.post("speak", { text: chosenText });
         }
       }
 
@@ -3849,6 +4257,34 @@
         if (msg.type === "filesDropped" && Array.isArray(msg.files)) {
           if (getCurrentState() === "collapsed") setState("expanded", { instant: true });
           addAttachments(msg.files.map((f) => ({ id: `${f.path}-${f.name}`, name: f.name, kind: "file", path: f.path })));
+        }
+        if (msg.type === "voiceState") {
+          if (typeof msg.speechAvailable === "boolean") speechAvailable = msg.speechAvailable;
+          if (typeof msg.onDevice === "boolean") onDeviceSpeech = msg.onDevice;
+          voiceState = msg.state || (msg.isDictating ? "listening" : "idle");
+          voiceReason = msg.reason || "";
+          voiceNextStep = msg.nextStep || "";
+          if (voiceState === "idle") {
+            dictationBaseText = promptInput.value.trimEnd();
+          }
+          renderVoiceStatusBar();
+        }
+        if (msg.type === "voiceTranscript") {
+          const spokenChunk = String(msg.text || "").trim();
+          const combined = dictationBaseText
+            ? (spokenChunk ? `${dictationBaseText} ${spokenChunk}` : dictationBaseText)
+            : spokenChunk;
+          promptInput.value = combined;
+          syncPromptFieldState();
+          if (msg.isFinal) {
+            dictationBaseText = promptInput.value.trimEnd();
+          }
+        }
+        if (msg.type === "ttsState") {
+          ttsSpeaking = Boolean(msg.speaking);
+          ttsSpeakText = msg.text ? String(msg.text) : "";
+          renderVoiceStatusBar();
+          if (lastViewModel) renderPill(lastViewModel);
         }
       });
 
@@ -3867,6 +4303,12 @@
         try {
           const state = await Transport.init();
           isSampleData = state.isSampleData;
+          speechAvailable = Boolean(state.speechAvailable);
+          onDeviceSpeech = Boolean(state.onDeviceSpeech);
+          if (state.isDictating) voiceState = "listening";
+          ttsSpeaking = Boolean(state.isSpeaking);
+          ttsSpeakText = state.speakText || "";
+          renderVoiceStatusBar();
           if (state.connected) {
             await pollAll();
           } else {
@@ -3894,6 +4336,7 @@
             agentsById,
             rememberedAgentsById,
             costsById,
+            transcriptsById,
           });
           lastViewModel = vmNow;
           if (!updateLiveTicksInPlace(vmNow)) {
@@ -3915,7 +4358,7 @@
       const esc = (v) => ca().escapeHtml(v);
       const req = (method, path, body) =>
         ca().Transport.request(method, path, body === undefined ? {} : { jsonBody: body });
-      const money = (n) => (n == null ? "none yet" : "$" + Number(n).toFixed(Number(n) < 0.1 ? 4 : 2));
+      const money = (n) => (n == null ? "—" : "$" + Number(n).toFixed(Number(n) < 0.1 ? 4 : 2));
       const paint = (c) => (c ? ` style="color:${esc(c)}"` : "");
 
       /* ---------------- file search (attach menu: Search files…) ---------------- */
