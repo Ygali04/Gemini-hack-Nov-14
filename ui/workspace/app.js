@@ -260,6 +260,7 @@
           : [];
       fixtureState = {
         sampleLabel: "Sample data",
+        workspaceState: parsed.workspaceState && typeof parsed.workspaceState === "object" ? parsed.workspaceState : null,
         agents: parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {},
         runs: Array.isArray(parsed.runs) ? parsed.runs : [],
         details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
@@ -269,6 +270,7 @@
         graph: parsed.graph && typeof parsed.graph === "object" ? parsed.graph : null,
         analytics: parsed.analytics && typeof parsed.analytics === "object" ? parsed.analytics : null,
         costs: parsed.costs && typeof parsed.costs === "object" ? parsed.costs : {},
+        profile: parsed.profile && typeof parsed.profile === "object" ? parsed.profile : { call_me: "" },
       };
       activeFixtureName = safe;
     }
@@ -415,6 +417,16 @@
           by_app: [],
         };
       }
+      if (method === "GET" && cleanPath === "/api/profile") {
+        return JSON.parse(JSON.stringify(fixtureState.profile || { call_me: "" }));
+      }
+      if (method === "POST" && cleanPath === "/api/profile") {
+        fixtureState.profile = {
+          ...(fixtureState.profile || {}),
+          ...(options.jsonBody || {}),
+        };
+        return { ok: true, profile: fixtureState.profile };
+      }
       if (method === "POST" && cleanPath.startsWith("/api/help/")) {
         const hid = decodeURIComponent(cleanPath.slice("/api/help/".length));
         const choice = options.jsonBody?.choice;
@@ -559,6 +571,7 @@
       request,
       pickFiles,
       getSampleLabel,
+      getFixtureWorkspaceState: () => fixtureState?.workspaceState || null,
     };
   })();
 
@@ -571,6 +584,9 @@
     userName: "",
     callMe: "",
     pronounce: "",
+    profileLoaded: false,
+    profileSaveStatus: "",
+    profileSaveError: "",
     agentName: "Mercury",
     swatchIndex: 0,
     voiceId: "2X7h8q4r8pMNZ7zRmpiF",
@@ -763,22 +779,32 @@
      * - The orchestrator (parent) run has no cursor; draw it without glass, in the UI's muted text color.
      * - Entries vanish when a computer-use run ends and other roles never have one: keep a neutral fallback.
      */
-    function lookupNodeGlassRecord(runItem, rawAgentsMap, isPrimary) {
-      if (isPrimary || !rawAgentsMap || typeof rawAgentsMap !== "object") {
+    function lookupNodeGlassRecord(runItem, rawAgentsMap, isPrimary, recoveredInfo) {
+      if (isPrimary) {
         return null;
       }
-      const direct = rawAgentsMap[runItem.id] || null;
-      if (!direct || (!direct.color && !direct.body)) {
-        return null;
+      const direct = rawAgentsMap && typeof rawAgentsMap === "object" ? rawAgentsMap[runItem.id] || null : null;
+      if (direct && (direct.color || direct.body)) {
+        const resolved = SharedGlass.resolveAgentPalette(direct);
+        return {
+          name: direct.name || recoveredInfo?.name || "",
+          body: resolved.body,
+          edge: resolved.edge,
+          ink: resolved.ink,
+          rawInk: resolved.rawInk,
+        };
       }
-      const resolved = SharedGlass.resolveAgentPalette(direct);
-      return {
-        name: direct.name || "",
-        body: resolved.body,
-        edge: resolved.edge,
-        ink: resolved.ink,
-        rawInk: resolved.rawInk,
-      };
+      if (recoveredInfo && (recoveredInfo.color || recoveredInfo.body)) {
+        const resolved = SharedGlass.resolveAgentPalette(recoveredInfo);
+        return {
+          name: recoveredInfo.name || "",
+          body: resolved.body,
+          edge: resolved.edge,
+          ink: resolved.ink,
+          rawInk: resolved.rawInk,
+        };
+      }
+      return null;
     }
 
     function formatAgentStepEvent(ev) {
@@ -839,9 +865,18 @@
           return {
             kind: "decide",
             label: "Route",
-            summary: `Dispatched ${roleLabel(ev.role)}${ev.app ? ` on ${ev.app}` : ""}: ${ev.goal || ""}`,
+            summary: `Dispatched ${ev.agent || roleLabel(ev.role)}${ev.app ? ` on ${ev.app}` : ""}: ${ev.goal || ""}`,
             timeText: tText,
           };
+        case "llm": {
+          const costStr = ev.cost == null ? "—" : `$${Number(ev.cost).toFixed(4)}`;
+          return {
+            kind: "decide",
+            label: "Model",
+            summary: `${ev.purpose ? `${sentenceCase(ev.purpose)} · ` : ""}${ev.model || "Model"} · Cost ${costStr}`,
+            timeText: tText,
+          };
+        }
         case "tests":
           return {
             kind: "act",
@@ -1124,10 +1159,49 @@
         const rawChildren = [...(childrenByParent.get(parent.id) || [])].slice(0, 4);
         const allGroupRuns = [parent, ...rawChildren];
 
+        const parentTranscriptRows = transcriptsByRunId[parent.id] || [];
+        const parentEvents = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
+        const recoveredByRunId = new Map();
+        const recoveredByAgentName = new Map();
+
+        const recordRecovered = (keyRunId, agentName, colorVal) => {
+          if (!agentName && !colorVal) return;
+          if (keyRunId) {
+            const prev = recoveredByRunId.get(keyRunId) || {};
+            recoveredByRunId.set(keyRunId, {
+              name: prev.name || agentName || "",
+              color: prev.color || colorVal || null,
+            });
+          }
+          if (agentName) {
+            const prev = recoveredByAgentName.get(agentName) || {};
+            recoveredByAgentName.set(agentName, {
+              name: agentName,
+              color: prev.color || colorVal || null,
+            });
+          }
+        };
+
+        for (const ev of parentEvents) {
+          if (ev && (ev.agent || ev.color)) {
+            recordRecovered(ev.child || ev.run || null, ev.agent || "", ev.color || null);
+          }
+        }
+        for (const tr of parentTranscriptRows) {
+          if (tr && (tr.agent || tr.color)) {
+            recordRecovered(tr.run || null, tr.agent || "", tr.color || null);
+          }
+        }
+
         const nodes = allGroupRuns.map((runItem, idx) => {
           const isPrimary = idx === 0;
           const detail = detailsById[runItem.id] || runItem;
           const events = Array.isArray(detail?.events) ? detail.events : [];
+          for (const ev of events) {
+            if (ev && (ev.agent || ev.color)) {
+              recordRecovered(runItem.id, ev.agent || "", ev.color || null);
+            }
+          }
           const runHelp = mappedApprovals.filter((h) => h.runId === runItem.id && !h.isExpired);
           const hasVerifyPass = events.some((e) => e.kind === "verify" && e.achieved);
 
@@ -1138,10 +1212,19 @@
             hasVerifyPass
           );
 
-          const glassRecord = lookupNodeGlassRecord(runItem, rawAgents, isPrimary);
+          let recoveredInfo = recoveredByRunId.get(runItem.id) || null;
+          if (!recoveredInfo?.color && recoveredInfo?.name && recoveredByAgentName.has(recoveredInfo.name)) {
+            recoveredInfo = recoveredByAgentName.get(recoveredInfo.name);
+          }
+          if (!recoveredInfo && !isPrimary && rawChildren.length === 1) {
+            const firstNamed = Array.from(recoveredByAgentName.values())[0] || null;
+            if (firstNamed) recoveredInfo = firstNamed;
+          }
+
+          const glassRecord = lookupNodeGlassRecord(runItem, rawAgents, isPrimary, recoveredInfo);
           const displayName = isPrimary
             ? OnboardingState.agentName || "Primary orchestrator"
-            : glassRecord?.name || roleLabel(runItem.role);
+            : glassRecord?.name || recoveredInfo?.name || roleLabel(runItem.role);
 
           if (glassRecord) {
             agentPaletteByName.set(runItem.id, glassRecord);
@@ -1233,15 +1316,29 @@
           }
         }
 
+        const parentDigest = parent.result?.digest || detailsById[parent.id]?.result?.digest || null;
+        const digestParts = [];
+        if (parentDigest && typeof parentDigest === "object") {
+          if (parentDigest.steps != null) digestParts.push(`${parentDigest.steps} steps`);
+          if (parentDigest.memory_steps != null && parentDigest.memory_steps > 0) {
+            digestParts.push(`${parentDigest.memory_steps} from memory`);
+          }
+          if (parentDigest.seconds != null) digestParts.push(`${parentDigest.seconds}s`);
+        }
+
         return {
           id: parent.id,
           goal: parent.goal || "Untitled task",
           elapsedText: formatSeconds(parent.elapsed),
           attachments,
           overallStatus,
+          digest: parentDigest,
+          digestSummaryText: digestParts.join(" · "),
           resultSummary: parent.result?.summary
             ? sentenceCase(parent.result.summary)
-            : childNodes.find((c) => c.resultSummary)?.resultSummary || overallStatus.word,
+            : parentDigest?.summary
+              ? sentenceCase(parentDigest.summary)
+              : childNodes.find((c) => c.resultSummary)?.resultSummary || overallStatus.word,
           primaryNode,
           childNodes,
           allNodes: nodes,
@@ -1411,6 +1508,9 @@
   let connectionError = "";
   let isSampleData = Boolean(activeFixtureName);
   let hasLoadedOnce = false;
+  let lastSuccessfulRefreshAt = 0;
+  let failedEndpoints = [];
+  let succeededEndpoints = [];
 
   let rawRuns = [];
   let detailsById = {};
@@ -1423,6 +1523,31 @@
   let transcriptsByRunId = {};
   let searchedTranscriptRows = null;
   const sentAttachmentsByRunId = new Map();
+  try {
+    const savedAtt = window.sessionStorage?.getItem("ca_ws_sent_attachments_v1");
+    if (savedAtt) {
+      const parsedAtt = JSON.parse(savedAtt);
+      if (parsedAtt && typeof parsedAtt === "object") {
+        for (const [rid, names] of Object.entries(parsedAtt)) {
+          if (Array.isArray(names)) sentAttachmentsByRunId.set(rid, names);
+        }
+      }
+    }
+  } catch {
+    // Ignore sessionStorage errors
+  }
+
+  function persistSentAttachments() {
+    try {
+      const obj = {};
+      for (const [rid, names] of sentAttachmentsByRunId.entries()) {
+        obj[rid] = names;
+      }
+      window.sessionStorage?.setItem("ca_ws_sent_attachments_v1", JSON.stringify(obj));
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }
 
   let selectedTaskRunId = null;
   let selectedAgentNodeId = null;
@@ -1479,41 +1604,6 @@
     dailyCapDraft: "5.00",
     dailyCapSavedNote: "",
     sampleTodaySpendUsd: 0.08,
-    sampleHistoryRuns: [
-      {
-        id: "sample-hist-1",
-        goal: "Compute monthly budget total in Calculator",
-        apps: ["Calculator"],
-        outcomeKey: "success",
-        outcomeLabel: "✓ Success",
-        costUsd: 0.0049,
-        elapsedText: "18s",
-        hasException: false,
-        exceptionNote: "",
-      },
-      {
-        id: "sample-hist-2",
-        goal: "Export billing receipt from Safari portal",
-        apps: ["Safari", "Finder"],
-        outcomeKey: "failed",
-        outcomeLabel: "× Failed",
-        costUsd: 0.064,
-        elapsedText: "42s",
-        hasException: true,
-        exceptionNote: "Cost spike · Denied sign-in action",
-      },
-      {
-        id: "sample-hist-3",
-        goal: "Check disk usage and clean build cache in Terminal",
-        apps: ["Terminal"],
-        outcomeKey: "success",
-        outcomeLabel: "✓ Success",
-        costUsd: 0.012,
-        elapsedText: "25s",
-        hasException: false,
-        exceptionNote: "",
-      },
-    ],
   };
 
   function normalizeViewName(raw) {
@@ -1626,35 +1716,264 @@
     });
   }
 
-  function renderConnectionBanner(vm) {
-    const banner = document.getElementById("connection-banner");
-    if (!banner) return;
+  function attachConnectInputHandlers(containerEl) {
+    if (!containerEl) return;
+    const connectInput = containerEl.querySelector("#connect-url-input");
+    if (connectInput) {
+      attachImeSafeEnter(connectInput, () => handleConnectSubmit());
+    }
+  }
 
-    if (vm.connectionStatus === "disconnected") {
-      const prevVal = document.getElementById("connect-url-input")?.value || "";
-      banner.classList.remove("hidden");
-      banner.innerHTML = `
+  function renderNotConnectedViewHtml({ title, subtitle, connectionError: errMsg }) {
+    const prevVal = document.getElementById("connect-url-input")?.value || "";
+    const detail = errMsg || "Paste the address the backend printed to connect this view.";
+    return `
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">${escapeHtml(title)}</h2>
+          <p class="section-subtitle">${escapeHtml(subtitle)}</p>
+        </div>
+      </div>
+      <div class="view-state-block">
         <div class="filter-group">
           <span class="state-text state-warning">&oslash; Not connected</span>
-          <span class="section-subtitle">${escapeHtml(
-            vm.connectionError || "Paste the backend address (http://127.0.0.1:8765/?t=...) or inspect sample fixture data."
-          )}</span>
+          <span class="section-subtitle">${escapeHtml(detail)}</span>
         </div>
-        <div class="inline-input-row" style="flex: 1; min-width: 280px; max-width: 520px;">
+        <div class="inline-input-row connect-row">
           <label for="connect-url-input" class="visually-hidden">Backend address</label>
           <input
             type="url"
             id="connect-url-input"
             class="inline-text-input"
             placeholder="http://127.0.0.1:8765/?t=..."
+            aria-label="Backend address"
             value="${escapeHtml(prevVal)}"
           />
-          <button type="button" class="btn" data-action="connect-backend">Connect</button>
-          <button type="button" class="btn" data-action="load-fixture" data-fixture="workspace-demo">Load sample data</button>
+          <button type="button" id="connect-submit-btn" class="btn btn-primary" data-action="connect-backend">Connect</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderEmptyStateHtml({ title, subtitle, message, ctaLabel, ctaAction = "focus-prompt" }) {
+    return `
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">${escapeHtml(title)}</h2>
+          <p class="section-subtitle">${escapeHtml(subtitle)}</p>
+        </div>
+      </div>
+      <div class="view-state-block">
+        <span class="state-text state-neutral">&cir; ${escapeHtml(message)}</span>
+        <div class="filter-group">
+          <button type="button" class="btn btn-primary" data-action="${escapeHtml(ctaAction)}">${escapeHtml(ctaLabel)}</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderViewStatusNoticesHtml(vm) {
+    const notices = [];
+    if (vm.connectionStatus === "stale") {
+      const ageSec = lastSuccessfulRefreshAt > 0
+        ? Math.max(31, Math.round((Date.now() - lastSuccessfulRefreshAt) / 1000))
+        : 45;
+      notices.push(`
+        <div class="view-status-row" role="status">
+          <div class="filter-group">
+            <span class="state-text state-warning">&#9684; May be out of date</span>
+            <span class="section-subtitle">Disconnected from backend for ${escapeHtml(ageSec)}s since last refresh.</span>
+          </div>
+          <button type="button" class="btn" data-action="retry-poll">Retry</button>
+        </div>
+      `);
+    }
+    if (failedEndpoints.length > 0) {
+      const arrivedText = succeededEndpoints.length
+        ? succeededEndpoints.map((e) => e.label || e).join(", ")
+        : "No endpoints";
+      const failedText = failedEndpoints
+        .map((e) => (e.path ? `${e.label} (${e.path})` : e.label || String(e)))
+        .join(", ");
+      notices.push(`
+        <div class="view-status-row" role="status">
+          <div class="filter-group">
+            <span class="state-text state-warning">&#9684; Partial data</span>
+            <span class="section-subtitle">Arrived: ${escapeHtml(arrivedText)}. Failed: ${escapeHtml(failedText)}.</span>
+          </div>
+          <button type="button" class="btn" data-action="retry-poll">Retry</button>
+        </div>
+      `);
+    }
+    return notices.join("");
+  }
+
+  function renderLoadingSkeletonViewHtml(viewKey) {
+    if (viewKey === "graph") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Agent graph</h2>
+            <p class="section-subtitle">Primary orchestrator and up to 4 computer-use child agents per prompt</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading agent graph</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 220px; height: 64px;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 190px; height: 60px;"></div>
+            <div class="skeleton-box" style="width: 190px; height: 60px;"></div>
+            <div class="skeleton-box" style="width: 190px; height: 60px;"></div>
+          </div>
+          <div class="skeleton-line" style="width: 72%;"></div>
+          <div class="skeleton-line" style="width: 58%;"></div>
+          <div class="skeleton-line" style="width: 64%;"></div>
         </div>
       `;
-      const connectInput = document.getElementById("connect-url-input");
-      attachImeSafeEnter(connectInput, () => handleConnectSubmit());
+    }
+    if (viewKey === "state-machine") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">State machine graph</h2>
+            <p class="section-subtitle">Screens, transitions, and action reliability across runs</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading state machine</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-row">
+            <div class="skeleton-line" style="width: 96px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 96px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 96px; height: 28px;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 200px; height: 52px;"></div>
+            <div class="skeleton-line" style="width: 140px; height: 12px;"></div>
+            <div class="skeleton-box" style="width: 200px; height: 52px;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 200px; height: 52px;"></div>
+            <div class="skeleton-line" style="width: 140px; height: 12px;"></div>
+            <div class="skeleton-box" style="width: 200px; height: 52px;"></div>
+          </div>
+        </div>
+      `;
+    }
+    if (viewKey === "logs") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Transcript log</h2>
+            <p class="section-subtitle">Searchable history of prompts, attachments, agents, and replies</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading transcript log</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-row">
+            <div class="skeleton-line" style="width: 260px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+          </div>
+          <div class="skeleton-line" style="width: 92%; height: 24px;"></div>
+          <div class="skeleton-line" style="width: 88%; height: 24px;"></div>
+          <div class="skeleton-line" style="width: 84%; height: 24px;"></div>
+          <div class="skeleton-line" style="width: 78%; height: 24px;"></div>
+        </div>
+      `;
+    }
+    if (viewKey === "analytics") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Analytics</h2>
+            <p class="section-subtitle">Spend, model calls, and app reliability from the local store</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading analytics</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-grid-4">
+            <div class="skeleton-box" style="height: 68px;"></div>
+            <div class="skeleton-box" style="height: 68px;"></div>
+            <div class="skeleton-box" style="height: 68px;"></div>
+            <div class="skeleton-box" style="height: 68px;"></div>
+          </div>
+          <div class="skeleton-box" style="width: 100%; height: 72px;"></div>
+          <div class="skeleton-line" style="width: 94%;"></div>
+          <div class="skeleton-line" style="width: 88%;"></div>
+          <div class="skeleton-line" style="width: 82%;"></div>
+        </div>
+      `;
+    }
+    if (viewKey === "onboarding") {
+      return `
+        <div class="section-header-row">
+          <div>
+            <h2 class="section-title">Onboarding</h2>
+            <p class="section-subtitle">Configure your profile, permissions, approval rules, and first task</p>
+          </div>
+          <span class="state-text state-working">&hellip; Loading onboarding</span>
+        </div>
+        <div class="skeleton-stack" aria-busy="true">
+          <div class="skeleton-row">
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+            <div class="skeleton-line" style="width: 84px; height: 28px;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 220px; height: 36px;"></div>
+            <div class="skeleton-box" style="width: 220px; height: 36px;"></div>
+          </div>
+          <div class="skeleton-row">
+            <div class="skeleton-box" style="width: 96px; height: 32px;"></div>
+            <div class="skeleton-box" style="width: 96px; height: 32px;"></div>
+            <div class="skeleton-box" style="width: 96px; height: 32px;"></div>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">History and settings</h2>
+          <p class="section-subtitle">Search past tasks, review memories, set app permissions, and manage daily spend</p>
+        </div>
+        <span class="state-text state-working">&hellip; Loading history and settings</span>
+      </div>
+      <div class="skeleton-stack" aria-busy="true">
+        <div class="skeleton-row">
+          <div class="skeleton-line" style="width: 240px; height: 28px;"></div>
+          <div class="skeleton-line" style="width: 110px; height: 28px;"></div>
+        </div>
+        <div class="skeleton-line" style="width: 95%; height: 24px;"></div>
+        <div class="skeleton-line" style="width: 90%; height: 24px;"></div>
+        <div class="skeleton-line" style="width: 85%; height: 24px;"></div>
+        <div class="skeleton-box" style="width: 100%; height: 84px;"></div>
+      </div>
+    `;
+  }
+
+  function renderConnectionBanner(vm) {
+    const banner = document.getElementById("connection-banner");
+    if (!banner) return;
+
+    if (vm.connectionStatus === "disconnected" || (vm.connectionStatus === "loading" && !hasLoadedOnce)) {
+      banner.classList.add("hidden");
+      banner.innerHTML = "";
+      return;
+    }
+
+    if (vm.connectionStatus === "stale") {
+      banner.classList.remove("hidden");
+      banner.innerHTML = `
+        <div class="filter-group">
+          <span class="state-text state-warning">&#9684; May be out of date</span>
+          <span class="section-subtitle">Data is older than 30s since the last successful refresh while disconnected.</span>
+        </div>
+        <button type="button" class="btn" data-action="retry-poll">Retry</button>
+      `;
       return;
     }
 
@@ -1667,22 +1986,12 @@
         </div>
         <div class="filter-group">
           <button type="button" class="btn ${activeFixtureName === "workspace-demo" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-demo">Multi-agent preview</button>
-          <button type="button" class="btn ${activeFixtureName === "qa-loop-verified" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="qa-loop-verified">QA verified preview</button>
-          <button type="button" class="btn ${activeFixtureName === "awaiting-approval" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="awaiting-approval">Approval preview</button>
           <button type="button" class="btn ${activeFixtureName === "workspace-empty" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-empty">Empty preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-partial" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-partial">Partial preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-stale" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-stale">Stale preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-loading" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-loading">Loading preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-disconnected" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-disconnected">Not connected preview</button>
         </div>
-      `;
-      return;
-    }
-
-    if (vm.connectionStatus === "stale") {
-      banner.classList.remove("hidden");
-      banner.innerHTML = `
-        <div class="filter-group">
-          <span class="state-text state-warning">◔ Connection stale</span>
-          <span class="section-subtitle">Backend did not respond to the latest poll.</span>
-        </div>
-        <button type="button" class="btn" data-action="retry-poll">Retry</button>
       `;
       return;
     }
@@ -1765,31 +2074,32 @@
 
     if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
       clearMountedGlass("b1-graph");
-      container.innerHTML = `
-        <div class="filter-bar">
-          <span class="state-text state-working">&hellip; Loading agent graph</span>
-          <div class="skeleton-line" style="width: 240px;"></div>
-        </div>
-      `;
+      container.innerHTML = renderLoadingSkeletonViewHtml("graph");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      clearMountedGlass("b1-graph");
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Agent graph",
+        subtitle: "Primary orchestrator and up to 4 computer-use child agents per prompt",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
       return;
     }
 
     if (!vm.activeGroup) {
       clearMountedGlass("b1-graph");
       container.innerHTML = `
-        <div class="section-header-row">
-          <div>
-            <h2 class="section-title">Agent graph</h2>
-            <p class="section-subtitle">Primary orchestrator and up to 4 computer-use child agents per prompt</p>
-          </div>
-        </div>
-        <div class="filter-bar" style="padding: 16px 0;">
-          <span class="state-text state-neutral">&cir; No active or recorded runs yet</span>
-          <div class="filter-group">
-            <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Open onboarding</button>
-            <button type="button" class="btn" data-action="load-fixture" data-fixture="workspace-demo">Load sample data</button>
-          </div>
-        </div>
+        ${renderViewStatusNoticesHtml(vm)}
+        ${renderEmptyStateHtml({
+          title: "Agent graph",
+          subtitle: "Primary orchestrator and up to 4 computer-use child agents per prompt",
+          message: "No runs yet. Send a prompt above to watch your primary agent and its child agents work.",
+          ctaLabel: "Ask agents to run a task",
+          ctaAction: "focus-prompt",
+        })}
       `;
       return;
     }
@@ -1900,12 +2210,15 @@
       : `<div class="section-subtitle">No decide, act, verify, help, or result events recorded yet.</div>`;
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">${escapeHtml(group.goal)}</h2>
           <p class="section-subtitle">
             <span class="state-text ${escapeHtml(group.overallStatus.colorClass)}">${escapeHtml(group.overallStatus.symbolWord)}</span>
-            &middot; ${escapeHtml(group.resultSummary)} &middot; Elapsed ${escapeHtml(group.elapsedText)}
+            &middot; ${escapeHtml(group.resultSummary)} &middot; Elapsed ${escapeHtml(group.elapsedText)}${
+              group.digestSummaryText ? ` &middot; ${escapeHtml(group.digestSummaryText)}` : ""
+            }
           </p>
         </div>
         ${runSelectorHtml}
@@ -1994,8 +2307,37 @@
     const container = document.getElementById("b1b-content");
     if (!container) return;
 
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("state-machine");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "State machine graph",
+        subtitle: "Screens as nodes and actions as directed edges across runs",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
     const sm = vm.stateMachine;
     const stats = vm.graphStats;
+
+    if (!sm.edges.length && !smAgentFilter && selectedAppFilter === "all" && !vm.taskGroups.length) {
+      container.innerHTML = `
+        ${renderViewStatusNoticesHtml(vm)}
+        ${renderEmptyStateHtml({
+          title: "State machine graph",
+          subtitle: "Screens as nodes and actions as directed edges across runs",
+          message: "No screen transitions recorded yet. Run a computer-use task to map screens and actions.",
+          ctaLabel: "Ask agents to run a task",
+          ctaAction: "focus-prompt",
+        })}
+      `;
+      return;
+    }
 
     /* Determine active replay run & step */
     const replayRuns = Array.isArray(vm.replayRuns) ? vm.replayRuns : [];
@@ -2264,6 +2606,7 @@
       stats.mean_edge_p != null ? `${Math.round(Number(stats.mean_edge_p) * 100)}% (P=${stats.mean_edge_p})` : "No scored edges yet";
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">State machine graph</h2>
@@ -2316,6 +2659,35 @@
   function renderTranscriptLogView(vm) {
     const container = document.getElementById("b2-content");
     if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("logs");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Transcript log",
+        subtitle: "Every run newest first: prompt, attachments, agents, status, result, and time",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    if (!vm.taskGroups.length && !logSearchQuery.trim() && logStatusFilter === "all") {
+      container.innerHTML = `
+        ${renderViewStatusNoticesHtml(vm)}
+        ${renderEmptyStateHtml({
+          title: "Transcript log",
+          subtitle: "Every run newest first: prompt, attachments, agents, status, result, and time",
+          message: "No transcripts yet. Prompts, attachments, and agent replies appear here after your first run.",
+          ctaLabel: "Ask agents to run a task",
+          ctaAction: "focus-prompt",
+        })}
+      `;
+      return;
+    }
 
     const statusChips = [
       { key: "all", label: "All" },
@@ -2425,6 +2797,7 @@
     const cursorStart = existingInput?.selectionStart ?? null;
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">Transcript log</h2>
@@ -2489,8 +2862,38 @@
     const container = document.getElementById("b3-content");
     if (!container) return;
 
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("analytics");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Analytics",
+        subtitle: "Spend, model calls, and app reliability from the local store",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
     const an = vm.analytics;
     const gs = vm.graphStats;
+
+    const hasRecordedAnalytics = Boolean(an && (an.tasks > 0 || an.llm_calls > 0));
+    if (!hasRecordedAnalytics && !vm.taskGroups.length && !failedEndpoints.length) {
+      container.innerHTML = `
+        ${renderViewStatusNoticesHtml(vm)}
+        ${renderEmptyStateHtml({
+          title: "Analytics",
+          subtitle: "Spend, model calls, and app reliability from the local store",
+          message: "No tasks recorded yet. Spend, model calls, and app reliability appear here after your first run.",
+          ctaLabel: "Ask agents to run a task",
+          ctaAction: "focus-prompt",
+        })}
+      `;
+      return;
+    }
 
     const provenanceDescription = vm.isSampleData
       ? "Preview metrics shown from sample runs, never live runs."
@@ -2515,7 +2918,7 @@
           </div>
           <div class="metric-item">
             <span class="metric-label">Total token spend</span>
-            <span class="metric-value">$${Number(an.cost_usd || 0).toFixed(4)}</span>
+            <span class="metric-value">${an.cost_usd != null ? `$${Number(an.cost_usd).toFixed(4)}` : "—"}</span>
             <span class="metric-note">${
               an.mean_cost_per_task != null
                 ? `Mean $${Number(an.mean_cost_per_task).toFixed(4)} / task`
@@ -2697,6 +3100,7 @@
         : `<tr><td colspan="6" class="section-subtitle">No application action rows recorded yet.</td></tr>`;
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">Analytics</h2>
@@ -2866,6 +3270,36 @@
     const container = document.getElementById("b4-content");
     if (!container) return;
 
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      clearMountedGlass("b4-onboarding");
+      container.innerHTML = renderLoadingSkeletonViewHtml("onboarding");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      clearMountedGlass("b4-onboarding");
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Meet your agent",
+        subtitle: "Set your name, voice, permissions, approval rules, and send your first task",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    const emptyNoticeHtml =
+      vm.connectionStatus === "connected" && !vm.taskGroups.length && !failedEndpoints.length
+        ? `
+          <div class="view-status-row" role="status">
+            <div class="filter-group">
+              <span class="state-text state-neutral">&cir; No runs yet</span>
+              <span class="section-subtitle">Complete step 1 below or send your first prompt to start.</span>
+            </div>
+            <button type="button" class="btn" data-action="focus-prompt">Ask agents to run a task</button>
+          </div>
+        `
+        : "";
+
     const step = Math.max(1, Math.min(OnboardingState.totalSteps, OnboardingState.step || 1));
     OnboardingState.step = step;
 
@@ -2935,22 +3369,28 @@
           <p class="section-subtitle">Optional. Leave blank if you prefer not to set a name now.</p>
           <div class="onboarding-row">
             <div class="onboarding-field">
-              <label for="onboarding-user-name" class="filter-label">Your name</label>
-              <input type="text" id="onboarding-user-name" class="inline-text-input" value="${escapeHtml(OnboardingState.userName)}" placeholder="Your name" maxlength="40" />
+              <label for="onboarding-call-me" class="filter-label">Call me (saved to your profile)</label>
+              <div class="inline-input-row">
+                <input type="text" id="onboarding-call-me" class="inline-text-input" value="${escapeHtml(OnboardingState.callMe)}" placeholder="Preferred name" maxlength="40" />
+                <button type="button" class="btn btn-primary" data-action="save-onboarding-profile">Save name</button>
+              </div>
+              ${
+                OnboardingState.profileSaveError
+                  ? `<span class="state-text state-danger">${escapeHtml(OnboardingState.profileSaveError)}</span>`
+                  : OnboardingState.profileSaveStatus
+                    ? `<span class="state-text state-success">${escapeHtml(OnboardingState.profileSaveStatus)}</span>`
+                    : ""
+              }
             </div>
             <div class="onboarding-field">
-              <label for="onboarding-call-me" class="filter-label">Call me</label>
-              <input type="text" id="onboarding-call-me" class="inline-text-input" value="${escapeHtml(OnboardingState.callMe)}" placeholder="Preferred name" maxlength="40" />
-            </div>
-            <div class="onboarding-field">
-              <label for="onboarding-pronounce" class="filter-label">Pronunciation (optional)</label>
+              <label for="onboarding-pronounce" class="filter-label">Pronunciation (in-session only)</label>
               <input type="text" id="onboarding-pronounce" class="inline-text-input" value="${escapeHtml(OnboardingState.pronounce)}" placeholder="e.g. ree-oh" maxlength="40" />
             </div>
           </div>
 
           <div class="onboarding-row" style="margin-top:12px;">
             <div class="onboarding-field">
-              <label for="onboarding-agent-name" class="filter-label">Primary agent alias</label>
+              <label for="onboarding-agent-name" class="filter-label">Primary agent alias (in-page preview)</label>
               <input type="text" id="onboarding-agent-name" class="inline-text-input" value="${escapeHtml(OnboardingState.agentName)}" placeholder="Mercury" maxlength="32" />
             </div>
             <div class="preview-stage">
@@ -3148,22 +3588,7 @@
             <tr>
               <td>${escapeHtml(rule.when)}</td>
               <td>
-                <div class="filter-group" role="group" aria-label="Approval behavior for ${escapeHtml(rule.when)}">
-                  <button
-                    type="button"
-                    class="btn ${rule.should === "ask" ? "btn-active" : ""}"
-                    data-action="set-onboarding-rule"
-                    data-rule-id="${escapeHtml(rule.id)}"
-                    data-should="ask"
-                  >Ask first</button>
-                  <button
-                    type="button"
-                    class="btn ${rule.should === "block" ? "btn-active" : ""}"
-                    data-action="set-onboarding-rule"
-                    data-rule-id="${escapeHtml(rule.id)}"
-                    data-should="block"
-                  >Not now (stricter)</button>
-                </div>
+                <span class="state-text state-neutral">◔ ${rule.should === "block" ? "Not now" : "Ask first"} (read-only)</span>
               </td>
             </tr>
           `;
@@ -3174,7 +3599,7 @@
         <div class="onboarding-block">
           <h3 class="section-title">What needs approval</h3>
           <p class="section-subtitle">
-            All sensitive categories default to Ask first. You can make an app or action stricter, never looser than the defaults.
+            Sample preview (read-only; approval rules are not saved on the backend yet). Sensitive categories always ask first.
           </p>
           <div class="data-table-wrap">
             <table class="rules-table">
@@ -3223,7 +3648,7 @@
         <div class="onboarding-block">
           <h3 class="section-title">Memory</h3>
           <p class="section-subtitle">
-            Remember things about me to work faster next time.
+            Sample preview (in-session only; memory is not saved on the backend yet). Remember things about me to work faster next time.
           </p>
           <div class="filter-group">
             <button type="button" class="btn ${OnboardingState.memoryEnabled ? "btn-active" : ""}" data-action="set-onboarding-memory" data-enabled="1">
@@ -3286,6 +3711,8 @@
     const aliasCursor = existingAliasInput?.selectionStart ?? null;
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      ${emptyNoticeHtml}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">Meet your agent</h2>
@@ -3374,11 +3801,10 @@
   }
 
   function buildHistoryRows(vm) {
-    const usingSample = !vm.taskGroups.length;
-    if (usingSample) {
+    if (!vm.taskGroups.length) {
       return {
-        usingSample: true,
-        rows: HistorySettingsState.sampleHistoryRuns,
+        usingSample: false,
+        rows: [],
       };
     }
     const actionsByRun = new Map();
@@ -3428,6 +3854,21 @@
     const container = document.getElementById("b5-content");
     if (!container) return;
 
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("history-settings");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "History and settings",
+        subtitle: "Search past tasks, review what the agent knows, and set app permissions and spend limits",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
     const searchInput = document.getElementById("history-search-input");
     const searchHadFocus = searchInput && document.activeElement === searchInput;
     const searchCursor = searchHadFocus ? searchInput.selectionStart : null;
@@ -3437,6 +3878,11 @@
     const outcomeFilter = HistorySettingsState.outcomeFilter;
     const costFilter = HistorySettingsState.costFilter;
 
+    const transcriptMatchRunIds =
+      query && Array.isArray(searchedTranscriptRows)
+        ? new Set(searchedTranscriptRows.map((r) => r.run).filter(Boolean))
+        : null;
+
     const filteredRows = rows.filter((row) => {
       if (outcomeFilter !== "all" && row.outcomeKey !== outcomeFilter) return false;
       if (costFilter === "under-1c" && !(row.costUsd !== null && row.costUsd < 0.01)) return false;
@@ -3444,13 +3890,27 @@
       if (costFilter === "over-5c" && !(row.costUsd !== null && row.costUsd > 0.05)) return false;
       if (costFilter === "spike" && !row.hasException) return false;
       if (query) {
+        if (transcriptMatchRunIds && transcriptMatchRunIds.has(row.id)) return true;
         const hay = `${row.goal} ${row.apps.join(" ")} ${row.exceptionNote}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
       return true;
     });
 
-    const historyRowsHtml = filteredRows.length
+    const historyRowsHtml = !rows.length
+      ? `
+        <tr>
+          <td colspan="6">
+            <div class="view-state-block" style="padding: 8px 0;">
+              <span class="state-text state-neutral">&cir; No task history yet. Completed runs appear here after your first task.</span>
+              <div class="filter-group">
+                <button type="button" class="btn btn-primary" data-action="focus-prompt">Ask agents to run a task</button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `
+      : filteredRows.length
       ? filteredRows
           .map((row) => {
             const costText = row.costUsd !== null ? `$${row.costUsd.toFixed(4)}` : "—";
@@ -3576,6 +4036,7 @@
     const capReached = todaySpend >= HistorySettingsState.dailyCapUsd;
 
     container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">History and settings</h2>
@@ -3723,6 +4184,7 @@
     if (nextSearchInput) {
       nextSearchInput.addEventListener("input", (e) => {
         HistorySettingsState.searchQuery = e.target.value;
+        scheduleTranscriptSearch(e.target.value);
         renderHistorySettingsView(getViewModel());
       });
       if (searchHadFocus) {
@@ -3964,6 +4426,7 @@
       if (created?.run) {
         if (attachedNames.length) {
           sentAttachmentsByRunId.set(created.run, attachedNames);
+          persistSentAttachments();
         }
         selectedTaskRunId = created.run;
         selectedAgentNodeId = created.run;
@@ -3990,27 +4453,103 @@
   async function pollAll() {
     if (!Transport.isConnected()) {
       connectionStatus = "disconnected";
+      failedEndpoints = [];
+      succeededEndpoints = [];
       renderNow();
       return;
     }
 
-    try {
-      const actionsPath = smAgentFilter
-        ? `/api/actions?agent=${encodeURIComponent(smAgentFilter)}`
-        : "/api/actions";
+    const wsState = activeFixtureName ? Transport.getFixtureWorkspaceState() : null;
+    if (wsState?.status === "disconnected") {
+      hasLoadedOnce = false;
+      connectionStatus = "disconnected";
+      connectionError = wsState.error || "Paste the address the backend printed";
+      failedEndpoints = [];
+      succeededEndpoints = [];
+      renderNow();
+      return;
+    }
+    if (wsState?.status === "loading") {
+      hasLoadedOnce = false;
+      connectionStatus = "loading";
+      connectionError = "";
+      failedEndpoints = [];
+      succeededEndpoints = [];
+      renderNow();
+      return;
+    }
 
-      const [runsResp, helpResp, agentsResp, actionsResp, graphResp, analyticsResp] = await Promise.all([
-        Transport.request("GET", "/api/runs"),
-        Transport.request("GET", "/api/help"),
-        Transport.request("GET", "/api/agents").catch(() => ({})),
-        Transport.request("GET", actionsPath).catch(() => ({ total: 0, actions: [] })),
-        Transport.request("GET", "/api/graph").catch(() => null),
-        Transport.request("GET", "/api/analytics").catch(() => null),
-      ]);
+    const actionsPath = smAgentFilter
+      ? `/api/actions?agent=${encodeURIComponent(smAgentFilter)}`
+      : "/api/actions";
 
-      const nextRuns = Array.isArray(runsResp) ? runsResp : [];
-      const nextHelp = Array.isArray(helpResp) ? helpResp : [];
+    const specs = [
+      { key: "runs", label: "Runs", path: "/api/runs" },
+      { key: "help", label: "Approvals", path: "/api/help" },
+      { key: "agents", label: "Agent identities", path: "/api/agents" },
+      { key: "actions", label: "Action trail", path: actionsPath },
+      { key: "graph", label: "Memory graph", path: "/api/graph" },
+      { key: "analytics", label: "Analytics", path: "/api/analytics" },
+      { key: "profile", label: "Profile", path: "/api/profile" },
+    ];
 
+    const settled = await Promise.allSettled(
+      specs.map((spec) => Transport.request("GET", spec.path))
+    );
+
+    const authFailure = settled.find(
+      (res) => res.status === "rejected" && res.reason?.code === "AUTH"
+    );
+    if (authFailure) {
+      Transport.clearConnection();
+      connectionStatus = "disconnected";
+      connectionError = "Token rejected · Paste the address again";
+      failedEndpoints = [];
+      succeededEndpoints = [];
+      renderNow();
+      return;
+    }
+
+    const nextSucceeded = [];
+    const nextFailed = [];
+    const resultsByKey = {};
+
+    settled.forEach((res, idx) => {
+      const spec = specs[idx];
+      if (res.status === "fulfilled") {
+        nextSucceeded.push({ key: spec.key, label: spec.label, path: spec.path });
+        resultsByKey[spec.key] = res.value;
+      } else {
+        nextFailed.push({
+          key: spec.key,
+          label: spec.label,
+          path: spec.path,
+          error: res.reason?.message || "Request failed",
+        });
+      }
+    });
+
+    if (nextSucceeded.length === 0) {
+      failedEndpoints = nextFailed;
+      succeededEndpoints = [];
+      if (hasLoadedOnce && lastSuccessfulRefreshAt > 0 && Date.now() - lastSuccessfulRefreshAt > 30000) {
+        connectionStatus = "stale";
+      } else if (!hasLoadedOnce) {
+        connectionStatus = "disconnected";
+        connectionError = nextFailed[0]?.error || "Could not reach backend";
+      }
+      renderNow();
+      return;
+    }
+
+    const nextRuns = resultsByKey.runs !== undefined
+      ? (Array.isArray(resultsByKey.runs) ? resultsByKey.runs : [])
+      : rawRuns;
+    const nextHelp = resultsByKey.help !== undefined
+      ? (Array.isArray(resultsByKey.help) ? resultsByKey.help : [])
+      : pendingHelp;
+
+    if (resultsByKey.runs !== undefined) {
       await Promise.all(
         nextRuns.map(async (r) => {
           const existing = detailsById[r.id];
@@ -4042,32 +4581,55 @@
           } catch {
             // Ignore cost fetch errors
           }
-          if (expandedTranscriptRunIds.has(p.id)) {
+          if (expandedTranscriptRunIds.has(p.id) || !transcriptsByRunId[p.id]) {
             await fetchRunTranscript(p.id);
           }
         })
       );
-
-      rawRuns = nextRuns;
-      pendingHelp = nextHelp;
-      rawAgents = agentsResp && typeof agentsResp === "object" ? agentsResp : {};
-      rawActions = Array.isArray(actionsResp?.actions) ? actionsResp.actions : [];
-      rawGraph = graphResp;
-      rawAnalytics = analyticsResp;
-      hasLoadedOnce = true;
-      connectionStatus = "connected";
-      connectionError = "";
-      renderNow();
-    } catch (err) {
-      if (err.code === "AUTH") {
-        Transport.clearConnection();
-        connectionStatus = "disconnected";
-        connectionError = "Paste the address the backend printed";
-      } else {
-        connectionStatus = hasLoadedOnce ? "stale" : "disconnected";
-      }
-      renderNow();
     }
+
+    rawRuns = nextRuns;
+    pendingHelp = nextHelp;
+    if (resultsByKey.agents !== undefined) {
+      rawAgents = resultsByKey.agents && typeof resultsByKey.agents === "object" ? resultsByKey.agents : {};
+    }
+    if (resultsByKey.actions !== undefined) {
+      rawActions = Array.isArray(resultsByKey.actions?.actions) ? resultsByKey.actions.actions : [];
+    }
+    if (resultsByKey.graph !== undefined) {
+      rawGraph = resultsByKey.graph;
+    }
+    if (resultsByKey.analytics !== undefined) {
+      rawAnalytics = resultsByKey.analytics;
+    }
+    if (resultsByKey.profile && typeof resultsByKey.profile === "object") {
+      const activeId = document.activeElement?.id || "";
+      if (activeId !== "onboarding-call-me") {
+        OnboardingState.callMe = String(resultsByKey.profile.call_me || "");
+      }
+      OnboardingState.profileLoaded = true;
+    }
+
+    if (wsState?.status === "partial") {
+      failedEndpoints = Array.isArray(wsState.failedEndpoints) ? wsState.failedEndpoints : nextFailed;
+      succeededEndpoints = Array.isArray(wsState.succeededEndpoints) ? wsState.succeededEndpoints : nextSucceeded;
+      connectionStatus = "connected";
+      lastSuccessfulRefreshAt = Date.now();
+    } else if (wsState?.status === "stale") {
+      failedEndpoints = [];
+      succeededEndpoints = nextSucceeded;
+      connectionStatus = "stale";
+      lastSuccessfulRefreshAt = Date.now() - (Number(wsState.staleAgeSeconds) || 45) * 1000;
+    } else {
+      failedEndpoints = nextFailed;
+      succeededEndpoints = nextSucceeded;
+      connectionStatus = "connected";
+      lastSuccessfulRefreshAt = Date.now();
+    }
+
+    hasLoadedOnce = true;
+    connectionError = "";
+    renderNow();
   }
 
   /* ============================================================================
@@ -4265,6 +4827,15 @@
           await pollAll();
           break;
 
+        case "focus-prompt": {
+          const promptEl = document.getElementById("prompt-input");
+          if (promptEl) {
+            promptEl.focus();
+            promptEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+          break;
+        }
+
         case "load-fixture":
           if (actionEl.dataset.fixture) {
             await switchFixture(actionEl.dataset.fixture);
@@ -4384,21 +4955,31 @@
           break;
         }
 
+        case "save-onboarding-profile": {
+          OnboardingState.profileSaveStatus = "";
+          OnboardingState.profileSaveError = "";
+          if (!Transport.isConnected()) {
+            OnboardingState.profileSaveError = "Not connected to backend";
+            renderNow();
+            break;
+          }
+          try {
+            await Transport.request("POST", "/api/profile", {
+              jsonBody: { call_me: OnboardingState.callMe },
+            });
+            OnboardingState.profileSaveStatus = "✓ Saved";
+            OnboardingState.profileLoaded = true;
+          } catch (err) {
+            OnboardingState.profileSaveError = err.message || "Could not save name";
+          }
+          renderNow();
+          break;
+        }
+
         case "select-onboarding-swatch": {
           const idx = Number(actionEl.dataset.swatchIdx);
           if (!Number.isNaN(idx) && idx >= 0 && idx < AGENT_SWATCHES.length) {
             OnboardingState.swatchIndex = idx;
-            renderNow();
-          }
-          break;
-        }
-
-        case "set-onboarding-rule": {
-          const ruleId = actionEl.dataset.ruleId;
-          const shouldVal = actionEl.dataset.should;
-          const rule = OnboardingState.rules.find((r) => r.id === ruleId);
-          if (rule && !rule.locked && (shouldVal === "ask" || shouldVal === "block")) {
-            rule.should = shouldVal;
             renderNow();
           }
           break;

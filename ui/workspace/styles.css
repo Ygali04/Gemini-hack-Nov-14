@@ -1459,6 +1459,60 @@ select:focus-visible,
   animation: shimmerMove 1.4s linear infinite;
 }
 
+.skeleton-box {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.11) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmerMove 1.4s linear infinite;
+}
+
+.view-state-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.view-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line-divider);
+  flex-wrap: wrap;
+}
+
+.connect-row {
+  max-width: 560px;
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.skeleton-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
 @keyframes skeletonFade {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 0.85; }
@@ -1469,7 +1523,8 @@ select:focus-visible,
     animation: viewFadeIn 180ms ease;
     transform: none !important;
   }
-  .skeleton-line {
+  .skeleton-line,
+  .skeleton-box {
     background: rgba(255, 255, 255, 0.08) !important;
     animation: skeletonFade 1.4s ease-in-out infinite !important;
   }
