@@ -21,6 +21,11 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 //   - pageCount: Int? (optional; PDF page count when kind == "pdf")
 //   - textExtracted: Bool? (optional; true when PDFKit extracted text for upload when kind == "pdf")
 //
+// Bridge contract for `openSettingsPane` (page -> shell -> page):
+//   Request:  { type: "openSettingsPane", id: String, pane: "accessibility" | "screenRecording" | "microphone" | "speechRecognition" | "automation" }
+//   Response: { type: "settingsPaneOpened", id: String, pane: String, ok: Bool, error: String }
+//   Shell maps each allowed pane name to its System Settings URL; unknown names return ok: false and open nothing.
+//
 // Surface & bridge contract (every surface comes out from under the notch):
 // All surfaces anchor centered horizontally on the notch screen (first screen with
 // `safeAreaInsets.top > 0`, falling back to `NSScreen.main ?? NSScreen.screens.first`)
@@ -657,6 +662,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(section)") {
                 NSWorkspace.shared.open(url)
             }
+        case "openSettingsPane":
+            handleOpenSettingsPane(body, to: senderWebView)
         case "setConnection":
             let rawURL = body["url"] as? String ?? ""
             let result = applyConnectionString(rawURL)
@@ -678,6 +685,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         default:
             break
         }
+    }
+
+    private static let settingsPaneURLs: [String: String] = [
+        "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "screenRecording": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        "microphone": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        "speechRecognition": "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+        "automation": "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+    ]
+
+    private func handleOpenSettingsPane(_ body: [String: Any], to senderWebView: WKWebView?) {
+        let reqId = body["id"] as? String ?? ""
+        let pane = (body["pane"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let urlString = Self.settingsPaneURLs[pane], let url = URL(string: urlString) else {
+            postToWeb([
+                "type": "settingsPaneOpened",
+                "id": reqId,
+                "pane": pane,
+                "ok": false,
+                "error": "Unknown settings pane \"\(pane)\". Expected one of: accessibility, screenRecording, microphone, speechRecognition, automation."
+            ], to: senderWebView)
+            return
+        }
+        let opened = NSWorkspace.shared.open(url)
+        postToWeb([
+            "type": "settingsPaneOpened",
+            "id": reqId,
+            "pane": pane,
+            "ok": opened,
+            "error": opened ? "" : "Could not open System Settings pane for \"\(pane)\"."
+        ], to: senderWebView)
     }
 
     private func workspaceTargetURL(fixtureName: String?) -> URL? {
