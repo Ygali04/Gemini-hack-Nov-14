@@ -147,10 +147,13 @@ def _decide(goal, app, title, els, history, hints, shot, run=None):
         "\n".join(history[-8:]) or "(none)",
         "\n".join(hints) or "(none)",
     )
+    ctx = getattr(run, "context", None) or {}
+    if ctx.get("text"):
+        user += "\n\n" + ctx["text"]
     return llm.chat(
         SYSTEM,
         user,
-        images=[shot] if shot else (),
+        images=([shot] if shot else []) + list(ctx.get("images") or []),
         json_mode=True,
         max_tokens=600,
         run=run,

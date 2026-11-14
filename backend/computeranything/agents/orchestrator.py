@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from ..core import llm, runs
+from ..core import attach, llm, runs
 
 ROLES = ("qa", "marketing", "cu")
 TEST_TIMEOUT = 300
@@ -75,11 +75,12 @@ def _keyword_route(prompt):
     }
 
 
-def route(prompt, attachments=(), run=None):
-    """LLM router with a keyword fallback when the call raises or returns junk."""
+def route(prompt, attachments=(), run=None, ctx=None):
+    """LLM router with a keyword fallback when the call raises or returns junk. ctx = attach.describe()."""
+    ctx = ctx or attach.describe(attachments)
     try:
-        user = prompt + ("\nAttachments: " + ", ".join(map(str, attachments)) if attachments else "")
-        r = llm.chat(ROUTER_SYS, user, json_mode=True, max_tokens=400, run=run, purpose="route")
+        user = prompt + ("\n\n" + ctx["text"] if ctx["text"] else "")
+        r = llm.chat(ROUTER_SYS, user, images=ctx["images"], json_mode=True, max_tokens=400, run=run, purpose="route")
         if not isinstance(r, dict) or r.get("role") not in ROLES:
             raise ValueError("bad router reply: %r" % (r,))
     except Exception as e:  # noqa: BLE001 - any failure falls back to keywords
@@ -119,7 +120,8 @@ def _pipeline(parent, prompt, attachments):
     children = []
     try:
         parent.set("planning")
-        r = route(prompt, attachments, run=parent)
+        parent.context = attach.describe(attachments)  # every agent of this task sees the files
+        r = route(prompt, attachments, run=parent, ctx=parent.context)
         parent.emit("route", **r)
         runs.say(parent, "assistant", "plan", _plan_line(r), route=r)
         parent.set("acting")
@@ -188,6 +190,7 @@ def spawn(parent, goal, role, name, job):
     """A new agent: its own Run, its own name, and a hello in the transcript when it first appears."""
     child = runs.Run(goal, role=role, parent=parent.id)
     child.agent_name = name
+    child.context = getattr(parent, "context", None)
     runs.say(child, "agent", "hello", "Hi, I'm %s! %s" % (name, job), agent_role=role)
     return child
 
@@ -513,8 +516,11 @@ def selftest():
 
     calls = []
 
+    seen_ctx = []
+
     def stub(run, goal, app=None, max_steps=25):
         calls.append((goal, app))
+        seen_ctx.append(getattr(run, "context", None))
         return {"ok": True, "summary": "stub did: " + goal, "steps": 1}
 
     try:
@@ -602,6 +608,34 @@ def selftest():
     )
     res, (m,) = marketing(runs.Run("promo", role="orchestrator"), "http://localhost:3000", "promo for calc")
     assert res["ok"] and json.load(open(res["brief"]))["tagline"] == "Math, fixed."
+    # 5. attachment contents reach the router (text + image) and every agent
+    d = tempfile.mkdtemp(prefix="ca_att_")
+    txt, png = os.path.join(d, "order.txt"), os.path.join(d, "ref.png")
+    open(txt, "w").write("Customer: Ada, total 19.99")
+    import shutil
+
+    shutil.copy(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs", "img", "seaglass", "pointers_light.png"), png
+    )
+    got = {}
+    real_chat = llm.chat
+
+    def spy(system, user, images=(), **k):
+        if k.get("purpose") == "route":
+            got.update(user=user, images=list(images))
+        return real_chat(system, user, images=images, **k)
+
+    llm.chat = spy
+    try:
+        llm.mock(json.dumps({"role": "cu", "app": "TextEdit", "goal": "type the order", "names": ["Ada"]}))
+        p3 = submit("type this order into TextEdit", [txt, png])
+        p3.thread.join(10)
+    finally:
+        llm.chat = real_chat
+    assert "Customer: Ada, total 19.99" in got["user"] and got["images"][0].endswith(".ca1280.jpg"), got
+    assert seen_ctx[-1] and "19.99" in seen_ctx[-1]["text"] and seen_ctx[-1]["images"], seen_ctx[-1]
+    tr = store.transcript(p3.id)
+    assert tr[0]["meta"]["attachments"] == ["order.txt", "ref.png"], tr[0]
     print("orchestrator selftest OK")
 
 
