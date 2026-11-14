@@ -1,0 +1,82 @@
+{
+  "runs": [
+    {
+      "id": "r1763140800-1",
+      "goal": "Open Notes and draft meeting follow-up",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 5.4,
+      "n_events": 3,
+      "result": {
+        "summary": "Opened Notes and wrote draft text without running verification."
+      }
+    },
+    {
+      "id": "r1763140800-2",
+      "goal": "Open Notes and draft meeting follow-up",
+      "role": "cu",
+      "parent": "r1763140800-1",
+      "state": "done",
+      "elapsed": 4.9,
+      "n_events": 4,
+      "result": {
+        "summary": "Typed meeting follow-up into Notes",
+        "steps": 2
+      }
+    }
+  ],
+  "details": {
+    "r1763140800-1": {
+      "id": "r1763140800-1",
+      "goal": "Open Notes and draft meeting follow-up",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 5.4,
+      "n_events": 3,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.5, "kind": "route", "role": "cu", "app": "Notes", "goal": "Open Notes and draft meeting follow-up" },
+        { "t": 5.4, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "summary": "Opened Notes and wrote draft text without running verification."
+      }
+    },
+    "r1763140800-2": {
+      "id": "r1763140800-2",
+      "goal": "Open Notes and draft meeting follow-up",
+      "role": "cu",
+      "parent": "r1763140800-1",
+      "state": "done",
+      "elapsed": 4.9,
+      "n_events": 4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 1.1, "kind": "app_ready", "app": "Notes", "method": "finder", "seconds": 0.9 },
+        { "t": 2.4, "kind": "act", "step": 0, "source": "llm", "action": "click:New Note", "act_ms": 115, "agent": "CU 1" },
+        { "t": 3.6, "kind": "act", "step": 1, "source": "llm", "action": "type:Note body", "act_ms": 140, "agent": "CU 1" }
+      ],
+      "result": {
+        "summary": "Typed meeting follow-up into Notes",
+        "steps": 2
+      }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r1763140800-2": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+  },
+  "costs": {
+    "r1763140800-1": {
+      "run": "r1763140800-1",
+      "agents": 2,
+      "llm_calls": 3,
+      "prompt_tokens": 1120,
+      "completion_tokens": 140,
+      "cost_usd": 0.0018,
+      "model_seconds": 1.6
+    }
+  }
+}

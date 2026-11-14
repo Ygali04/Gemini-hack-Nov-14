@@ -147,5 +147,16 @@
     "r1763140100-1": { "name": "Orchestrator", "color": "#F0D9BE", "edge": "#FFFCE0", "ink": "#865733" },
     "r1763140100-2": { "name": "QA 1", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" },
     "r1763140100-3": { "name": "Dev 1", "color": "#E1CDE8", "edge": "#FBE8F7", "ink": "#71388B" }
+  },
+  "costs": {
+    "r1763140100-1": {
+      "run": "r1763140100-1",
+      "agents": 3,
+      "llm_calls": 5,
+      "prompt_tokens": 4120,
+      "completion_tokens": 620,
+      "cost_usd": 0.0064,
+      "model_seconds": 4.2
+    }
   }
 }
