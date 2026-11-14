@@ -11,7 +11,7 @@
   /* Text hierarchy */
   --text-primary: #f2f4f8;
   --text-secondary: #a6adbb;
-  --text-muted: #767d8e;
+  --text-muted: #858d9f;
 
   /* Primary ink button (only filled button per view) */
   --ink-fill: #f2f4f8;
@@ -345,7 +345,7 @@ select:focus-visible,
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 20px;
-  outline: none !important;
+  border-radius: 4px;
   overflow-y: auto;
   user-select: text;
 }
@@ -994,7 +994,7 @@ select:focus-visible,
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 20px;
-  outline: none !important;
+  border-radius: 4px;
   user-select: text;
 }
 
