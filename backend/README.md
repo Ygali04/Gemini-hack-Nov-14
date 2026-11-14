@@ -1,6 +1,6 @@
 # ComputerAnything backend
 
-One prompt in, a team of agents out. They drive real macOS apps through the accessibility tree, with a blue cursor of their own, and they remember what worked.
+One prompt in, a team of agents out. They drive real macOS apps through the accessibility tree, with a sea-glass cursor of their own, and they remember what worked.
 
 ## Powered by Gemini 4 Argon
 
@@ -42,7 +42,7 @@ flowchart LR
   CU --> O[observe: AX tree] --> M{saved skill?}
   M -->|yes| A[act headless by ref]
   M -->|no| G[Gemini decides] --> GATE[policy gate] --> A
-  A --> C[blue cursor points] --> MEM[(action graph)]
+  A --> C[agent cursor points] --> MEM[(action graph)]
 ```
 
 ## Run
@@ -72,6 +72,10 @@ Every action by every agent is logged against its screen node: the agent, run, a
 ## Many agents, many cursors
 
 A prompt with independent parts, such as "work out 7 × 6 in Calculator and open Appearance settings", becomes up to 4 CU agents running in parallel. Each agent claims its own cursor with its own color and name tag (`CU 1`, `CU 2`, `QA`, `Marketing`). Its clicks run headless, so the agents never fight over your one real pointer.
+
+![Three agent cursors in sea glass, each with its name tag, two with target marks](../docs/img/seaglass-cursors.png)
+
+Each cursor is a frosted glass pebble lit from above, in one of five palettes (lagoon, rose, mint, lilac, amber; after [sea-glass](https://github.com/mttmcknn/sea-glass)). Targets get a thin rounded outline in the agent's ink that fades after two seconds. With Reduce Motion on, cursors fade in place instead of flying.
 
 Measured on a Mac: two agents ran at once, one in Calculator (7 × 6 = 42) and one in System Settings (opened Appearance). All 7 of their actions landed in one shared graph, each tagged with its agent.
 
