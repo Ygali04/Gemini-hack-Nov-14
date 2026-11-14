@@ -4,7 +4,7 @@ CA_MOCK=1 swaps in a scripted fake so the whole pipeline runs offline in tests.
 """
 import base64, json, os, re, urllib.request
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/
 URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
 USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
@@ -36,7 +36,7 @@ def chat(system, user, images=(), json_mode=False, max_tokens=1500, temperature=
         return parse_json(out) if json_mode else out
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
-        raise RuntimeError("OPENROUTER_API_KEY is not set (put it in app/.env)")
+        raise RuntimeError("OPENROUTER_API_KEY is not set (put it in backend/.env)")
     content = [{"type": "text", "text": user}]
     for p in images:
         mime = "image/png" if p.endswith(".png") else "image/jpeg"

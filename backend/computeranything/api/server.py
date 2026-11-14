@@ -1,6 +1,6 @@
 """Primitive local testing UI for the computer-use backend (the real UI is built separately).
 
-Run: cd app && python3 -m ca.server   (port from CA_PORT, default 8765; binds 127.0.0.1 only)
+Run: cd backend && python3 -m computeranything   (port from CA_PORT, default 8765; binds 127.0.0.1 only)
 Every /api call needs the startup token (header X-CA-Token or query t=), because runs can click
 on this machine. Requests with a foreign Origin header are refused.
 """
@@ -10,7 +10,7 @@ from email.policy import default as email_default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import runs
+from ..core import runs
 
 PORT = int(os.environ.get("CA_PORT", "8765"))
 TOKEN = secrets.token_urlsafe(16)
@@ -167,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, runs.pending_help())
             if p == "/api/graph":
                 try:
-                    from . import graph
+                    from ..cu import graph
                     return self._send(200, graph.load().stats() or {})
                 except ImportError:
                     return self._send(200, {})
@@ -226,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         if not prompt:
             return self._send(400, {"error": "empty prompt"})
         try:
-            from . import orchestrator
+            from ..agents import orchestrator
         except ImportError:
             return self._send(503, {"error": "orchestrator unavailable"})
         paths = []
@@ -244,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     try:
-        from . import overlay
+        from ..cu import overlay
         overlay.start()
         atexit.register(overlay.stop)
     except Exception as e:

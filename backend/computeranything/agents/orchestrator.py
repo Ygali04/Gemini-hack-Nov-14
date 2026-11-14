@@ -6,7 +6,7 @@ inside cu_agent (it calls runs.ask_human); this module only passes goals through
 """
 import json, os, re, subprocess, sys, tempfile, threading, time
 
-from . import llm, runs
+from ..core import llm, runs
 
 ROLES = ("qa", "marketing", "cu")
 TEST_TIMEOUT = 300
@@ -110,7 +110,7 @@ def _pipeline(parent, prompt, attachments):
 
 
 def _cu():
-    from . import cu_agent  # written in parallel; import lazily
+    from ..cu import cu_agent  # written in parallel; import lazily
     return cu_agent
 
 
@@ -232,7 +232,7 @@ def dev_fix(dev, repo, bugs, test_out, rnd):
         if not patch.strip():
             dev.emit("patch", round=rnd, attempt=attempt, applied=False, error="empty patch")
             return False
-        if os.environ.get("CA_CONFIRM_PATCH") == "1":
+        if os.environ.get("CA_CONFIRM_PATCH", "1") != "0":       # model-written code needs a yes by default
             if runs.ask_human(dev, "destructive", "Apply patch to %s?" % repo, ("approve", "deny"),
                               timeout=300, detail=patch[:4000]) != "approve":
                 dev.emit("patch", round=rnd, attempt=attempt, applied=False, error="denied by user")
@@ -241,9 +241,24 @@ def dev_fix(dev, repo, bugs, test_out, rnd):
         dev.emit("patch", round=rnd, attempt=attempt, applied=ok, files=sorted(files),
                  explanation=r.get("explanation", ""), diff=patch[:3000], error=None if ok else out[:1000])
         if ok:
+            commit_patch(dev, repo, patch, r.get("explanation", ""), rnd)
             return True
         err = out
     return False
+
+
+def commit_patch(dev, repo, patch, explanation, rnd):
+    """Commit only the files this patch touched. Gemini wrote the patch, so the commit credits it."""
+    if os.environ.get("CA_DEV_COMMIT", "1") == "0":
+        return
+    touched = sorted(set(re.findall(r"^\+\+\+ b/(\S+)", patch, re.M)))
+    if not touched:
+        return
+    msg = "fix(qa round %d): %s\n\nCo-Authored-By: Gemini 4 Argon <noreply@openrouter.ai>\n" % (
+        rnd, (explanation or "patch from the dev agent").splitlines()[0][:72])
+    _sh(["git", "-C", repo, "add", "--", *touched], repo, timeout=60)
+    code, out = _sh(["git", "-C", repo, "commit", "-q", "-m", msg, "--", *touched], repo, timeout=60)
+    dev.emit("commit", files=touched, ok=code == 0, out=out.strip()[:300])
 
 
 def qa_loop(parent, repo, url, goal, max_rounds=5):
@@ -296,7 +311,7 @@ def marketing(parent, url_or_app, goal):
     app = _browser() if is_url or not target else target
     if target and not is_url:
         try:
-            from . import desktop
+            from ..cu import desktop
             desktop.act("launch", app=app)
         except Exception as e:  # noqa: BLE001
             child.emit("warn", error="launch failed: %s" % e)
@@ -334,6 +349,7 @@ def marketing(parent, url_or_app, goal):
 
 def selftest():
     os.environ["CA_MOCK"] = "1"
+    os.environ["CA_AUTO_APPROVE"] = "1"         # the patch-approval prompt answers itself in tests
     import types
     calls = []
 
@@ -342,7 +358,7 @@ def selftest():
         return {"ok": True, "summary": "stub did: " + goal, "steps": 1}
 
     try:
-        from . import cu_agent as mod
+        from ..cu import cu_agent as mod
     except Exception:  # noqa: BLE001 - not written yet: inject a stub module
         mod = types.ModuleType(__package__ + ".cu_agent")
         sys.modules[mod.__name__] = mod
@@ -364,6 +380,8 @@ def selftest():
     with open(os.path.join(repo, "calc.py"), "w") as f:
         f.write("def add(a, b):\n    return a - b\n")
     _sh(["git", "init", "-q"], repo, 30)
+    _sh(["git", "-C", repo, "config", "user.email", "qa@example.com"], repo, 30)
+    _sh(["git", "-C", repo, "config", "user.name", "qa"], repo, 30)
     patch = ("diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n"
              " def add(a, b):\n-    return a - b\n+    return a + b\n")
     llm.mock(json.dumps({"role": "qa", "app": None, "repo": repo, "url": None, "goal": "test and fix calc"}),

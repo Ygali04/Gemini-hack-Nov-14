@@ -6,7 +6,8 @@ checked by a separate verifier call before the run counts as a success.
 """
 import os, re, subprocess, tempfile, time
 
-from . import desktop, graph, llm, overlay, runs
+from ..core import llm, runs
+from . import desktop, graph, overlay
 
 SENSITIVE_APP = re.compile(r"bank|chase|wells|schwab|fidelity|vanguard|robinhood|coinbase|venmo|paypal|"
                            r"cash app|zelle|wallet|1password|bitwarden|lastpass|keychain|authenticator", re.I)
@@ -40,9 +41,17 @@ def _screenshot():
     return p if os.path.exists(p) else None
 
 
-def _gate(run, app, kind, el, text):
+SUBMIT_KEY = re.compile(r"^(return|enter|kp_enter|(cmd|ctrl)\+(return|enter|s))$", re.I)
+
+
+def _gate(run, app, kind, el, text, els=()):
     """Code decides what needs a person; the model never gets to skip this."""
     label = "%s %s %s" % (kind, el["name"] if el else "", text or "")
+    if kind == "launch" and SENSITIVE_APP.search(text or ""):
+        return runs.ask_human(run, "money", "Let the agent open %s?" % text) == "approve"
+    if kind == "press" and SUBMIT_KEY.match((text or "").strip()):
+        # Return submits whatever form is focused, so judge it by what is on screen, not by the key name
+        label += " " + " ".join(e["name"] for e in els if e.get("ref"))
     if CAPTCHA.search(label):
         return runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app,
                               ("done", "cancel")) == "done"
@@ -149,7 +158,7 @@ def run_task(run, goal, app=None, max_steps=25):
         if kind in ("click", "double_click", "type", "set_value", "scroll") and not (el and el["ref"]):
             history.append("step %d FAILED: index %r is not an actionable element" % (step, idx))
             continue
-        if not _gate(run, app, kind, el, d.get("text") or d.get("key")):
+        if not _gate(run, app, kind, el, d.get("key") if kind == "press" else d.get("text"), els):
             history.append("step %d: the user denied %s" % (step, kind))
             summary = "Stopped: you denied %s." % kind
             break

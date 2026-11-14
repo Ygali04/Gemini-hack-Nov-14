@@ -2,15 +2,16 @@
 (no path on disk, so nothing else on the machine can send it clicks)."""
 import json, os, subprocess, threading
 
-BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "overlay", "overlay")
+BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BIN = os.path.join(BACKEND, "overlay", "overlay")
+SRC = os.path.join(BACKEND, "overlay", "Overlay.swift")
 _proc, _lock = None, threading.Lock()
 
 
 def start():
     global _proc
-    src = BIN + "/../Overlay.swift"
-    if not os.path.exists(BIN) or os.path.getmtime(BIN) < os.path.getmtime(os.path.normpath(src)):
-        subprocess.run(["swiftc", "-O", os.path.normpath(src), "-o", BIN], check=True)
+    if not os.path.exists(BIN) or os.path.getmtime(BIN) < os.path.getmtime(SRC):
+        subprocess.run(["swiftc", "-O", SRC, "-o", BIN], check=True)
     if _proc is None or _proc.poll() is not None:
         _proc = subprocess.Popen([BIN], stdin=subprocess.PIPE, text=True)
     return _proc
