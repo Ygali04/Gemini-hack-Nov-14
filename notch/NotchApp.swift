@@ -21,6 +21,29 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 //   - pageCount: Int? (optional; PDF page count when kind == "pdf")
 //   - textExtracted: Bool? (optional; true when PDFKit extracted text for upload when kind == "pdf")
 //
+// Surface & bridge contract (every surface comes out from under the notch):
+// All surfaces anchor centered horizontally on the notch screen (first screen with
+// `safeAreaInsets.top > 0`, falling back to `NSScreen.main ?? NSScreen.screens.first`)
+// and grow downward with 180 ms ease-out motion (or a 180 ms alpha fade when Reduce Motion
+// is enabled). No new bridge message types are added; existing messages carry all surfaces:
+//   1. Panel (pill / expanded thread):
+//      - `resize` { width, height, state: "collapsed" | "expanded", instant? }
+//      - Anchored at top center of the notch screen; clamps to 200..640 x 32..640.
+//   2. Chat per task:
+//      - Rendered as threads inside the panel under the notch (no separate window needed).
+//      - Legacy `openChat` { run } and `closeWindow` remain reachable until pages migrate.
+//   3. Notifications (`?shell=notes`):
+//      - `resize` { width?, height, state: "notes", fresh? } from `notesWeb`
+//      - Anchored directly under the notch (below `safeAreaInsets.top` / menu bar, or
+//        below the panel when visible), centered horizontally, growing downward.
+//   4. Workspace sheet (6 tabs + inline approvals):
+//      - Either `resize` { width, height, state: "sheet", instant? } to grow the panel into
+//        a large under-notch sheet (clamped to screen visibleFrame, up to 1040 x 740),
+//        or `openWorkspace` { mode: "sheet", fixture?, width?, height? } to present
+//        `ui/workspace.html` in an under-notch sheet panel (Esc / Option-Space / `closeWindow`
+//        folds it back). Legacy `openWorkspace` without `mode: "sheet"` keeps the normal
+//        window reachable until pages migrate.
+//
 // A web view that accepts the first click (notifications work without focusing first) and turns dropped
 // Finder files, file promises, image data, and Cmd+V pastes into `filesDropped` events for the page.
 @MainActor
