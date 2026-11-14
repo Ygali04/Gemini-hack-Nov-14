@@ -82,6 +82,141 @@
       color: var(--text-secondary);
     }
 
+    .demo-player {
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--line-strong);
+      background: rgba(22, 24, 29, 0.94);
+      backdrop-filter: blur(12px);
+    }
+
+    .demo-player-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 16px;
+    }
+
+    .demo-player-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .demo-play-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--ink-fill);
+      background: var(--ink-fill);
+      color: var(--ink-text);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 18px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 120ms ease;
+    }
+
+    .demo-play-btn:hover {
+      opacity: 0.9;
+    }
+
+    .demo-play-btn:active {
+      opacity: 0.8;
+    }
+
+    .demo-player-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--text-muted);
+    }
+
+    .demo-step-counter {
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+    }
+
+    .demo-caption {
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--text-primary);
+      min-height: 20px;
+    }
+
+    .demo-progress-track {
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+
+    .demo-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--ink-fill);
+      transition: width 150ms linear;
+    }
+
+    .demo-steps-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .demo-step-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line-divider);
+      background: transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 18px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+
+    .demo-step-pill:hover {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .demo-step-pill[aria-current="step"] {
+      border-color: var(--ink-fill);
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .demo-section.is-demo-focus .notch-frame-wrap,
+    .demo-section.is-demo-focus .workspace-frame-wrap {
+      border-color: var(--focus-ring);
+    }
+
     .demo-section {
       display: flex;
       flex-direction: column;
@@ -235,6 +370,11 @@
         gap: 22px;
       }
 
+      .demo-player {
+        position: static;
+        padding: 12px;
+      }
+
       .notch-frame-wrap {
         height: 520px;
       }
@@ -254,7 +394,32 @@
       </p>
     </header>
 
-    <section class="demo-section" aria-labelledby="notch-heading">
+    <section class="demo-player" aria-label="Guided demo player">
+      <div class="demo-player-top">
+        <div class="demo-player-controls">
+          <button type="button" id="demo-play-btn" class="demo-play-btn">Play demo</button>
+          <button type="button" id="demo-restart-btn" class="control-btn">Restart</button>
+          <button type="button" id="demo-prev-btn" class="control-btn" aria-label="Previous step">Prev</button>
+          <button type="button" id="demo-next-btn" class="control-btn" aria-label="Next step">Next</button>
+        </div>
+        <div class="demo-player-meta">
+          <span id="demo-step-counter" class="demo-step-counter">Step 1 of 9 · 0:00 / 0:57</span>
+          <span>Space: play or pause · Arrows: step</span>
+        </div>
+      </div>
+
+      <p id="demo-caption" class="demo-caption" aria-live="polite">
+        Press Play demo for a one-minute walkthrough of the notch panel and workspace.
+      </p>
+
+      <div class="demo-progress-track" aria-hidden="true">
+        <div id="demo-progress-fill" class="demo-progress-fill"></div>
+      </div>
+
+      <div id="demo-steps-nav" class="demo-steps-nav" role="group" aria-label="Demo steps"></div>
+    </section>
+
+    <section id="notch-section" class="demo-section" aria-labelledby="notch-heading">
       <div class="section-bar">
         <div class="section-heading">
           <h2 id="notch-heading" class="section-title">Notch panel</h2>
@@ -282,7 +447,7 @@
       </div>
     </section>
 
-    <section class="demo-section" aria-labelledby="workspace-heading">
+    <section id="workspace-section" class="demo-section" aria-labelledby="workspace-heading">
       <div class="section-bar">
         <div class="section-heading">
           <h2 id="workspace-heading" class="section-title">Workspace</h2>
@@ -346,39 +511,356 @@
   <script>
     (function () {
       const notchFrame = document.getElementById("notch-frame");
+      const workspaceFrame = document.getElementById("workspace-frame");
+      const notchSection = document.getElementById("notch-section");
+      const workspaceSection = document.getElementById("workspace-section");
       const sampleButtons = Array.from(document.querySelectorAll("[data-sample]"));
       const viewLinks = Array.from(document.querySelectorAll(".view-link[data-view]"));
       const openTabLink = document.getElementById("workspace-open-tab");
 
+      const playBtn = document.getElementById("demo-play-btn");
+      const restartBtn = document.getElementById("demo-restart-btn");
+      const prevBtn = document.getElementById("demo-prev-btn");
+      const nextBtn = document.getElementById("demo-next-btn");
+      const stepCounterEl = document.getElementById("demo-step-counter");
+      const captionEl = document.getElementById("demo-caption");
+      const progressFillEl = document.getElementById("demo-progress-fill");
+      const stepsNavEl = document.getElementById("demo-steps-nav");
+
+      const DEMO_STEPS = [
+        {
+          target: "notch",
+          fixture: "empty",
+          duration: 5,
+          label: "Prompt",
+          caption: "Start in the notch panel by typing a task for your coding agents."
+        },
+        {
+          target: "notch",
+          fixture: "working-live",
+          duration: 7,
+          label: "Working",
+          caption: "The orchestrator splits the task and agents stream live steps."
+        },
+        {
+          target: "notch",
+          fixture: "awaiting-approval",
+          duration: 7,
+          label: "Approval",
+          caption: "Before a sensitive action runs, the agent pauses and asks you to approve."
+        },
+        {
+          target: "notch",
+          fixture: "qa-loop-verified",
+          duration: 7,
+          label: "Answered",
+          caption: "Once approved, the agent applies the fix, runs checks, and verifies the result."
+        },
+        {
+          target: "notch",
+          fixture: "completed-cu",
+          duration: 7,
+          label: "Result",
+          caption: "Completed runs report verified outcomes alongside total cost and step counts."
+        },
+        {
+          target: "workspace",
+          view: "graph",
+          duration: 6,
+          label: "Graph",
+          caption: "Open the workspace to see how the orchestrator and child agents connect."
+        },
+        {
+          target: "workspace",
+          view: "state-machine",
+          duration: 6,
+          label: "States",
+          caption: "Inspect each agent's state machine to trace planning, acting, and handoffs."
+        },
+        {
+          target: "workspace",
+          view: "logs",
+          duration: 6,
+          label: "Search",
+          caption: "Search the transcript log to review every decision, command, and output."
+        },
+        {
+          target: "workspace",
+          view: "analytics",
+          duration: 6,
+          label: "Analytics",
+          caption: "Track run duration, model spend, and step counts across tasks in analytics."
+        }
+      ];
+
+      const totalDuration = DEMO_STEPS.reduce((sum, step) => sum + step.duration, 0);
+      const stepOffsets = [];
+      let runningOffset = 0;
+      for (const step of DEMO_STEPS) {
+        stepOffsets.push(runningOffset);
+        runningOffset += step.duration;
+      }
+
+      let currentIndex = 0;
+      let stepElapsed = 0;
+      let isPlaying = false;
+      let isStarted = false;
+      let isFinished = false;
+      let lastTickMs = 0;
+      let timerId = null;
+      let lastTargetSection = null;
+      let suppressNextSpaceKeyup = false;
+
+      function formatTime(seconds) {
+        const clamped = Math.max(0, Math.min(totalDuration, Math.floor(seconds)));
+        const mins = Math.floor(clamped / 60);
+        const secs = clamped % 60;
+        return `${mins}:${String(secs).padStart(2, "0")}`;
+      }
+
       function selectNotchSample(name) {
         const encoded = encodeURIComponent(name);
-        notchFrame.src = `../index.html?fixture=${encoded}&state=expanded`;
+        const targetSrc = `../index.html?fixture=${encoded}&state=expanded`;
+        if (notchFrame.getAttribute("src") !== targetSrc) {
+          notchFrame.src = targetSrc;
+        }
         for (const btn of sampleButtons) {
           btn.setAttribute("aria-pressed", btn.dataset.sample === name ? "true" : "false");
         }
       }
 
+      function selectWorkspaceView(viewName, updateIframe) {
+        let matchedHref = `../workspace.html?fixture=workspace-demo&view=${encodeURIComponent(viewName)}`;
+        for (const item of viewLinks) {
+          if (item.dataset.view === viewName) {
+            item.setAttribute("aria-current", "true");
+            matchedHref = item.getAttribute("href") || matchedHref;
+          } else {
+            item.removeAttribute("aria-current");
+          }
+        }
+        if (updateIframe && workspaceFrame && workspaceFrame.getAttribute("src") !== matchedHref) {
+          workspaceFrame.src = matchedHref;
+        }
+        if (openTabLink) {
+          openTabLink.href = matchedHref;
+        }
+      }
+
+      const stepPills = DEMO_STEPS.map((step, index) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "demo-step-pill";
+        btn.textContent = `${index + 1}. ${step.label}`;
+        btn.setAttribute("aria-label", `Step ${index + 1}: ${step.label}`);
+        btn.addEventListener("click", () => {
+          jumpToStep(index);
+        });
+        stepsNavEl.appendChild(btn);
+        return btn;
+      });
+
+      function updatePlayerUI() {
+        const step = DEMO_STEPS[currentIndex];
+        const overallElapsed = isFinished
+          ? totalDuration
+          : Math.min(totalDuration, stepOffsets[currentIndex] + stepElapsed);
+        const pct = totalDuration > 0 ? (overallElapsed / totalDuration) * 100 : 0;
+
+        stepCounterEl.textContent = `Step ${currentIndex + 1} of ${DEMO_STEPS.length} · ${formatTime(overallElapsed)} / ${formatTime(totalDuration)}`;
+        progressFillEl.style.width = `${pct.toFixed(2)}%`;
+
+        if (isPlaying) {
+          playBtn.textContent = "Pause";
+        } else if (isFinished) {
+          playBtn.textContent = "Play demo";
+        } else if (isStarted) {
+          playBtn.textContent = "Resume";
+        } else {
+          playBtn.textContent = "Play demo";
+        }
+
+        if (isStarted || isFinished) {
+          captionEl.textContent = step.caption;
+        }
+
+        prevBtn.disabled = currentIndex === 0 && !isFinished;
+        nextBtn.disabled = currentIndex === DEMO_STEPS.length - 1;
+
+        for (let i = 0; i < stepPills.length; i++) {
+          if (isStarted && i === currentIndex) {
+            stepPills[i].setAttribute("aria-current", "step");
+          } else {
+            stepPills[i].removeAttribute("aria-current");
+          }
+        }
+
+        if (notchSection && workspaceSection) {
+          notchSection.classList.toggle("is-demo-focus", isStarted && step.target === "notch");
+          workspaceSection.classList.toggle("is-demo-focus", isStarted && step.target === "workspace");
+        }
+      }
+
+      function scrollToTargetIfNeeded(target) {
+        if (lastTargetSection === target) return;
+        lastTargetSection = target;
+        const section = target === "workspace" ? workspaceSection : notchSection;
+        if (!section) return;
+        const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        section.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
+      }
+
+      function applyStep(index, options = {}) {
+        currentIndex = Math.max(0, Math.min(DEMO_STEPS.length - 1, index));
+        stepElapsed = 0;
+        isStarted = true;
+        isFinished = false;
+
+        const step = DEMO_STEPS[currentIndex];
+        if (step.target === "notch") {
+          selectNotchSample(step.fixture);
+        } else if (step.target === "workspace") {
+          selectWorkspaceView(step.view, true);
+        }
+
+        if (options.scroll !== false) {
+          scrollToTargetIfNeeded(step.target);
+        }
+        updatePlayerUI();
+      }
+
+      function stopTimer() {
+        if (timerId !== null) {
+          window.clearInterval(timerId);
+          timerId = null;
+        }
+        isPlaying = false;
+      }
+
+      function tick() {
+        if (!isPlaying) return;
+        const now = performance.now();
+        const deltaSec = Math.max(0, (now - lastTickMs) / 1000);
+        lastTickMs = now;
+        stepElapsed += deltaSec;
+
+        const currentStep = DEMO_STEPS[currentIndex];
+        if (stepElapsed >= currentStep.duration) {
+          if (currentIndex < DEMO_STEPS.length - 1) {
+            applyStep(currentIndex + 1);
+          } else {
+            stepElapsed = currentStep.duration;
+            isFinished = true;
+            stopTimer();
+          }
+        }
+        updatePlayerUI();
+      }
+
+      function playDemo() {
+        if (isFinished || !isStarted) {
+          lastTargetSection = null;
+          applyStep(0);
+        }
+        isPlaying = true;
+        lastTickMs = performance.now();
+        if (timerId === null) {
+          timerId = window.setInterval(tick, 100);
+        }
+        updatePlayerUI();
+      }
+
+      function pauseDemo() {
+        stopTimer();
+        updatePlayerUI();
+      }
+
+      function togglePlayPause() {
+        if (isPlaying) {
+          pauseDemo();
+        } else {
+          playDemo();
+        }
+      }
+
+      function restartDemo() {
+        stopTimer();
+        lastTargetSection = null;
+        applyStep(0);
+        playDemo();
+      }
+
+      function jumpToStep(index) {
+        const clamped = Math.max(0, Math.min(DEMO_STEPS.length - 1, index));
+        applyStep(clamped);
+        if (isPlaying) {
+          lastTickMs = performance.now();
+        }
+      }
+
+      playBtn.addEventListener("click", togglePlayPause);
+      restartBtn.addEventListener("click", restartDemo);
+      prevBtn.addEventListener("click", () => {
+        if (isFinished) {
+          jumpToStep(DEMO_STEPS.length - 2);
+        } else if (currentIndex > 0) {
+          jumpToStep(currentIndex - 1);
+        }
+      });
+      nextBtn.addEventListener("click", () => {
+        if (currentIndex < DEMO_STEPS.length - 1) {
+          jumpToStep(currentIndex + 1);
+        }
+      });
+
+      document.addEventListener("keydown", (e) => {
+        const active = document.activeElement;
+        const tag = active ? active.tagName : "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+        if (e.code === "Space" || e.key === " ") {
+          e.preventDefault();
+          suppressNextSpaceKeyup = true;
+          togglePlayPause();
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          if (!isStarted) {
+            jumpToStep(0);
+          } else if (currentIndex < DEMO_STEPS.length - 1) {
+            jumpToStep(currentIndex + 1);
+          }
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          if (!isStarted) {
+            jumpToStep(0);
+          } else if (currentIndex > 0) {
+            jumpToStep(currentIndex - 1);
+          }
+        }
+      });
+
+      document.addEventListener("keyup", (e) => {
+        if (suppressNextSpaceKeyup && (e.code === "Space" || e.key === " ")) {
+          e.preventDefault();
+          suppressNextSpaceKeyup = false;
+        }
+      });
+
       for (const btn of sampleButtons) {
         btn.addEventListener("click", () => {
+          if (isPlaying) pauseDemo();
           selectNotchSample(btn.dataset.sample);
         });
       }
 
       for (const link of viewLinks) {
         link.addEventListener("click", () => {
-          const targetView = link.dataset.view;
-          for (const item of viewLinks) {
-            if (item.dataset.view === targetView) {
-              item.setAttribute("aria-current", "true");
-            } else {
-              item.removeAttribute("aria-current");
-            }
-          }
-          if (openTabLink) {
-            openTabLink.href = link.getAttribute("href");
-          }
+          if (isPlaying) pauseDemo();
+          selectWorkspaceView(link.dataset.view, false);
         });
       }
+
+      updatePlayerUI();
     })();
   </script>
 </body>
