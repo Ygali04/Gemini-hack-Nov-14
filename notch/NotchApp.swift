@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var statusItem: NSStatusItem!
     private var panel: NotchPanel!
     private var webView: WKWebView!
+    private var workspaceWindow: NSWindow?
+    private var workspaceWebView: WKWebView?
+    private var sharedContentController: WKUserContentController!
     private var currentSize = NSSize(width: 280, height: 36)
 
     // Session-only connection state (never persisted to disk)
@@ -139,11 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         panel.hidesOnDeactivate = false
         panel.isMovable = false
 
-        let contentController = WKUserContentController()
-        contentController.add(self, name: "shell")
+        sharedContentController = WKUserContentController()
+        sharedContentController.add(self, name: "shell")
 
         let config = WKWebViewConfiguration()
-        config.userContentController = contentController
+        config.userContentController = sharedContentController
 
         webView = WKWebView(frame: NSRect(origin: .zero, size: currentSize), configuration: config)
         webView.autoresizingMask = [.width, .height]
@@ -172,13 +175,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.loadFileURL(targetURL, allowingReadAccessTo: readRoot)
     }
 
-    private func postToWeb(_ payload: [String: Any]) {
+    private func postToWeb(_ payload: [String: Any], to target: WKWebView? = nil) {
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
               let json = String(data: data, encoding: .utf8) else {
             return
         }
         let script = "window.__notchBridgeReceive && window.__notchBridgeReceive(\(json));"
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        let destination = target ?? webView
+        destination?.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func broadcastToWeb(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let json = String(data: data, encoding: .utf8) else {
+            return
+        }
+        let script = "window.__notchBridgeReceive && window.__notchBridgeReceive(\(json));"
+        webView?.evaluateJavaScript(script, completionHandler: nil)
+        workspaceWebView?.evaluateJavaScript(script, completionHandler: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -187,9 +201,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
               let type = body["type"] as? String else {
             return
         }
+        let senderWebView = message.webView ?? webView
 
         switch type {
         case "resize":
+            guard senderWebView === webView else { return }
             handleResize(body)
         case "getConfig":
             postToWeb([
@@ -197,11 +213,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "id": body["id"] as? String ?? "",
                 "connected": (connectionBaseURL != nil && connectionToken != nil),
                 "baseUrl": connectionBaseURL?.absoluteString ?? ""
-            ])
+            ], to: senderWebView)
         case "setConnection":
             let rawURL = body["url"] as? String ?? ""
             let result = applyConnectionString(rawURL)
-            postToWeb([
+            broadcastToWeb([
                 "type": "connectionUpdated",
                 "id": body["id"] as? String ?? "",
                 "ok": result.ok,
@@ -209,14 +225,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "error": result.error ?? ""
             ])
         case "http":
-            handleHTTP(body)
+            handleHTTP(body, to: senderWebView)
         case "pickFiles":
-            handlePickFiles(body)
+            handlePickFiles(body, to: senderWebView)
         case "readFixture":
-            handleReadFixture(body)
+            handleReadFixture(body, to: senderWebView)
+        case "openWorkspace":
+            handleOpenWorkspace(body, to: senderWebView)
         default:
             break
         }
+    }
+
+    private func handleOpenWorkspace(_ body: [String: Any], to senderWebView: WKWebView?) {
+        let reqId = body["id"] as? String ?? ""
+        let reqFixture = (body["fixture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let envFixture = ProcessInfo.processInfo.environment["CA_FIXTURE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fixtureName = (reqFixture?.isEmpty == false ? reqFixture : (envFixture?.isEmpty == false ? envFixture : nil))
+
+        if workspaceWindow == nil || workspaceWebView == nil {
+            let initialRect = NSRect(x: 0, y: 0, width: 960, height: 680)
+            let win = NSWindow(
+                contentRect: initialRect,
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            win.title = "Agent Workspace"
+            win.minSize = NSSize(width: 640, height: 480)
+            win.isReleasedWhenClosed = false
+            win.center()
+
+            let config = WKWebViewConfiguration()
+            config.userContentController = sharedContentController
+
+            let wv = WKWebView(frame: NSRect(origin: .zero, size: initialRect.size), configuration: config)
+            wv.autoresizingMask = [.width, .height]
+            wv.navigationDelegate = self
+            win.contentView = wv
+
+            workspaceWindow = win
+            workspaceWebView = wv
+        }
+
+        if let workspaceWebView = workspaceWebView {
+            if let indexURL = uiFileURL {
+                let uiDir = indexURL.deletingLastPathComponent()
+                let wsFileURL = uiDir.appendingPathComponent("workspace.html")
+                if FileManager.default.fileExists(atPath: wsFileURL.path) {
+                    var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
+                    var queryItems = [URLQueryItem(name: "shell", value: "notch")]
+                    if let fixtureName = fixtureName {
+                        queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
+                    }
+                    components?.queryItems = queryItems
+                    let targetURL = components?.url ?? wsFileURL
+                    if workspaceWebView.url?.standardizedFileURL != targetURL.standardizedFileURL {
+                        workspaceWebView.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
+                    }
+                } else {
+                    let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
+                    workspaceWebView.loadHTMLString(html, baseURL: nil)
+                }
+            } else {
+                let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/ directory not found.</body></html>"
+                workspaceWebView.loadHTMLString(html, baseURL: nil)
+            }
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        workspaceWindow?.makeKeyAndOrderFront(nil)
+        postToWeb([
+            "type": "workspaceOpened",
+            "id": reqId,
+            "ok": true
+        ], to: senderWebView)
     }
 
     private func handleResize(_ body: [String: Any]) {
@@ -247,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
     }
 
-    private func handleHTTP(_ body: [String: Any]) {
+    private func handleHTTP(_ body: [String: Any], to senderWebView: WKWebView?) {
         let reqId = body["id"] as? String ?? ""
         let method = (body["method"] as? String ?? "GET").uppercased()
         let path = body["path"] as? String ?? "/"
@@ -259,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "status": 0,
                 "ok": false,
                 "error": "Not connected"
-            ])
+            ], to: senderWebView)
             return
         }
 
@@ -270,7 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "status": 0,
                 "ok": false,
                 "error": "Invalid request path"
-            ])
+            ], to: senderWebView)
             return
         }
 
@@ -309,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             request.httpBody = rawBody.data(using: .utf8)
         }
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        let task = URLSession.shared.dataTask(with: request) { [weak self, weak senderWebView] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let errText = error?.localizedDescription ?? ""
@@ -322,13 +405,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     "ok": (200..<300).contains(status),
                     "body": bodyText,
                     "error": errText
-                ])
+                ], to: senderWebView)
             }
         }
         task.resume()
     }
 
-    private func handlePickFiles(_ body: [String: Any]) {
+    private func handlePickFiles(_ body: [String: Any], to senderWebView: WKWebView?) {
         let reqId = body["id"] as? String ?? ""
         let kind = body["kind"] as? String ?? "files"
 
@@ -352,10 +435,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             "type": "filesPicked",
             "id": reqId,
             "files": picked
-        ])
+        ], to: senderWebView)
     }
 
-    private func handleReadFixture(_ body: [String: Any]) {
+    private func handleReadFixture(_ body: [String: Any], to senderWebView: WKWebView?) {
         let reqId = body["id"] as? String ?? ""
         let name = body["name"] as? String ?? ""
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -367,7 +450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "id": reqId,
                 "ok": false,
                 "body": ""
-            ])
+            ], to: senderWebView)
             return
         }
 
@@ -378,14 +461,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "id": reqId,
                 "ok": true,
                 "body": content
-            ])
+            ], to: senderWebView)
         } else {
             postToWeb([
                 "type": "fixtureResponse",
                 "id": reqId,
                 "ok": false,
                 "body": ""
-            ])
+            ], to: senderWebView)
         }
     }
 
