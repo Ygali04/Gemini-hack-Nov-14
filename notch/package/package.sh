@@ -45,6 +45,10 @@ cat > "${CONTENTS_DIR}/Info.plist" <<'EOF'
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Agent Workspace uses your microphone to transcribe voice prompts on this Mac when you click the mic button.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Agent Workspace transcribes your speech on this Mac to fill the prompt box.</string>
 </dict>
 </plist>
 EOF

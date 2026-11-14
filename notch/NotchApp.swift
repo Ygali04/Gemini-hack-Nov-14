@@ -3,6 +3,8 @@ import WebKit
 import QuartzCore
 import UniformTypeIdentifiers
 import Carbon
+import Speech
+import AVFoundation
 
 // Option-Space reaches the delegate through this pointer (a Carbon handler cannot capture).
 nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
@@ -39,7 +41,8 @@ final class NotchPanel: NSPanel {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler,
+                         SFSpeechRecognizerDelegate, AVSpeechSynthesizerDelegate {
     private var statusItem: NSStatusItem!
     private var panel: NotchPanel!
     private var webView: WKWebView!
@@ -60,12 +63,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var connectionBaseURL: URL?
     private var connectionToken: String?
 
+    // On-device voice (Apple Speech framework STT + AVSpeechSynthesizer TTS)
+    private var speechRecognizer: SFSpeechRecognizer?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private lazy var audioEngine = AVAudioEngine()
+    private var isDictating = false
+    private var hasSpeechTap = false
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var isSpeaking = false
+    private var currentSpeakText = ""
+
     private lazy var uiFileURL: URL? = resolveUIFileURL()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let envURL = ProcessInfo.processInfo.environment["CA_URL"], !envURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = applyConnectionString(envURL)
         }
+        setupVoice()
         setupStatusItem()
         setupPanel()
         setupNotes()
@@ -298,12 +313,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         case "closeWindow":
             for c in chats.values where c.web === senderWebView { c.open = false; c.panel.orderOut(nil) }
         case "getConfig":
+            let vc = currentVoiceCapability()
             postToWeb([
                 "type": "config",
                 "id": body["id"] as? String ?? "",
                 "connected": (connectionBaseURL != nil && connectionToken != nil),
-                "baseUrl": connectionBaseURL?.absoluteString ?? ""
+                "baseUrl": connectionBaseURL?.absoluteString ?? "",
+                "speechAvailable": vc.available,
+                "onDeviceSpeech": vc.onDevice,
+                "speechAuth": vc.auth,
+                "isDictating": isDictating,
+                "isSpeaking": isSpeaking,
+                "speakText": currentSpeakText
             ], to: senderWebView)
+        case "startDictation":
+            handleStartDictation()
+        case "stopDictation":
+            stopDictationInternal(silent: false)
+        case "speak":
+            let text = (body["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            handleSpeak(text)
+        case "stopSpeaking":
+            handleStopSpeaking()
+        case "openPrivacySettings":
+            let section = body["section"] as? String ?? "Privacy_SpeechRecognition"
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(section)") {
+                NSWorkspace.shared.open(url)
+            }
         case "setConnection":
             let rawURL = body["url"] as? String ?? ""
             let result = applyConnectionString(rawURL)
@@ -674,6 +710,363 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "ok": false,
                 "body": ""
             ], to: senderWebView)
+        }
+    }
+
+    // MARK: On-device voice (Apple Speech STT + AVSpeechSynthesizer TTS)
+
+    private func setupVoice() {
+        let recognizer = SFSpeechRecognizer(locale: Locale.current) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        recognizer?.delegate = self
+        speechRecognizer = recognizer
+        speechSynthesizer.delegate = self
+    }
+
+    private func speechAuthString(_ status: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return "authorized"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        case .notDetermined: return "notDetermined"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private func currentVoiceCapability() -> (available: Bool, onDevice: Bool, auth: String) {
+        if ProcessInfo.processInfo.environment["CA_SPEECH_UNAVAILABLE"] == "1" {
+            return (false, false, "unavailable")
+        }
+        guard let recognizer = speechRecognizer else {
+            return (false, false, "unavailable")
+        }
+        let status = SFSpeechRecognizer.authorizationStatus()
+        let auth = speechAuthString(status)
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        let micDenied = (micStatus == .denied || micStatus == .restricted)
+        let allowedOrAskable = (status == .authorized || status == .notDetermined)
+        let isDeniedState = (status == .denied || status == .restricted || micDenied)
+        let available = isDeniedState ? true : (recognizer.isAvailable && allowedOrAskable)
+        return (available, recognizer.supportsOnDeviceRecognition, auth)
+    }
+
+    private func broadcastVoiceState(state: String, reason: String = "", nextStep: String = "", onDevice: Bool = false) {
+        let vc = currentVoiceCapability()
+        broadcastToWeb([
+            "type": "voiceState",
+            "state": state,
+            "reason": reason,
+            "nextStep": nextStep,
+            "onDevice": onDevice || vc.onDevice,
+            "speechAvailable": vc.available,
+            "speechAuth": vc.auth,
+            "isDictating": isDictating
+        ])
+    }
+
+    private func handleStartDictation() {
+        if isDictating {
+            stopDictationInternal(silent: false)
+            return
+        }
+        let vc = currentVoiceCapability()
+        guard vc.available, let recognizer = speechRecognizer else {
+            broadcastVoiceState(
+                state: "unavailable",
+                reason: "Speech recognition is unavailable on this Mac.",
+                nextStep: "Enable Dictation in System Settings → Keyboard to dictate prompts."
+            )
+            return
+        }
+
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        if speechStatus == .notDetermined {
+            broadcastVoiceState(
+                state: "requesting_permission",
+                reason: "Allow Speech Recognition and Microphone access to dictate prompts on this Mac."
+            )
+            SFSpeechRecognizer.requestAuthorization { [weak self] newStatus in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    if newStatus == .authorized {
+                        self.checkMicAndBeginDictation(recognizer: recognizer)
+                    } else if newStatus == .restricted {
+                        self.broadcastVoiceState(
+                            state: "denied",
+                            reason: "Speech Recognition is restricted on this Mac.",
+                            nextStep: "Check Screen Time or device profile restrictions to allow Speech Recognition."
+                        )
+                    } else {
+                        self.broadcastVoiceState(
+                            state: "denied",
+                            reason: "Speech Recognition permission was denied.",
+                            nextStep: "Open System Settings → Privacy & Security → Speech Recognition and allow Agent Workspace."
+                        )
+                    }
+                }
+            }
+            return
+        }
+
+        if speechStatus == .restricted {
+            broadcastVoiceState(
+                state: "denied",
+                reason: "Speech Recognition is restricted on this Mac.",
+                nextStep: "Check Screen Time or device profile restrictions to allow Speech Recognition."
+            )
+            return
+        }
+
+        if speechStatus == .denied {
+            broadcastVoiceState(
+                state: "denied",
+                reason: "Speech Recognition permission is denied.",
+                nextStep: "Open System Settings → Privacy & Security → Speech Recognition and allow Agent Workspace."
+            )
+            return
+        }
+
+        if micStatus == .notDetermined {
+            broadcastVoiceState(
+                state: "requesting_permission",
+                reason: "Allow Microphone access to capture your voice on this Mac."
+            )
+        }
+        checkMicAndBeginDictation(recognizer: recognizer)
+    }
+
+    private func checkMicAndBeginDictation(recognizer: SFSpeechRecognizer) {
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch micStatus {
+        case .authorized:
+            beginAudioRecognition(recognizer: recognizer)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    if granted {
+                        self.beginAudioRecognition(recognizer: recognizer)
+                    } else {
+                        self.broadcastVoiceState(
+                            state: "denied",
+                            reason: "Microphone permission was denied.",
+                            nextStep: "Open System Settings → Privacy & Security → Microphone and allow Agent Workspace."
+                        )
+                    }
+                }
+            }
+        case .restricted:
+            broadcastVoiceState(
+                state: "denied",
+                reason: "Microphone access is restricted on this Mac.",
+                nextStep: "Check Screen Time or device profile restrictions to allow the microphone."
+            )
+        case .denied:
+            broadcastVoiceState(
+                state: "denied",
+                reason: "Microphone permission is denied.",
+                nextStep: "Open System Settings → Privacy & Security → Microphone and allow Agent Workspace."
+            )
+        @unknown default:
+            broadcastVoiceState(
+                state: "denied",
+                reason: "Microphone permission is unavailable.",
+                nextStep: "Check System Settings → Privacy & Security → Microphone."
+            )
+        }
+    }
+
+    private func beginAudioRecognition(recognizer: SFSpeechRecognizer) {
+        guard recognizer.isAvailable else {
+            broadcastVoiceState(
+                state: "unavailable",
+                reason: "Speech recognizer is temporarily unavailable.",
+                nextStep: "Check microphone availability or Dictation settings in System Settings."
+            )
+            return
+        }
+
+        stopDictationInternal(silent: true)
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        let useOnDevice = recognizer.supportsOnDeviceRecognition
+        if useOnDevice {
+            request.requiresOnDeviceRecognition = true
+        }
+        recognitionRequest = request
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 && format.channelCount > 0 else {
+            recognitionRequest = nil
+            broadcastVoiceState(
+                state: "error",
+                reason: "No microphone input device is available.",
+                nextStep: "Connect or select an input device in System Settings → Sound."
+            )
+            return
+        }
+
+        if hasSpeechTap {
+            inputNode.removeTap(onBus: 0)
+            hasSpeechTap = false
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            request.append(buffer)
+        }
+        hasSpeechTap = true
+
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+        } catch {
+            stopDictationInternal(silent: true)
+            broadcastVoiceState(
+                state: "error",
+                reason: "Could not start microphone capture.",
+                nextStep: "Check microphone permissions and System Settings → Sound."
+            )
+            return
+        }
+
+        isDictating = true
+        broadcastVoiceState(
+            state: "listening",
+            reason: useOnDevice ? "Listening on this Mac — click mic to stop." : "Listening — click mic to stop.",
+            onDevice: useOnDevice
+        )
+
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            let transcript = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            let errText = error?.localizedDescription
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                if let transcript {
+                    self.postToWeb([
+                        "type": "voiceTranscript",
+                        "text": transcript,
+                        "isFinal": isFinal
+                    ], to: self.webView)
+                }
+                if isFinal {
+                    self.stopDictationInternal(silent: false)
+                } else if let errText, self.isDictating {
+                    self.stopDictationInternal(silent: true)
+                    self.broadcastVoiceState(
+                        state: "error",
+                        reason: errText,
+                        nextStep: "Click the mic button to try again."
+                    )
+                }
+            }
+        }
+    }
+
+    private func stopDictationInternal(silent: Bool) {
+        let wasDictating = isDictating
+        isDictating = false
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        if hasSpeechTap {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            hasSpeechTap = false
+        }
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        if !silent && wasDictating {
+            broadcastVoiceState(state: "idle")
+        }
+    }
+
+    private func handleSpeak(_ text: String) {
+        guard !text.isEmpty else { return }
+        if speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
+            ?? AVSpeechSynthesisVoice(language: "en-US")
+        currentSpeakText = text
+        isSpeaking = true
+        broadcastToWeb([
+            "type": "ttsState",
+            "speaking": true,
+            "text": text
+        ])
+        speechSynthesizer.speak(utterance)
+    }
+
+    private func handleStopSpeaking() {
+        if speechSynthesizer.isSpeaking {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+        isSpeaking = false
+        currentSpeakText = ""
+        broadcastToWeb([
+            "type": "ttsState",
+            "speaking": false,
+            "text": ""
+        ])
+    }
+
+    nonisolated func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            let vc = self.currentVoiceCapability()
+            self.broadcastToWeb([
+                "type": "voiceState",
+                "state": self.isDictating ? "listening" : "idle",
+                "speechAvailable": vc.available,
+                "onDevice": vc.onDevice,
+                "speechAuth": vc.auth,
+                "isDictating": self.isDictating
+            ])
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let text = utterance.speechString
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.isSpeaking = true
+            self.currentSpeakText = text
+            self.broadcastToWeb([
+                "type": "ttsState",
+                "speaking": true,
+                "text": text
+            ])
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.isSpeaking = false
+            self.currentSpeakText = ""
+            self.broadcastToWeb([
+                "type": "ttsState",
+                "speaking": false,
+                "text": ""
+            ])
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.isSpeaking = false
+            self.currentSpeakText = ""
+            self.broadcastToWeb([
+                "type": "ttsState",
+                "speaking": false,
+                "text": ""
+            ])
         }
     }
 
