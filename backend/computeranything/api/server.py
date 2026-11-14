@@ -11,7 +11,9 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
+import time
 import traceback
 from email.parser import BytesParser
 from email.policy import default as email_default
@@ -114,6 +116,73 @@ def _safe_name(name):
     return name[:200]
 
 
+STARTED = time.time()
+DISMISSED = set()
+
+
+def find_files(q, limit=12):
+    """Name search over the home folder through the Spotlight index (mdfind; q is an argument, never a
+    shell string). Newest first, skipping Library, hidden folders and dependency trees."""
+    q = (q or "").strip()[:100]
+    if len(q) < 2:
+        return []
+    home = os.path.expanduser("~")
+    try:
+        out = subprocess.run(
+            ["mdfind", "-onlyin", home, "-name", q], capture_output=True, text=True, timeout=3
+        ).stdout.splitlines()
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    skip = ("/Library/", "/.", "/node_modules/", "/__pycache__/")
+    hits = [h for h in out if not any(x in h for x in skip)][:300]
+
+    def mtime(h):
+        try:
+            return os.path.getmtime(h)
+        except OSError:
+            return 0
+
+    hits.sort(key=mtime, reverse=True)
+    return [
+        {
+            "name": os.path.basename(h),
+            "path": h,
+            "dir": os.path.isdir(h),
+            "where": os.path.dirname(h).replace(home, "~"),
+        }
+        for h in hits[:limit]
+    ]
+
+
+def notifications():
+    """Persistent notifications: agent hellos and task results/errors from this session, minus dismissed."""
+    from ..core import store
+    from ..cu import overlay
+
+    out = []
+    for m in store.notifiable(STARTED):
+        nid = "m%d" % m["id"]
+        if nid in DISMISSED:
+            continue
+        body, edge, ink = overlay.palette_for(m["agent"]) if m["role"] == "agent" else (None, None, None)
+        info = store.run_info(m["run"])
+        out.append(
+            {
+                "id": nid,
+                "kind": m["kind"],
+                "title": (info.get("goal") or m["agent"])[:80],
+                "text": info.get("summary") or m["text"],
+                "ok": False if m["kind"] == "error" else (None if info.get("ok") is None else bool(info["ok"])),
+                "thread": store.root(m["run"]),
+                "ts": m["ts"],
+                "body": body,
+                "edge": edge,
+                "ink": ink,
+            }
+        )
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ca"
 
@@ -158,6 +227,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/":
                 return self._send(200, body=PAGE.encode(), ctype="text/html; charset=utf-8")
+            if p == "/ui":  # the workspace UI in a browser (the notch app loads the same file)
+                with open(os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "index.html"), "rb") as f:
+                    return self._send(200, body=f.read(), ctype="text/html; charset=utf-8")
             if p == "/api/runs":
                 views = []
                 for r in sorted(list(runs.RUNS.values()), key=lambda r: r.started, reverse=True):
@@ -167,8 +239,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, views)
             if p.startswith("/api/runs/") and p.endswith("/transcript"):  # the task's chat, all its agents
                 from ..core import store
+                from ..cu import overlay
 
-                return self._send(200, store.transcript(p[len("/api/runs/") : -len("/transcript")]))
+                rows = store.transcript(p[len("/api/runs/") : -len("/transcript")])
+                for m in rows:  # the agent's name colour, matching its cursor and notifications
+                    m["color"] = overlay.palette_for(m["agent"])[0] if m["role"] == "agent" else None
+                return self._send(200, rows)
             if p == "/api/transcripts":  # search every conversation: ?q=lunch
                 from ..core import store
 
@@ -182,6 +258,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, r.view(max(0, since)))
             if p == "/api/help":
                 return self._send(200, runs.pending_help())
+            if p == "/api/files":  # Spotlight search over the user's home folder: ?q=invoice
+                return self._send(200, find_files((parse_qs(u.query).get("q") or [""])[0]))
+            if p == "/api/profile":
+                from ..core import profile
+
+                return self._send(200, profile.view())
+            if p == "/api/notifications":  # hellos, results and errors since this server started
+                return self._send(200, notifications())
             if p == "/api/graph":
                 try:
                     from ..cu import graph
@@ -227,6 +311,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p == "/api/task":
                 return self._task()
+            if p == "/api/profile":
+                from ..core import profile
+
+                return self._send(200, profile.save(json.loads(self._body() or b"{}")))
+            if p.startswith("/api/notifications/") and p.endswith("/dismiss"):
+                DISMISSED.add(p[len("/api/notifications/") : -len("/dismiss")])
+                return self._send(200, {"ok": True})
             if p.startswith("/api/help/"):
                 hid = p[len("/api/help/") :]
                 if hid not in runs.HELP:
@@ -245,7 +336,7 @@ class Handler(BaseHTTPRequestHandler):
     def _task(self):
         ctype = self.headers.get("Content-Type", "")
         body = self._body()
-        prompt, files = "", []
+        prompt, files, thread, local = "", [], None, []
         if ctype.startswith("multipart/form-data"):
             msg = BytesParser(policy=email_default).parsebytes(
                 b"Content-Type: " + ctype.encode() + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
@@ -265,8 +356,16 @@ class Handler(BaseHTTPRequestHandler):
                     files.append((name, data))
                 elif field == "prompt":
                     prompt = data.decode("utf-8", "replace")
+                elif field == "paths":  # files the user picked from search: read in place, home folder only
+                    path = os.path.realpath(data.decode("utf-8", "replace").strip())
+                    if not (path.startswith(os.path.expanduser("~") + os.sep) and os.path.isfile(path)):
+                        return self._send(400, {"error": "not a file in your home folder"})
+                    local.append(path)
+                elif field == "thread":
+                    thread = data.decode("utf-8", "replace").strip() or None
         else:
-            prompt = json.loads(body or b"{}").get("prompt") or ""
+            j = json.loads(body or b"{}")
+            prompt, thread = j.get("prompt") or "", j.get("thread") or None
         prompt = prompt.strip()
         if not prompt:
             return self._send(400, {"error": "empty prompt"})
@@ -283,21 +382,43 @@ class Handler(BaseHTTPRequestHandler):
                 with open(path, "wb") as f:
                     f.write(data)
                 paths.append(path)
-        run = orchestrator.submit(prompt, paths)
-        return self._send(200, {"run": run.id})
+        run = orchestrator.submit(prompt, paths + local, thread=thread)
+        return self._send(200, {"run": run.id, "thread": thread or run.id})
+
+
+def start_notch(url):
+    """Launch the notch workspace (Option-Space) already connected. Built by notch/build.sh."""
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    app = os.path.join(repo, "notch", "build", "AgentNotch")
+    if os.environ.get("CA_NO_NOTCH") == "1":
+        return None
+    if not os.path.exists(app):
+        print("notch not built: run notch/build.sh from the repo root", flush=True)
+        return None
+    env = dict(os.environ, CA_URL=url, UI_FILE=os.path.join(repo, "ui", "index.html"))
+    proc = subprocess.Popen([app], cwd=repo, env=env)  # the token travels in the env, never on argv
+    atexit.register(proc.terminate)
+    return proc
 
 
 def main():
     try:
         from ..cu import overlay
 
+        if os.environ.get("CA_NO_OVERLAY") == "1":
+            raise RuntimeError("disabled by CA_NO_OVERLAY")
         overlay.start()
         atexit.register(overlay.stop)
     except Exception as e:
         print("overlay start failed: %s" % e, flush=True)
+    from ..core import profile
+
+    profile.apply()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     srv.daemon_threads = True
-    print("ca console: %s/?t=%s" % (ORIGIN, TOKEN), flush=True)
+    url = "%s/?t=%s" % (ORIGIN, TOKEN)
+    print("ca console: %s" % url, flush=True)
+    start_notch(url)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

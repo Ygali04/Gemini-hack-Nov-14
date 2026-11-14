@@ -105,12 +105,24 @@ def route(prompt, attachments=(), run=None, ctx=None):
 # ---------------------------------------------------------------- pipeline
 
 
-def submit(prompt, attachments=()):
-    """Start the pipeline on a daemon thread; return the parent Run at once (.thread to join)."""
-    parent = runs.Run(prompt, role="orchestrator")
+def submit(prompt, attachments=(), thread=None):
+    """Start the pipeline on a daemon thread; return the parent Run at once (.thread to join).
+    thread = the root run of an earlier chat: the follow-up joins that conversation (it becomes a child of
+    the root, so the root's transcript covers the whole chat) and the router sees what was said so far."""
+    if thread and thread not in runs.RUNS:
+        raise ValueError("no such conversation")
+    parent = runs.Run(prompt, role="orchestrator", parent=thread)
     names = [os.path.basename(str(a)) for a in attachments]
     runs.say(parent, "user", "prompt", prompt, attachments=names)
-    t = threading.Thread(target=_pipeline, args=(parent, prompt, tuple(attachments)), daemon=True)
+    routed = prompt
+    if thread:
+        from ..core import store
+
+        said = [m for m in store.transcript(thread) if m["kind"] in ("prompt", "result") and m["run"] != parent.id]
+        who = lambda m: "User" if m["role"] == "user" else m["agent"]  # noqa: E731
+        earlier = "\n".join("%s: %s" % (who(m), m["text"][:300]) for m in said[-6:])
+        routed = "%s\n\nEarlier in this conversation:\n%s" % (prompt, earlier)
+    t = threading.Thread(target=_pipeline, args=(parent, routed, tuple(attachments)), daemon=True)
     parent.thread = t
     t.start()
     return parent
@@ -134,7 +146,13 @@ def _pipeline(parent, prompt, attachments):
             res, children = cu(parent, r["goal"], r["app"], r.get("subtasks"), r.get("names") or ())
         parent.result = {"ok": bool(res.get("ok")), "summary": res.get("summary", "")}
         parent.result["digest"] = runs.digest(parent, children)
-        runs.say(parent, "assistant", "result", parent.result["summary"] or ("Done." if res.get("ok") else "Failed."))
+        echoed = any((c.result or {}).get("summary") == parent.result["summary"] for c in children)
+        if not echoed:  # one agent's result is already in the chat; don't repeat it as the assistant
+            runs.say(
+                parent, "assistant", "result", parent.result["summary"] or ("Done." if res.get("ok") else "Failed.")
+            )
+        else:
+            runs.say(parent, "assistant", "result", "Finished.", echo=True)
         parent.set("done" if parent.result["ok"] else "failed")
     except Exception as e:  # noqa: BLE001
         parent.emit("error", error="%s: %s" % (type(e).__name__, e))
@@ -191,7 +209,11 @@ def spawn(parent, goal, role, name, job):
     child = runs.Run(goal, role=role, parent=parent.id)
     child.agent_name = name
     child.context = getattr(parent, "context", None)
-    runs.say(child, "agent", "hello", "Hi, I'm %s! %s" % (name, job), agent_role=role)
+    from ..core import profile
+
+    you = profile.load().get("call_me")
+    hi = "Hi %s, I'm %s!" % (you, name) if you else "Hi, I'm %s!" % name
+    runs.say(child, "agent", "hello", "%s %s" % (hi, job), agent_role=role)
     return child
 
 
@@ -597,7 +619,7 @@ def selftest():
     assert ("agent", "hello") in kinds and ("agent", "result") in kinds, kinds
     assert kinds[-1] == ("assistant", "result"), kinds
     hello = next(m for m in store.transcript(p2.id) if m["kind"] == "hello")
-    assert hello["text"].startswith("Hi, I'm %s!" % hello["agent"]), hello
+    assert "I'm %s!" % hello["agent"] in hello["text"], hello
     assert any(m["run"] == p2.id for m in store.search_messages("lunch at noon")), "search"
     names = _pick_names(["Mark", "Mark", "bad name!", ""], 4)
     assert names[0] == "Mark" and len(set(names)) == 4 and all(re.fullmatch(r"[A-Za-z'-]+\d*", n) for n in names), names
@@ -640,4 +662,6 @@ def selftest():
 
 
 if __name__ == "__main__":
+    if "CA_HOME" not in os.environ:  # never write test runs into the user's real analytics
+        sys.exit("run with a throwaway home: CA_HOME=$(mktemp -d) python3 -m computeranything.agents.orchestrator")
     selftest()

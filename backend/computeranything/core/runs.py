@@ -120,7 +120,15 @@ def answer(hid, choice):
 
 
 def pending_help():
-    return [{k: v for k, v in r.items() if k != "event"} for r in HELP.values() if r["answer"] is None]
+    out = []
+    for r in list(HELP.values()):
+        if r["answer"] is None:
+            run = RUNS.get(r["run"])
+            item = {k: v for k, v in r.items() if k != "event"}
+            item["agent"] = getattr(run, "agent_name", None) or (run.role if run else "")
+            item["thread"] = _store(store.root, r["run"]) or r["run"]
+            out.append(item)
+    return out
 
 
 def digest(run, children=()):

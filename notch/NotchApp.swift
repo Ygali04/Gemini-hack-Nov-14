@@ -2,6 +2,35 @@ import Cocoa
 import WebKit
 import QuartzCore
 import UniformTypeIdentifiers
+import Carbon
+
+// Option-Space reaches the delegate through this pointer (a Carbon handler cannot capture).
+nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
+
+// A web view that accepts the first click (notifications work without focusing first) and turns dropped
+// Finder files into real paths for the page (WebKit alone hides paths from the page).
+@MainActor
+final class ShellWebView: WKWebView {
+    var onFiles: (([[String: String]]) -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if let onFiles, !urls.isEmpty {
+            onFiles(urls.map { ["name": $0.lastPathComponent, "path": $0.path] })
+            return true
+        }
+        return super.performDragOperation(sender)
+    }
+}
+
+@MainActor
+final class ChatWindow {
+    let panel: NotchPanel
+    let web: ShellWebView
+    var open = true
+    init(panel: NotchPanel, web: ShellWebView) { self.panel = panel; self.web = web }
+}
 
 @MainActor
 final class NotchPanel: NSPanel {
@@ -13,7 +42,15 @@ final class NotchPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     private var statusItem: NSStatusItem!
     private var panel: NotchPanel!
-    private var webView: WKWebView!
+    private var webView: ShellWebView!
+    private var notesPanel: NotchPanel!
+    private var notesWeb: ShellWebView!
+    private var notesHeight: CGFloat = 0
+    private var chats: [String: ChatWindow] = [:]
+    private var allHidden = false
+    private var expanded = false
+    private var prevApp: NSRunningApplication?
+    private var replyTarget: WKWebView?
     private var currentSize = NSSize(width: 280, height: 36)
 
     // Session-only connection state (never persisted to disk)
@@ -28,6 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         setupStatusItem()
         setupPanel()
+        setupNotes()
+        hotkeyTarget = self
+        registerHotKey()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenParametersDidChange(_:)),
@@ -139,19 +179,120 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         panel.hidesOnDeactivate = false
         panel.isMovable = false
 
-        let contentController = WKUserContentController()
-        contentController.add(self, name: "shell")
-
-        let config = WKWebViewConfiguration()
-        config.userContentController = contentController
-
-        webView = WKWebView(frame: NSRect(origin: .zero, size: currentSize), configuration: config)
-        webView.autoresizingMask = [.width, .height]
-        webView.navigationDelegate = self
-        webView.setValue(false, forKey: "drawsBackground")
+        webView = makeWebView(currentSize)
+        webView.onFiles = { [weak self] files in self?.postToWeb(["type": "filesDropped", "files": files]) }
 
         panel.contentView = webView
         panel.orderFrontRegardless()
+    }
+
+    private func makeWebView(_ size: NSSize) -> ShellWebView {
+        let contentController = WKUserContentController()
+        contentController.add(self, name: "shell")
+        let config = WKWebViewConfiguration()
+        config.userContentController = contentController
+        let wv = ShellWebView(frame: NSRect(origin: .zero, size: size), configuration: config)
+        wv.autoresizingMask = [.width, .height]
+        wv.navigationDelegate = self
+        wv.setValue(false, forKey: "drawsBackground")
+        return wv
+    }
+
+    private func loadView(_ wv: WKWebView, _ items: [URLQueryItem]) {
+        guard let fileURL = uiFileURL, var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false) else { return }
+        components.queryItems = items
+        wv.loadFileURL(components.url ?? fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
+    }
+
+    private func floatingPanel(_ frame: NSRect, level: NSWindow.Level) -> NotchPanel {
+        let p = NotchPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.level = level
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.hidesOnDeactivate = false
+        p.isReleasedWhenClosed = false
+        return p
+    }
+
+    // Persistent notifications, stacked at the top left of the main screen.
+    private func setupNotes() {
+        let vis = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        notesPanel = floatingPanel(NSRect(x: vis.minX + 12, y: vis.maxY - 8, width: 320, height: 1), level: .statusBar)
+        notesPanel.hasShadow = false  // each card draws its own edge
+        notesWeb = makeWebView(NSSize(width: 320, height: 1))
+        notesPanel.contentView = notesWeb
+        loadView(notesWeb, [URLQueryItem(name: "shell", value: "notes")])
+    }
+
+    private func layoutNotes(height: CGFloat, fresh: Bool) {
+        notesHeight = height
+        guard height > 0 else { notesPanel.orderOut(nil); return }
+        let vis = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let h = min(height, vis.height - 40)
+        notesPanel.setFrame(NSRect(x: vis.minX + 12, y: vis.maxY - 8 - h, width: 320, height: h), display: true)
+        if !allHidden || fresh { notesPanel.orderFrontRegardless() }  // a new notification shows itself
+    }
+
+    // One floating chat window per conversation, cascading down from the top right.
+    private func openChat(_ run: String) {
+        if let c = chats[run] {
+            c.open = true
+            c.panel.orderFrontRegardless()
+            return
+        }
+        let vis = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
+        let k = CGFloat(chats.count % 6)
+        let size = NSSize(width: 420, height: 540)
+        let frame = NSRect(x: vis.maxX - size.width - 16 - 28 * k, y: vis.maxY - size.height - 48 - 28 * k,
+                           width: size.width, height: size.height)
+        let p = floatingPanel(frame, level: .floating)
+        let wv = makeWebView(size)
+        p.contentView = wv
+        loadView(wv, [URLQueryItem(name: "shell", value: "chat"), URLQueryItem(name: "run", value: run)])
+        chats[run] = ChatWindow(panel: p, web: wv)
+        p.orderFrontRegardless()
+    }
+
+    // Option-Space: show everything and focus the prompt; again: hide everything.
+    private func registerHotKey() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+            MainActor.assumeIsolated { hotkeyTarget?.toggleAll() }
+            return noErr
+        }, 1, &spec, nil, nil)
+        var ref: EventHotKeyRef?
+        let id = EventHotKeyID(signature: OSType(0x4341_4E59), id: 1)
+        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &ref)
+        if status != noErr { NSLog("Option-Space is taken by another app (status %d)", status) }
+    }
+
+    func toggleAll() {
+        if allHidden || !expanded {
+            allHidden = false
+            rememberFrontApp()
+            panel.setFrame(topCenteredFrame(for: currentSize), display: true)
+            panel.orderFrontRegardless()
+            postToWeb(["type": "hotkey"], to: webView)  // the page expands, then asks for focus via resize
+            for c in chats.values where c.open { c.panel.orderFrontRegardless() }
+            if notesHeight > 0 { notesPanel.orderFrontRegardless() }
+        } else {
+            allHidden = true
+            panel.orderOut(nil)
+            chats.values.forEach { $0.panel.orderOut(nil) }
+            notesPanel.orderOut(nil)
+            returnFocus()
+        }
+    }
+
+    private func rememberFrontApp() {
+        if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { prevApp = front }
+    }
+
+    // Like Spotlight: when the workspace closes, typing goes back to the app you were in.
+    private func returnFocus() {
+        if NSApp.isActive, let p = prevApp, !p.isTerminated { p.activate() }
     }
 
     private func loadPage() {
@@ -172,13 +313,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         webView.loadFileURL(targetURL, allowingReadAccessTo: readRoot)
     }
 
-    private func postToWeb(_ payload: [String: Any]) {
+    private func postToWeb(to target: WKWebView?, _ payload: [String: Any]) { postToWeb(payload, to: target) }
+
+    private func postToWeb(_ payload: [String: Any], to target: WKWebView? = nil) {
+        let wv: WKWebView = target ?? replyTarget ?? webView
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
               let json = String(data: data, encoding: .utf8) else {
             return
         }
         let script = "window.__notchBridgeReceive && window.__notchBridgeReceive(\(json));"
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        wv.evaluateJavaScript(script, completionHandler: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -188,7 +332,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
 
+        replyTarget = message.webView
+        defer { replyTarget = nil }
+        if message.webView === notesWeb && type == "resize" {
+            let h = CGFloat((body["height"] as? NSNumber)?.doubleValue ?? 0)
+            layoutNotes(height: h, fresh: body["fresh"] as? Bool ?? false)
+            return
+        }
+        if type == "resize" && message.webView !== webView { return }
+
         switch type {
+        case "openChat":
+            if let run = body["run"] as? String, !run.isEmpty { openChat(run) }
+        case "closeWindow":
+            for c in chats.values where c.web === message.webView { c.open = false; c.panel.orderOut(nil) }
         case "resize":
             handleResize(body)
         case "getConfig":
@@ -241,9 +398,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         }
 
+        let wasExpanded = expanded
+        expanded = (state == "expanded")
         if state == "expanded" {
+            if !wasExpanded { rememberFrontApp() }
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
+        } else if wasExpanded {
+            returnFocus()
         }
     }
 
@@ -309,13 +471,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             request.httpBody = rawBody.data(using: .utf8)
         }
 
+        let target = replyTarget  // answer the window that asked, even if another one asks meanwhile
         let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             let errText = error?.localizedDescription ?? ""
             Task { @MainActor in
                 guard let self = self else { return }
-                self.postToWeb([
+                self.postToWeb(to: target, [
                     "type": "httpResponse",
                     "id": reqId,
                     "status": status,

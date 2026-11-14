@@ -149,6 +149,33 @@ def search_messages(q, limit=50):
     return _msg_rows(rows)
 
 
+def root(run_id):
+    """The conversation a run belongs to: walk parents to the top."""
+    seen = 0
+    while seen < 50:
+        row = _x("SELECT parent FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row or not row[0]:
+            return run_id
+        run_id, seen = row[0], seen + 1
+    return run_id
+
+
+def run_info(run_id):
+    row = _x("SELECT goal, ok, summary FROM runs WHERE id=?", (run_id,)).fetchone()
+    return dict(zip(("goal", "ok", "summary"), row, strict=True)) if row else {}
+
+
+def notifiable(since_ts, limit=40):
+    """Transcript turns worth a persistent notification: a task's result or error. (Hellos live in the chat
+    and on the cursor tag; help requests come from /api/help.)"""
+    rows = _x(
+        "SELECT * FROM messages WHERE ts>=? AND role='assistant' AND kind IN ('result','error') "
+        "ORDER BY id DESC LIMIT ?",
+        (since_ts, int(limit)),
+    ).fetchall()
+    return _msg_rows(rows)
+
+
 def _tree(run_id):
     """The run and all its descendants (a task's child agents)."""
     ids, frontier = [run_id], [run_id]
@@ -215,7 +242,8 @@ def summary(since=0):
             (since,),
         ).fetchall()
     ]
-    tasks = _x("SELECT COUNT(*) FROM runs WHERE parent IS NULL AND started>=?", (since,)).fetchone()[0]
+    # every prompt you send is a task, follow-ups in a chat included (they are orchestrator runs under the chat root)
+    tasks = _x("SELECT COUNT(*) FROM runs WHERE role='orchestrator' AND started>=?", (since,)).fetchone()[0]
     total = _x("SELECT COALESCE(SUM(cost),0), COUNT(*) FROM llm_calls WHERE ts>=?", (since,)).fetchone()
     return {
         "tasks": tasks,

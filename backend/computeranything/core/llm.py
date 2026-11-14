@@ -20,6 +20,9 @@ MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
 DECIDE_MODEL = os.environ.get("CA_DECIDE_MODEL") or None
 USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
 _mock = []  # queued fake replies (tests)
+if os.environ.get("CA_MOCK") == "1" and os.environ.get("CA_MOCK_REPLIES"):  # scripted replies for UI tests
+    with open(os.environ["CA_MOCK_REPLIES"]) as _f:
+        _mock = [r if isinstance(r, str) else json.dumps(r) for r in json.load(_f)]
 
 
 ENV_PATH = os.path.join(HERE, ".env")
