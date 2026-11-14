@@ -1,0 +1,87 @@
+"""Runs, live events and help requests: the one bus every agent, the orchestrator and the UI share.
+
+A help request blocks the asking agent until a person answers in the UI. No answer before the
+timeout counts as deny (money, sign-in and destructive steps must never default to yes).
+"""
+import itertools, json, os, threading, time
+
+HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
+RUNS_DIR = os.path.join(HOME, "runs")
+_ids = itertools.count(1)
+_lock = threading.Lock()
+RUNS = {}            # id -> Run
+HELP = {}            # help id -> request dict
+_help_ids = itertools.count(1)
+
+
+class Run:
+    def __init__(self, goal, role="cu", parent=None):
+        self.id = "r%d-%d" % (int(time.time()), next(_ids))
+        self.goal, self.role, self.parent = goal, role, parent
+        self.state, self.started, self.ended = "queued", time.time(), None
+        self.events, self.result = [], None
+        with _lock:
+            RUNS[self.id] = self
+
+    def emit(self, _kind, **data):
+        ev = {"t": round(time.time() - self.started, 2), **data, "kind": _kind}
+        self.events.append(ev)
+        os.makedirs(RUNS_DIR, exist_ok=True)
+        with open(os.path.join(RUNS_DIR, self.id + ".jsonl"), "a") as f:
+            f.write(json.dumps(ev, default=str) + "\n")
+        print("[%s %s] %s %s" % (self.id, self.role, _kind,
+                                 json.dumps(data, default=str)[:220]), flush=True)
+        return ev
+
+    def set(self, state):
+        self.state = state
+        self.emit("state", state=state)
+        if state in ("done", "failed"):
+            self.ended = time.time()
+
+    def view(self, since=0):
+        return {"id": self.id, "goal": self.goal, "role": self.role, "parent": self.parent, "state": self.state,
+                "elapsed": round((self.ended or time.time()) - self.started, 1),
+                "events": self.events[since:], "n_events": len(self.events), "result": self.result}
+
+
+def ask_human(run, kind, question, options=("approve", "deny"), timeout=300, detail=None):
+    """Block until the UI answers. kind: captcha | sign_in | money | destructive | clarify.
+    Returns the chosen option, 'deny' on timeout. In CA_AUTO_APPROVE=1 test mode returns options[0]."""
+    hid = "h%d" % next(_help_ids)
+    req = {"id": hid, "run": run.id, "kind": kind, "question": question, "options": list(options),
+           "detail": detail, "answer": None, "event": threading.Event(), "asked": time.time()}
+    HELP[hid] = req
+    run.set("awaiting_human")
+    run.emit("help", id=hid, help_kind=kind, question=question, options=list(options))
+    if os.environ.get("CA_AUTO_APPROVE") == "1":
+        answer(hid, options[0])
+    got = req["event"].wait(timeout)
+    ans = req["answer"] if got else "deny"
+    run.emit("help_answer", id=hid, answer=ans, timed_out=not got)
+    run.set("acting")
+    return ans
+
+
+def answer(hid, choice):
+    req = HELP.get(hid)
+    if not req or req["answer"] is not None:
+        return False
+    req["answer"] = choice
+    req["event"].set()
+    return True
+
+
+def pending_help():
+    return [{k: v for k, v in r.items() if k != "event"} for r in HELP.values() if r["answer"] is None]
+
+
+def digest(run, children=()):
+    """End-of-task report: what it did, how long, how many steps, cost, outcome."""
+    acts = [e for e in run.events if e["kind"] == "act"]
+    from . import llm
+    return {"run": run.id, "goal": run.goal, "role": run.role, "ok": bool(run.result and run.result.get("ok")),
+            "summary": (run.result or {}).get("summary", ""), "seconds": round((run.ended or time.time()) - run.started, 1),
+            "steps": len(acts), "help_requests": sum(e["kind"] == "help" for e in run.events),
+            "memory_steps": sum(e.get("source") == "memory" for e in acts),
+            "llm": dict(llm.USAGE), "children": [c.id for c in children]}
