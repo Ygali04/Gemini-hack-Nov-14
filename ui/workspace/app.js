@@ -1578,7 +1578,7 @@
       return;
     }
 
-    if (vm.isSampleData) {
+    if (vm.isSampleData && currentView !== "onboarding") {
       banner.classList.remove("hidden");
       banner.innerHTML = `
         <div class="filter-group">
@@ -1617,7 +1617,8 @@
     const strip = document.getElementById("approvals-strip");
     if (!strip) return;
 
-    if (!vm.approvals.length) {
+    const showApprovalsHere = currentView === "graph" || currentView === "logs";
+    if (!vm.approvals.length || !showApprovalsHere) {
       strip.classList.add("hidden");
       strip.innerHTML = "";
       return;
@@ -1643,13 +1644,12 @@
         }
 
         const optionButtonsHtml = item.options
-          .map((opt, idx) => {
+          .map((opt) => {
             const label = formatOptionButtonLabel(opt);
-            const isNegative = idx > 0 || opt === "deny" || opt === "cancel";
             return `
               <button
                 type="button"
-                class="btn ${isNegative ? "btn-destructive" : ""}"
+                class="btn"
                 data-action="answer-help"
                 data-help-id="${escapeHtml(item.id)}"
                 data-help-kind="${escapeHtml(item.kind)}"
