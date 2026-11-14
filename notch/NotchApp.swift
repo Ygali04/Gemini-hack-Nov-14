@@ -289,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var isSpeaking = false
     private var currentSpeakText = ""
+    private var inspectLoopStarted = false
 
     private lazy var uiFileURL: URL? = resolveUIFileURL()
 
@@ -323,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
 
         if let resourceURL = Bundle.main.resourceURL {
-            candidates.append(resourceURL.appendingPathComponent("ui/index.html"))
+            candidates.append(resourceURL.appendingPathComponent("ui/index.html").standardizedFileURL)
         }
 
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
@@ -349,7 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         var candidates: [URL] = []
 
         if let resourceURL = Bundle.main.resourceURL {
-            candidates.append(resourceURL.appendingPathComponent("ui/workspace.html"))
+            candidates.append(resourceURL.appendingPathComponent("ui/workspace.html").standardizedFileURL)
         }
 
         if let indexURL = uiFileURL {
@@ -569,7 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
 
-        var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: true)
         var queryItems = [URLQueryItem(name: "shell", value: "notch")]
         if let fixture = ProcessInfo.processInfo.environment["CA_FIXTURE"], !fixture.isEmpty {
             queryItems.append(URLQueryItem(name: "fixture", value: fixture))
@@ -681,7 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     private func workspaceTargetURL(fixtureName: String?) -> URL? {
         guard let wsFileURL = resolveWorkspaceFileURL() else { return nil }
-        var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: true)
         var queryItems = [URLQueryItem(name: "shell", value: "notch")]
         if let fixtureName = fixtureName {
             queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
@@ -856,7 +857,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func loadView(_ wv: WKWebView, _ items: [URLQueryItem]) {
-        guard let fileURL = uiFileURL, var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: false) else { return }
+        guard let fileURL = uiFileURL, var components = URLComponents(url: fileURL, resolvingAgainstBaseURL: true) else { return }
         components.queryItems = items
         wv.loadFileURL(components.url ?? fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
     }
@@ -1659,6 +1660,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     private func startInspectLoop() {
+        guard !inspectLoopStarted else { return }
+        inspectLoopStarted = true
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             while let line = readLine(strippingNewline: true) {
                 guard let data = line.data(using: .utf8),
