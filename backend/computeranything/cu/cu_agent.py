@@ -70,44 +70,48 @@ def _screenshot():
 
 
 def _gate(run, app, kind, el, text, els=()):
-    """Code decides what needs a person; the model never gets to skip this."""
-    label = "%s %s %s" % (kind, el["name"] if el else "", text or "")
+    """Code decides what needs a person; the model never gets to skip this.
+
+    Two strings, never mixed: `screen` (untrusted, may include message text) can only ADD a reason to
+    ask; the question shown to the user names only the action itself. Strict checks (money, sign-in,
+    destructive) run before the captcha branch, so on-screen words can never turn a payment into a
+    "solve the captcha, press done" prompt."""
+    target = el["name"] if el else ""
+    action = ("%s %s %s" % (kind, target, text or "")).strip()  # what the agent is about to do
+    screen = action
+    if kind == "press" and not NAV_KEY.match((text or "").strip()):
+        # a key that is not pure navigation can submit the focused form: judge it by every actionable label
+        screen += " " + " ".join(e["name"] for e in els if e.get("ref"))
+    shown = ("%s %s" % (kind, (target or text or "")[:60])).strip()  # safe to put in the question
     if kind == "press" and MESSAGING_APP.search(app or "") and SUBMIT_KEY.match((text or "").strip()):
-        # Return in a compose box sends a message, and messaging apps often show no Send button to read
-        q = "Press %s in %s? If a message box has focus, this sends a message." % (text, app)
+        q = "Press %s in %s? If a message box has focus, this sends a message." % ((text or "")[:20], app)
         return runs.ask_human(run, "destructive", q) == "approve"
     if kind == "launch" and SENSITIVE_APP.search(text or ""):
-        return runs.ask_human(run, "money", "Let the agent open %s?" % text) == "approve"
-    if kind == "press" and not NAV_KEY.match((text or "").strip()):
-        # Any key that is not pure navigation can submit the focused form, so fail closed: judge it by
-        # every actionable element on screen, not by the key name.
-        label += " " + " ".join(e["name"] for e in els if e.get("ref"))
-    if kind == "run_applescript" and len(text or "") > SCRIPT_PREVIEW:
-        return False  # never run code beyond what the approval preview shows
-    if kind == "run_applescript":  # fail closed: no keyword list can make arbitrary script safe
+        return runs.ask_human(run, "money", "Let the agent open %s?" % (text or "")[:60]) == "approve"
+    if kind == "run_applescript":
+        if len(text or "") > SCRIPT_PREVIEW:
+            return False  # never run code beyond what the approval preview shows
         h = hashlib.sha256((text or "").encode()).hexdigest()
         seen = getattr(run, "approved_scripts", set())
         if h in seen:  # this exact script was already approved in this run
             return True
         risky = " It can run shell commands, send keys or change data." if RISKY_SCRIPT.search(text or "") else ""
-        q = "Run this AppleScript in %s?%s" % (app, risky)
-        if runs.ask_human(run, "destructive", q, detail=text or "") != "approve":
+        if (
+            runs.ask_human(run, "destructive", "Run this AppleScript in %s?%s" % (app, risky), detail=text or "")
+            != "approve"
+        ):
             return False
         run.approved_scripts = seen | {h}
         return True
-    if CAPTCHA.search(label):
-        return (
-            runs.ask_human(run, "captcha", "Please solve the captcha in %s, then press done." % app, ("done", "cancel"))
-            == "done"
-        )
-    if MONEY.search(label):
-        return (
-            runs.ask_human(run, "money", "Allow '%s' in %s? This may move money." % (label.strip(), app)) == "approve"
-        )
-    if SIGN_IN.search(label) and kind in ("click", "type", "set_value"):
-        return runs.ask_human(run, "sign_in", "Allow signing in to %s ('%s')?" % (app, label.strip())) == "approve"
-    if graph.DESTRUCTIVE.search(label):
-        return runs.ask_human(run, "destructive", "Allow '%s' in %s?" % (label.strip(), app)) == "approve"
+    if MONEY.search(screen):
+        return runs.ask_human(run, "money", "Allow '%s' in %s? This may move money." % (shown, app)) == "approve"
+    if SIGN_IN.search(screen) and kind in ("click", "type", "set_value", "press"):
+        return runs.ask_human(run, "sign_in", "Allow '%s' in %s? This may sign in." % (shown, app)) == "approve"
+    if graph.DESTRUCTIVE.search(screen):
+        return runs.ask_human(run, "destructive", "Allow '%s' in %s?" % (shown, app)) == "approve"
+    if CAPTCHA.search(screen):  # only reached when nothing riskier matched
+        q = "Please solve the captcha in %s, then press done." % app
+        return runs.ask_human(run, "captcha", q, ("done", "cancel")) == "done"
     return True
 
 
