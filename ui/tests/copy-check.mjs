@@ -358,7 +358,7 @@ const NON_VISIBLE_CALL_RE =
 const COMPARISON_OP_RE = /(?:===|!==|==|!=)\s*$/;
 
 const VISIBLE_CONTEXT_RE =
-  /(?:\.(?:textContent|innerText|placeholder|title|innerHTML)\s*=\s*$|\b(?:connectionError|sendErrorText|provenanceDescription|reliabilityText|stateFact|stateSymbolWord|shortSymbolWord|mockNote|timeoutNote|latestSummary|phrase|sampleLabel)\s*(?:=|\?|:)\s*$|(?:^|[{,\s])(?:warning|when|tagline|note|sampleLabel|question|summary|mockNote|timeoutNote)\s*:[\s\S]{0,240}$|\breturn\s+$)/;
+  /(?:\.(?:textContent|innerText|placeholder|title|innerHTML)\s*=\s*$|\b(?:connectionError|sendErrorText|provenanceDescription|reliabilityText|stateFact|stateSymbolWord|shortSymbolWord|mockNote|timeoutNote|latestSummary|phrase|sampleLabel|caption)\s*(?:=|\?|:)\s*$|(?:^|[{,\s])(?:warning|when|tagline|note|sampleLabel|question|summary|mockNote|timeoutNote|caption)\s*:[\s\S]{0,240}$|\breturn\s+$)/;
 
 function isRegexStart(jsText, slashIdx) {
   let k = slashIdx - 1;
