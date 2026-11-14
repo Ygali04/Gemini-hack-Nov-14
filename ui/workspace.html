@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Workspace</title>
+  <link rel="stylesheet" href="./workspace/styles.css" />
+</head>
+<body>
+  <div class="workspace-app">
+    <!-- HEADER: Title, Provenance Badge, View Tabs, Fixed Prompt Input -->
+    <header class="workspace-header">
+      <div class="workspace-topbar">
+        <div class="workspace-brand">
+          <h1 class="workspace-title">Agent Workspace</h1>
+          <span id="provenance-badge" class="provenance-tag" style="display:none;">Sample data</span>
+        </div>
+
+        <nav class="view-nav" role="tablist" aria-label="Workspace views">
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="graph"
+            aria-selected="true"
+            aria-controls="panel-graph"
+          >
+            <span>Agent graph</span>
+            <span id="nav-count-graph" class="nav-count">0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="state-machine"
+            aria-selected="false"
+            aria-controls="panel-state-machine"
+          >
+            <span>State machine</span>
+            <span id="nav-count-sm" class="nav-count">0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="logs"
+            aria-selected="false"
+            aria-controls="panel-logs"
+          >
+            <span>Transcript log</span>
+            <span id="nav-count-logs" class="nav-count">0</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="analytics"
+            aria-selected="false"
+            aria-controls="panel-analytics"
+          >
+            <span>Analytics</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="nav-tab"
+            data-view-tab="onboarding"
+            aria-selected="false"
+            aria-controls="panel-onboarding"
+          >
+            <span>Onboarding</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Fixed single prompt input across the workspace surface -->
+      <form id="prompt-form" class="prompt-section">
+        <div class="prompt-row">
+          <div class="attach-wrapper">
+            <button
+              type="button"
+              id="attach-btn"
+              class="btn btn-icon"
+              aria-label="Add attachment"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              title="Add attachment"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3.2V12.8M3.2 8H12.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <div id="attach-menu" class="attach-menu" role="menu" aria-label="Attachment options">
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="photo">Photo…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="video">Video…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="files">Files…</button>
+              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="link">Link…</button>
+            </div>
+          </div>
+
+          <input type="file" id="file-input" multiple hidden />
+
+          <div id="prompt-field-wrap" class="prompt-field-wrap">
+            <label for="prompt-input" class="visually-hidden">Ask your agents</label>
+            <textarea
+              id="prompt-input"
+              class="prompt-textarea"
+              rows="1"
+              placeholder="Ask your agents…"
+            ></textarea>
+            <span class="enter-action-hint">Enter &middot; send to agents</span>
+          </div>
+
+          <button type="submit" id="send-btn" class="btn btn-primary">
+            <span>Send</span>
+          </button>
+        </div>
+
+        <div id="link-input-row" class="inline-input-row hidden">
+          <label for="link-input" class="visually-hidden">Attachment link URL</label>
+          <input
+            type="url"
+            id="link-input"
+            class="inline-text-input"
+            placeholder="https://example.com"
+          />
+          <button type="button" id="link-add-btn" class="btn">Add link</button>
+          <button type="button" id="link-cancel-btn" class="btn">Cancel</button>
+        </div>
+
+        <div id="attachments-list" class="attachments-list"></div>
+      </form>
+    </header>
+
+    <!-- CONNECTION / SAMPLE FIXTURE BAR -->
+    <div id="connection-banner" class="connection-banner hidden" role="status" aria-live="polite"></div>
+
+    <!-- SEND ERROR BANNER -->
+    <div id="send-error-banner" class="connection-banner hidden" role="alert"></div>
+
+    <!-- INLINE APPROVAL ITEMS (Request's own options: Approve/Deny or Done/Cancel) -->
+    <section id="approvals-strip" class="approvals-strip hidden" aria-label="Pending approvals"></section>
+
+    <!-- MAIN VIEWS -->
+    <main>
+      <!-- B1: Agent Graph -->
+      <section
+        id="panel-graph"
+        class="view-section active"
+        role="tabpanel"
+        data-view-panel="graph"
+        aria-label="Agent graph"
+      >
+        <div id="b1-content"></div>
+      </section>
+
+      <!-- B1b: State Machine Graph -->
+      <section
+        id="panel-state-machine"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="state-machine"
+        aria-label="State machine graph"
+      >
+        <div id="b1b-content"></div>
+      </section>
+
+      <!-- B2: Transcript Log -->
+      <section
+        id="panel-logs"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="logs"
+        aria-label="Transcript log"
+      >
+        <div id="b2-content"></div>
+      </section>
+
+      <!-- B3: Analytics -->
+      <section
+        id="panel-analytics"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="analytics"
+        aria-label="Analytics"
+      >
+        <div id="b3-content"></div>
+      </section>
+
+      <!-- B4: Onboarding -->
+      <section
+        id="panel-onboarding"
+        class="view-section"
+        role="tabpanel"
+        data-view-panel="onboarding"
+        aria-label="Onboarding"
+      >
+        <div id="b4-content"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Vendored sea-glass material renderer (classic script for file:// WKWebView + HTTP compatibility) -->
+  <script src="./vendor/sea-glass/sea-glass.classic.js"></script>
+  <script src="./shared/agent-glass.js"></script>
+  <script src="./workspace/app.js"></script>
+</body>
+</html>

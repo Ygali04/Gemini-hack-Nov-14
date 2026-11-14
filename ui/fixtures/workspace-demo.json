@@ -1,0 +1,797 @@
+{
+  "is_sample_data": true,
+  "sample_label": "Sample data · Multi-agent workspace fixture (not live backend runs)",
+  "agents": {
+    "r1763140500-2": {
+      "name": "Iris · Safari",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C"
+    },
+    "r1763140500-3": {
+      "name": "Kestrel · Calculator",
+      "color": "#EECED6",
+      "edge": "#FFF0F1",
+      "ink": "#963F59"
+    },
+    "r1763140500-4": {
+      "name": "Sora · Settings",
+      "color": "#C0DED0",
+      "edge": "#E6FFF0",
+      "ink": "#396C5A"
+    },
+    "r1763140500-5": {
+      "name": "Vega · QA",
+      "color": "#E1CDE8",
+      "edge": "#FBE8F7",
+      "ink": "#71388B"
+    },
+    "r1763140100-2": {
+      "name": "Vega · QA",
+      "color": "#E1CDE8",
+      "edge": "#FBE8F7",
+      "ink": "#71388B"
+    },
+    "r1763140100-3": {
+      "name": "Sora · Settings",
+      "color": "#F0D9BE",
+      "edge": "#FFFCE0",
+      "ink": "#865733"
+    },
+    "r1763140300-21": {
+      "name": "Iris · Safari",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C"
+    }
+  },
+  "runs": [
+    {
+      "id": "r1763140500-1",
+      "goal": "Prepare Q4 hardware order in Safari, verify unit total in Calculator, check Display Settings, and run checkout smoke check",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 14.8,
+      "n_events": 6,
+      "attachments": ["q4-hardware-quote.pdf", "https://store.example.com/hardware-cart"],
+      "result": null
+    },
+    {
+      "id": "r1763140500-2",
+      "goal": "Fill Q4 hardware cart in Safari and stop before submitting payment",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "agent_id": "cu-safari",
+      "parent": "r1763140500-1",
+      "state": "awaiting_human",
+      "elapsed": 12.4,
+      "n_events": 6,
+      "result": null
+    },
+    {
+      "id": "r1763140500-3",
+      "goal": "Verify 8 units at $31.00 equals $248.00 in Calculator",
+      "role": "cu",
+      "agent": "Kestrel · Calculator",
+      "agent_id": "cu-calc",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 5.6,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator"
+      }
+    },
+    {
+      "id": "r1763140500-4",
+      "goal": "Confirm Display Settings resolution is set to Default before capture",
+      "role": "cu",
+      "agent": "Sora · Settings",
+      "agent_id": "cu-settings",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 6.9,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Verified Built-in Display scale is Default (1512 × 982)"
+      }
+    },
+    {
+      "id": "r1763140500-5",
+      "goal": "Run smoke verification on local order receipt listener",
+      "role": "qa",
+      "agent": "Vega · QA",
+      "agent_id": "qa-shop",
+      "parent": "r1763140500-1",
+      "state": "acting",
+      "elapsed": 8.1,
+      "n_events": 4,
+      "result": null
+    },
+    {
+      "id": "r1763140100-1",
+      "goal": "Test /tmp/shop cart total and fix string concatenation bug",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "done",
+      "elapsed": 18.4,
+      "n_events": 5,
+      "attachments": ["cart-repro.png"],
+      "result": {
+        "ok": true,
+        "summary": "QA /tmp/shop: clean after 2 round(s), 1 patch(es) applied"
+      }
+    },
+    {
+      "id": "r1763140100-2",
+      "goal": "Verify /tmp/shop cart total and email validation",
+      "role": "qa",
+      "agent": "Vega · QA",
+      "agent_id": "qa-shop",
+      "parent": "r1763140100-1",
+      "state": "done",
+      "elapsed": 12.1,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Verified cart total displays $20 and empty email blocks submit"
+      }
+    },
+    {
+      "id": "r1763140100-3",
+      "goal": "Patch /tmp/shop/public/app.js numeric price parsing",
+      "role": "dev",
+      "agent": "Sora · Settings",
+      "agent_id": "cu-settings",
+      "parent": "r1763140100-1",
+      "state": "done",
+      "elapsed": 6.3,
+      "n_events": 5,
+      "result": {
+        "ok": true,
+        "summary": "1 patch applied to public/app.js"
+      }
+    },
+    {
+      "id": "r1763140300-20",
+      "goal": "Reset staging credentials and clear Safari saved session",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 11.2,
+      "n_events": 4,
+      "attachments": [],
+      "result": {
+        "ok": false,
+        "summary": "Stopped: sign-in reset denied by user"
+      }
+    },
+    {
+      "id": "r1763140300-21",
+      "goal": "Clear Safari staging account session",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "agent_id": "cu-safari",
+      "parent": "r1763140300-20",
+      "state": "failed",
+      "elapsed": 9.8,
+      "n_events": 5,
+      "result": {
+        "ok": false,
+        "summary": "Stopped: sign-in reset denied by user"
+      }
+    }
+  ],
+  "details": {
+    "r1763140500-1": {
+      "id": "r1763140500-1",
+      "goal": "Prepare Q4 hardware order in Safari, verify unit total in Calculator, check Display Settings, and run checkout smoke check",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 14.8,
+      "n_events": 6,
+      "attachments": ["q4-hardware-quote.pdf", "https://store.example.com/hardware-cart"],
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "decide", "thought": "Split task into 4 parallel agents: Safari cart, Calculator check, System Settings check, and QA smoke check", "action": "dispatch:4" },
+        { "t": 0.6, "kind": "route", "role": "cu", "app": "Safari", "goal": "Fill Q4 hardware cart in Safari and stop before submitting payment" },
+        { "t": 0.7, "kind": "route", "role": "cu", "app": "Calculator", "goal": "Verify 8 units at $31.00 equals $248.00 in Calculator" },
+        { "t": 0.8, "kind": "route", "role": "cu", "app": "System Settings", "goal": "Confirm Display Settings resolution is set to Default before capture" },
+        { "t": 0.9, "kind": "state", "state": "acting" }
+      ],
+      "result": null
+    },
+    "r1763140500-2": {
+      "id": "r1763140500-2",
+      "goal": "Fill Q4 hardware cart in Safari and stop before submitting payment",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "agent_id": "cu-safari",
+      "parent": "r1763140500-1",
+      "state": "awaiting_human",
+      "elapsed": 12.4,
+      "n_events": 6,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 1.1, "kind": "app_ready", "app": "Safari", "method": "ax", "seconds": 0.9 },
+        { "t": 2.4, "kind": "decide", "ms": 640, "thought": "Select USB-C Dock quantity 8 and open checkout review", "action": "click:button:add to cart" },
+        { "t": 3.8, "kind": "act", "step": 1, "source": "memory", "action": "click:button:add to cart", "act_ms": 145 },
+        { "t": 6.5, "kind": "act", "step": 2, "source": "model", "action": "click:button:proceed to checkout", "act_ms": 210 },
+        { "t": 9.1, "kind": "help", "id": "h12", "help_kind": "money", "question": "Let the agent click Submit Order ($248.00)?", "options": ["approve", "deny"] }
+      ],
+      "result": null
+    },
+    "r1763140500-3": {
+      "id": "r1763140500-3",
+      "goal": "Verify 8 units at $31.00 equals $248.00 in Calculator",
+      "role": "cu",
+      "agent": "Kestrel · Calculator",
+      "agent_id": "cu-calc",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 5.6,
+      "n_events": 6,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 0.9, "kind": "app_ready", "app": "Calculator", "method": "ax", "seconds": 0.7 },
+        { "t": 1.8, "kind": "decide", "ms": 410, "thought": "Enter 8 * 31 = in Calculator and read display", "action": "type:8*31=" },
+        { "t": 2.9, "kind": "act", "step": 1, "source": "memory", "action": "key:8*31=", "act_ms": 110 },
+        { "t": 4.8, "kind": "verify", "achieved": true, "evidence": "Calculator result display reads 248" },
+        { "t": 5.6, "kind": "result", "ok": true, "summary": "Verified 8 × 31 = 248 in Calculator" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Verified 8 × 31 = 248 in Calculator"
+      }
+    },
+    "r1763140500-4": {
+      "id": "r1763140500-4",
+      "goal": "Confirm Display Settings resolution is set to Default before capture",
+      "role": "cu",
+      "agent": "Sora · Settings",
+      "agent_id": "cu-settings",
+      "parent": "r1763140500-1",
+      "state": "done",
+      "elapsed": 6.9,
+      "n_events": 6,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 1.3, "kind": "app_ready", "app": "System Settings", "method": "ax", "seconds": 1.1 },
+        { "t": 2.5, "kind": "act", "step": 1, "source": "memory", "action": "click:button:displays", "act_ms": 180 },
+        { "t": 4.2, "kind": "decide", "ms": 520, "thought": "Confirm Default scale pill is selected on Built-in Display", "action": "click:radio:default" },
+        { "t": 5.9, "kind": "verify", "achieved": true, "evidence": "System Settings > Displays shows Default (1512 × 982) active" },
+        { "t": 6.9, "kind": "result", "ok": true, "summary": "Verified Built-in Display scale is Default (1512 × 982)" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Verified Built-in Display scale is Default (1512 × 982)"
+      }
+    },
+    "r1763140500-5": {
+      "id": "r1763140500-5",
+      "goal": "Run smoke verification on local order receipt listener",
+      "role": "qa",
+      "agent": "Vega · QA",
+      "agent_id": "qa-shop",
+      "parent": "r1763140500-1",
+      "state": "acting",
+      "elapsed": 8.1,
+      "n_events": 4,
+      "events": [
+        { "t": 0.3, "kind": "state", "state": "acting" },
+        { "t": 2.1, "kind": "decide", "ms": 490, "thought": "Run receipt schema test suite before checkout completes", "action": "tests:round-1" },
+        { "t": 5.4, "kind": "tests", "round": 1, "cmd": "npm test --silent", "exit": 0, "tail": "4 passed (receipt webhook & totals)" },
+        { "t": 7.6, "kind": "help", "id": "h14", "help_kind": "clarify", "question": "Save invoice PDF copy to ~/Downloads/invoices after checkout?", "options": ["done", "cancel"] }
+      ],
+      "result": null
+    },
+    "r1763140100-1": {
+      "id": "r1763140100-1",
+      "goal": "Test /tmp/shop cart total and fix string concatenation bug",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "done",
+      "elapsed": 18.4,
+      "n_events": 5,
+      "attachments": ["cart-repro.png"],
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.8, "kind": "route", "role": "qa", "repo": "/tmp/shop", "goal": "Verify /tmp/shop cart total and email validation" },
+        { "t": 6.2, "kind": "route", "role": "dev", "repo": "/tmp/shop", "goal": "Patch /tmp/shop/public/app.js numeric price parsing" },
+        { "t": 18.0, "kind": "verify", "achieved": true, "evidence": "Cart total displays $20 and empty email blocks submit" },
+        { "t": 18.4, "kind": "result", "ok": true, "summary": "QA /tmp/shop: clean after 2 round(s), 1 patch(es) applied" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "QA /tmp/shop: clean after 2 round(s), 1 patch(es) applied"
+      }
+    },
+    "r1763140100-2": {
+      "id": "r1763140100-2",
+      "goal": "Verify /tmp/shop cart total and email validation",
+      "role": "qa",
+      "agent": "Vega · QA",
+      "agent_id": "qa-shop",
+      "parent": "r1763140100-1",
+      "state": "done",
+      "elapsed": 12.1,
+      "n_events": 6,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "acting" },
+        { "t": 2.3, "kind": "tests", "round": 1, "cmd": "npm test --silent", "exit": 1, "tail": "FAIL cart.test.js: expected $20, got $128" },
+        { "t": 5.2, "kind": "bug_report", "round": 1, "bugs": [{ "id": "B1", "title": "Cart total concatenates strings", "severity": "high", "evidence": "Adding $12 and $8 showed $128" }] },
+        { "t": 10.4, "kind": "tests", "round": 2, "cmd": "npm test --silent", "exit": 0, "tail": "4 passed" },
+        { "t": 11.8, "kind": "verify", "achieved": true, "evidence": "Cart total displays $20 and empty email blocks submit" },
+        { "t": 12.1, "kind": "result", "ok": true, "summary": "Verified cart total displays $20 and empty email blocks submit" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Verified cart total displays $20 and empty email blocks submit"
+      }
+    },
+    "r1763140100-3": {
+      "id": "r1763140100-3",
+      "goal": "Patch /tmp/shop/public/app.js numeric price parsing",
+      "role": "dev",
+      "agent": "Sora · Settings",
+      "agent_id": "cu-settings",
+      "parent": "r1763140100-1",
+      "state": "done",
+      "elapsed": 6.3,
+      "n_events": 5,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "acting" },
+        { "t": 1.2, "kind": "help", "id": "h1", "help_kind": "destructive", "question": "Apply patch to /tmp/shop/public/app.js?", "options": ["approve", "deny"] },
+        { "t": 3.8, "kind": "help_answer", "id": "h1", "answer": "approve", "timed_out": false },
+        { "t": 4.9, "kind": "patch", "round": 1, "applied": true, "explanation": "Parse prices as numbers before summing cart total" },
+        { "t": 6.3, "kind": "result", "ok": true, "summary": "1 patch applied to public/app.js" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "1 patch applied to public/app.js"
+      }
+    },
+    "r1763140300-20": {
+      "id": "r1763140300-20",
+      "goal": "Reset staging credentials and clear Safari saved session",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 11.2,
+      "n_events": 4,
+      "attachments": [],
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.5, "kind": "route", "role": "cu", "app": "Safari", "goal": "Clear Safari staging account session" },
+        { "t": 9.8, "kind": "error", "error": "Sign-in reset denied by user" },
+        { "t": 11.2, "kind": "result", "ok": false, "summary": "Stopped: sign-in reset denied by user" }
+      ],
+      "result": {
+        "ok": false,
+        "summary": "Stopped: sign-in reset denied by user"
+      }
+    },
+    "r1763140300-21": {
+      "id": "r1763140300-21",
+      "goal": "Clear Safari staging account session",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "agent_id": "cu-safari",
+      "parent": "r1763140300-20",
+      "state": "failed",
+      "elapsed": 9.8,
+      "n_events": 5,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 1.6, "kind": "decide", "ms": 530, "thought": "Open Safari Account Settings to sign out of staging profile", "action": "click:button:sign out" },
+        { "t": 2.4, "kind": "help", "id": "h9", "help_kind": "sign_in", "question": "Sign out of staging account in Safari?", "options": ["approve", "deny"] },
+        { "t": 8.9, "kind": "help_answer", "id": "h9", "answer": "deny", "timed_out": false },
+        { "t": 9.8, "kind": "result", "ok": false, "summary": "Stopped: sign-in reset denied by user" }
+      ],
+      "result": {
+        "ok": false,
+        "summary": "Stopped: sign-in reset denied by user"
+      }
+    }
+  },
+  "help": [
+    {
+      "id": "h12",
+      "run": "r1763140500-2",
+      "kind": "money",
+      "question": "Let the agent click Submit Order ($248.00)?",
+      "options": ["approve", "deny"],
+      "detail": "Safari · Hardware Store Checkout · 8 × USB-C Dock ($248.00 total)",
+      "answer": null,
+      "asked": 4102444800
+    },
+    {
+      "id": "h14",
+      "run": "r1763140500-5",
+      "kind": "clarify",
+      "question": "Save invoice PDF copy to ~/Downloads/invoices after checkout?",
+      "options": ["done", "cancel"],
+      "detail": "Local workspace · ~/Downloads/invoices/q4-hardware-248.pdf",
+      "answer": null,
+      "asked": 4102444800
+    }
+  ],
+  "transcripts": [
+    {
+      "id": 101,
+      "ts": 1763140500.1,
+      "run": "r1763140500-1",
+      "role": "user",
+      "agent": "user",
+      "kind": "prompt",
+      "text": "Prepare Q4 hardware order in Safari, verify unit total in Calculator, check Display Settings, and run checkout smoke check",
+      "meta": { "attachments": ["q4-hardware-quote.pdf", "https://store.example.com/hardware-cart"] }
+    },
+    {
+      "id": 102,
+      "ts": 1763140500.6,
+      "run": "r1763140500-1",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "kind": "decide",
+      "text": "Split task into 4 parallel agents: Safari cart, Calculator check, System Settings check, and QA smoke check",
+      "meta": {}
+    },
+    {
+      "id": 103,
+      "ts": 1763140503.8,
+      "run": "r1763140500-1",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "kind": "act",
+      "text": "Selected USB-C Dock quantity 8 and proceeded to checkout review",
+      "meta": { "app": "Safari" }
+    },
+    {
+      "id": 104,
+      "ts": 1763140505.6,
+      "run": "r1763140500-1",
+      "role": "cu",
+      "agent": "Kestrel · Calculator",
+      "kind": "result",
+      "text": "Verified 8 × 31 = 248 in Calculator",
+      "meta": { "ok": true }
+    },
+    {
+      "id": 105,
+      "ts": 1763140506.9,
+      "run": "r1763140500-1",
+      "role": "cu",
+      "agent": "Sora · Settings",
+      "kind": "result",
+      "text": "Verified Built-in Display scale is Default (1512 × 982)",
+      "meta": { "ok": true }
+    },
+    {
+      "id": 106,
+      "ts": 1763140509.1,
+      "run": "r1763140500-1",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "kind": "help",
+      "text": "Let the agent click Submit Order ($248.00)?",
+      "meta": { "kind": "money", "options": ["approve", "deny"] }
+    },
+    {
+      "id": 201,
+      "ts": 1763140100.1,
+      "run": "r1763140100-1",
+      "role": "user",
+      "agent": "user",
+      "kind": "prompt",
+      "text": "Test /tmp/shop cart total and fix string concatenation bug",
+      "meta": { "attachments": ["cart-repro.png"] }
+    },
+    {
+      "id": 202,
+      "ts": 1763140105.2,
+      "run": "r1763140100-1",
+      "role": "qa",
+      "agent": "Vega · QA",
+      "kind": "bug_report",
+      "text": "Cart total concatenates strings: adding $12 and $8 showed $128",
+      "meta": { "severity": "high" }
+    },
+    {
+      "id": 203,
+      "ts": 1763140114.9,
+      "run": "r1763140100-1",
+      "role": "dev",
+      "agent": "Sora · Settings",
+      "kind": "patch",
+      "text": "Applied patch to /tmp/shop/public/app.js: parse prices as numbers before summing cart total",
+      "meta": { "applied": true }
+    },
+    {
+      "id": 204,
+      "ts": 1763140118.4,
+      "run": "r1763140100-1",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "kind": "result",
+      "text": "QA /tmp/shop: clean after 2 round(s), 1 patch(es) applied",
+      "meta": { "ok": true }
+    },
+    {
+      "id": 301,
+      "ts": 1763140300.1,
+      "run": "r1763140300-20",
+      "role": "user",
+      "agent": "user",
+      "kind": "prompt",
+      "text": "Reset staging credentials and clear Safari saved session",
+      "meta": {}
+    },
+    {
+      "id": 302,
+      "ts": 1763140302.4,
+      "run": "r1763140300-20",
+      "role": "cu",
+      "agent": "Iris · Safari",
+      "kind": "help",
+      "text": "Sign out of staging account in Safari?",
+      "meta": { "kind": "sign_in", "options": ["approve", "deny"] }
+    },
+    {
+      "id": 303,
+      "ts": 1763140311.2,
+      "run": "r1763140300-20",
+      "role": "orchestrator",
+      "agent": "Mercury",
+      "kind": "result",
+      "text": "Stopped: sign-in reset denied by user",
+      "meta": { "ok": false }
+    }
+  ],
+  "actions": {
+    "total": 10,
+    "actions": [
+      {
+        "ts": 1763140501.2,
+        "run": "r1763140500-2",
+        "agent": "Iris · Safari",
+        "agent_id": "cu-safari",
+        "app": "Safari",
+        "from": "Safari:store-catalog",
+        "from_title": "Safari · Hardware Catalog",
+        "action": "click:button:usb-c dock qty 8",
+        "to": "Safari:cart-summary",
+        "to_title": "Safari · Cart Summary (8 items)",
+        "outcome": "ok",
+        "ms": 145,
+        "source": "memory"
+      },
+      {
+        "ts": 1763140503.8,
+        "run": "r1763140500-2",
+        "agent": "Iris · Safari",
+        "agent_id": "cu-safari",
+        "app": "Safari",
+        "from": "Safari:cart-summary",
+        "from_title": "Safari · Cart Summary (8 items)",
+        "action": "click:button:proceed to checkout",
+        "to": "Safari:checkout-review",
+        "to_title": "Safari · Checkout Review ($248)",
+        "outcome": "ok",
+        "ms": 210,
+        "source": "model"
+      },
+      {
+        "ts": 1763140509.1,
+        "run": "r1763140500-2",
+        "agent": "Iris · Safari",
+        "agent_id": "cu-safari",
+        "app": "Safari",
+        "from": "Safari:checkout-review",
+        "from_title": "Safari · Checkout Review ($248)",
+        "action": "click:button:submit order",
+        "to": "Safari:order-confirmation",
+        "to_title": "Safari · Order Confirmation",
+        "outcome": "help",
+        "ms": 0,
+        "source": "model"
+      },
+      {
+        "ts": 1763140308.9,
+        "run": "r1763140300-21",
+        "agent": "Iris · Safari",
+        "agent_id": "cu-safari",
+        "app": "Safari",
+        "from": "Safari:account-settings",
+        "from_title": "Safari · Account Security",
+        "action": "click:button:sign out all sessions",
+        "to": "Safari:signed-out",
+        "to_title": "Safari · Signed Out",
+        "outcome": "denied",
+        "ms": 0,
+        "source": "model"
+      },
+      {
+        "ts": 1763140502.1,
+        "run": "r1763140500-3",
+        "agent": "Kestrel · Calculator",
+        "agent_id": "cu-calc",
+        "app": "Calculator",
+        "from": "Calculator:clear-0",
+        "from_title": "Calculator · Display 0",
+        "action": "key:8*31",
+        "to": "Calculator:expr-8x31",
+        "to_title": "Calculator · Input 8 × 31",
+        "outcome": "ok",
+        "ms": 95,
+        "source": "memory"
+      },
+      {
+        "ts": 1763140502.9,
+        "run": "r1763140500-3",
+        "agent": "Kestrel · Calculator",
+        "agent_id": "cu-calc",
+        "app": "Calculator",
+        "from": "Calculator:expr-8x31",
+        "from_title": "Calculator · Input 8 × 31",
+        "action": "key:equals",
+        "to": "Calculator:result-248",
+        "to_title": "Calculator · Display 248",
+        "outcome": "ok",
+        "ms": 110,
+        "source": "memory"
+      },
+      {
+        "ts": 1763140502.5,
+        "run": "r1763140500-4",
+        "agent": "Sora · Settings",
+        "agent_id": "cu-settings",
+        "app": "System Settings",
+        "from": "Settings:general-home",
+        "from_title": "System Settings · General",
+        "action": "click:sidebar:displays",
+        "to": "Settings:displays-main",
+        "to_title": "System Settings · Displays",
+        "outcome": "ok",
+        "ms": 180,
+        "source": "memory"
+      },
+      {
+        "ts": 1763140504.8,
+        "run": "r1763140500-4",
+        "agent": "Sora · Settings",
+        "agent_id": "cu-settings",
+        "app": "System Settings",
+        "from": "Settings:displays-main",
+        "from_title": "System Settings · Displays",
+        "action": "click:radio:default resolution",
+        "to": "Settings:displays-verified",
+        "to_title": "System Settings · Default (1512 × 982)",
+        "outcome": "ok",
+        "ms": 160,
+        "source": "model"
+      },
+      {
+        "ts": 1763140103.4,
+        "run": "r1763140100-2",
+        "agent": "Vega · QA",
+        "agent_id": "qa-shop",
+        "app": "Safari",
+        "from": "Safari:shop-cart-v1",
+        "from_title": "Safari · Local Shop Cart (Buggy)",
+        "action": "click:button:add item $8",
+        "to": "Safari:shop-cart-concat",
+        "to_title": "Safari · Cart Total $128 (Bug)",
+        "outcome": "failed",
+        "ms": 230,
+        "source": "model"
+      },
+      {
+        "ts": 1763140111.2,
+        "run": "r1763140100-2",
+        "agent": "Vega · QA",
+        "agent_id": "qa-shop",
+        "app": "Safari",
+        "from": "Safari:shop-cart-v1",
+        "from_title": "Safari · Local Shop Cart (Patched)",
+        "action": "click:button:verify total $20",
+        "to": "Safari:shop-cart-verified",
+        "to_title": "Safari · Cart Total $20 Verified",
+        "outcome": "ok",
+        "ms": 150,
+        "source": "model"
+      }
+    ]
+  },
+  "graph": {
+    "screens": 11,
+    "transitions": 10,
+    "skills": 4,
+    "apps": ["Calculator", "Safari", "System Settings"],
+    "mean_edge_p": 0.812,
+    "destructive_edges": 2,
+    "actions_logged": 10,
+    "agents": ["Iris · Safari", "Kestrel · Calculator", "Sora · Settings", "Vega · QA"]
+  },
+  "analytics": {
+    "tasks": 3,
+    "cost_usd": 0.0418,
+    "llm_calls": 16,
+    "mean_cost_per_task": 0.013933,
+    "by_role": [
+      { "role": "orchestrator", "runs": 3, "ok": 2, "mean_seconds": 14.8 },
+      { "role": "cu", "runs": 4, "ok": 2, "mean_seconds": 8.68 },
+      { "role": "qa", "runs": 2, "ok": 1, "mean_seconds": 10.1 },
+      { "role": "dev", "runs": 1, "ok": 1, "mean_seconds": 6.3 }
+    ],
+    "by_purpose": [
+      { "purpose": "decide", "calls": 7, "cost_usd": 0.0194, "mean_ms": 538 },
+      { "purpose": "verify", "calls": 4, "cost_usd": 0.0102, "mean_ms": 420 },
+      { "purpose": "route", "calls": 3, "cost_usd": 0.0048, "mean_ms": 310 },
+      { "purpose": "patch", "calls": 2, "cost_usd": 0.0074, "mean_ms": 890 }
+    ],
+    "by_app": [
+      { "app": "Safari", "actions": 6, "ok": 3, "failed": 1, "denied": 1 },
+      { "app": "Calculator", "actions": 2, "ok": 2, "failed": 0, "denied": 0 },
+      { "app": "System Settings", "actions": 2, "ok": 2, "failed": 0, "denied": 0 }
+    ]
+  },
+  "costs": {
+    "r1763140500-1": {
+      "run": "r1763140500-1",
+      "agents": 5,
+      "llm_calls": 8,
+      "prompt_tokens": 14280,
+      "completion_tokens": 1890,
+      "cost_usd": 0.0214,
+      "model_seconds": 4.3,
+      "actions": { "ok": 5, "help": 1 },
+      "by_agent": [
+        { "agent": "Mercury", "calls": 2, "cost": 0.0038, "ms": 620 },
+        { "agent": "Iris · Safari", "calls": 2, "cost": 0.0064, "ms": 1350 },
+        { "agent": "Kestrel · Calculator", "calls": 1, "cost": 0.0029, "ms": 410 },
+        { "agent": "Sora · Settings", "calls": 2, "cost": 0.0049, "ms": 1020 },
+        { "agent": "Vega · QA", "calls": 1, "cost": 0.0034, "ms": 900 }
+      ]
+    },
+    "r1763140100-1": {
+      "run": "r1763140100-1",
+      "agents": 3,
+      "llm_calls": 6,
+      "prompt_tokens": 10840,
+      "completion_tokens": 1420,
+      "cost_usd": 0.0156,
+      "model_seconds": 3.5,
+      "actions": { "ok": 1, "failed": 1 },
+      "by_agent": [
+        { "agent": "Mercury", "calls": 1, "cost": 0.0018, "ms": 290 },
+        { "agent": "Vega · QA", "calls": 3, "cost": 0.0072, "ms": 1680 },
+        { "agent": "Sora · Settings", "calls": 2, "cost": 0.0066, "ms": 1530 }
+      ]
+    },
+    "r1763140300-20": {
+      "run": "r1763140300-20",
+      "agents": 2,
+      "llm_calls": 2,
+      "prompt_tokens": 3120,
+      "completion_tokens": 390,
+      "cost_usd": 0.0048,
+      "model_seconds": 0.9,
+      "actions": { "denied": 1 },
+      "by_agent": [
+        { "agent": "Mercury", "calls": 1, "cost": 0.0016, "ms": 310 },
+        { "agent": "Iris · Safari", "calls": 1, "cost": 0.0032, "ms": 590 }
+      ]
+    }
+  }
+}
