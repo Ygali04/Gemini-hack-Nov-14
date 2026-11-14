@@ -7,6 +7,15 @@
  *
  * Node built-ins only; no browser.
  * Exits 0 on CHECK PASS, 1 on CHECK FAIL.
+ *
+ * Shell -> page `filesDropped` item shape (kept in sync with notch/NotchApp.swift):
+ *   - path: string (local or temp file path)
+ *   - name: string (file or folder display name)
+ *   - size: number (bytes; 0 for folders)
+ *   - kind: "image" | "text" | "pdf" | "folder" | "other"
+ *   - thumbnail?: string (data URL <= 128 px on longest side when kind === "image")
+ *   - pageCount?: number (PDF page count when kind === "pdf")
+ *   - textExtracted?: boolean (true when PDFKit extracted text for upload when kind === "pdf")
  */
 
 import fs from "node:fs";

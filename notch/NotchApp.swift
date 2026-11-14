@@ -9,11 +9,21 @@ import AVFoundation
 // Option-Space reaches the delegate through this pointer (a Carbon handler cannot capture).
 nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 
+// Bridge contract for `filesDropped` (shell -> page):
+// Each item in `files` is a dictionary with:
+//   - path: String (local or temp file path)
+//   - name: String (file or folder display name)
+//   - size: Int (bytes; 0 for folders)
+//   - kind: String ("image" | "text" | "pdf" | "folder" | "other")
+//   - thumbnail: String? (optional; data URL <= 128 px on longest side when kind == "image")
+//   - pageCount: Int? (optional; PDF page count when kind == "pdf")
+//   - textExtracted: Bool? (optional; true when PDFKit extracted text for upload when kind == "pdf")
+//
 // A web view that accepts the first click (notifications work without focusing first) and turns dropped
-// Finder files into real paths for the page (WebKit alone hides paths from the page).
+// Finder files, file promises, image data, and Cmd+V pastes into `filesDropped` events for the page.
 @MainActor
 final class ShellWebView: WKWebView {
-    var onFiles: (([[String: String]]) -> Void)?
+    var onFiles: (([[String: Any]]) -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
