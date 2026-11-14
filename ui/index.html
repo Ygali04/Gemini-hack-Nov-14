@@ -18,7 +18,7 @@
       /* Text hierarchy */
       --text-primary: #f2f4f8;
       --text-secondary: #a6adbb;
-      --text-muted: #767d8e;
+      --text-muted: #7d8495;
 
       /* Primary ink button (only filled button in panel) */
       --ink-fill: #f2f4f8;
@@ -382,9 +382,15 @@
       font-family: var(--font-sans);
       font-size: 13px;
       line-height: 20px;
-      outline: none !important;
+      border-radius: 4px;
       overflow-y: auto;
       user-select: text;
+    }
+
+    .prompt-textarea:focus,
+    .prompt-textarea:focus-visible {
+      outline: 1.5px solid var(--focus-ring);
+      outline-offset: 2px;
     }
 
     .prompt-textarea::placeholder {
@@ -528,6 +534,7 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
+      padding: 6px 0;
       overflow-y: auto;
       max-height: 460px;
     }
@@ -892,7 +899,6 @@
       gap: 8px;
       min-width: 0;
       flex: 1;
-      overflow: hidden;
     }
 
     .step-actor {
@@ -903,7 +909,7 @@
       flex-shrink: 0;
     }
 
-    /* A3: Agent identity chip — plain colored capsule by default; glass only if shared module + ctx.filter pass */
+    /* A3: Agent identity chip — sea-glass via ui/shared/agent-glass.js, plain capsule fallback */
     .agent-chip {
       position: relative;
       isolation: isolate;
@@ -1181,6 +1187,8 @@
     </div>
   </div>
 
+  <script src="./vendor/sea-glass/sea-glass.classic.js"></script>
+  <script src="./shared/agent-glass.js"></script>
   <script>
     (function () {
       const params = new URLSearchParams(window.location.search);
@@ -1210,11 +1218,19 @@
         let fixtureState = null;
 
         window.__notchBridgeReceive = function (msg) {
-          if (!msg || !msg.id) return;
-          const resolver = pendingBridgeCalls.get(msg.id);
-          if (resolver) {
+          if (!msg) return;
+          if (msg.id && pendingBridgeCalls.has(msg.id)) {
+            const resolver = pendingBridgeCalls.get(msg.id);
             pendingBridgeCalls.delete(msg.id);
             resolver(msg);
+            return;
+          }
+          if (msg.type === "connectionUpdated" && msg.ok && !fixtureParam) {
+            sessionBaseUrl = msg.baseUrl || "shell";
+            sessionToken = "shell-session";
+            connectionError = "";
+            connectionStatus = "loading";
+            pollAll();
           }
         };
 
@@ -1629,15 +1645,54 @@
             null;
           const fallbackName = extractEventAgentName(events) || actorLabelForRole(runObj?.role);
           const seed = hashString(String(runObj?.id || fallbackName || "agent")) % 10000;
-          const baseColor = normalizeHex(record?.color || record?.body, NEUTRAL_AGENT_COLOR);
+          const hasAgentColor = Boolean(record && (record.color || record.body));
+          if (hasAgentColor) {
+            const rawColor = normalizeHex(record.color || record.body, NEUTRAL_AGENT_COLOR);
+            const rawEdge = normalizeHex(record.edge, mixHex(rawColor, "#FFFFFF", 0.35));
+            const rawInk = normalizeHex(record.ink, mixHex(rawColor, "#000000", 0.45));
+            const shared = typeof window !== "undefined" ? window.AgentGlass : null;
+            let palette;
+            if (shared && typeof shared.resolveAgentPalette === "function") {
+              const resolved = shared.resolveAgentPalette({
+                color: rawColor,
+                edge: rawEdge,
+                ink: rawInk,
+              });
+              palette = {
+                body: normalizeHex(resolved.body, rawColor),
+                edge: normalizeHex(resolved.edge, rawEdge),
+                ink: normalizeHex(resolved.ink, rawInk),
+              };
+            } else {
+              palette = {
+                body: rawColor,
+                edge: rawEdge,
+                ink: ensureContrastInk(rawColor, mixHex(rawInk, "#000000", 0.25)),
+              };
+            }
+            return {
+              id: runObj?.id || `agent-${fallbackIndex}`,
+              name: String(record.name || fallbackName).trim(),
+              color: rawColor,
+              rawEdge,
+              rawInk,
+              hasAgentColor: true,
+              palette,
+              seed,
+            };
+          }
+          const baseColor = NEUTRAL_AGENT_COLOR;
           const body = mixHex(baseColor, "#FFFFFF", 0.70);
-          const edge = normalizeHex(record?.edge, mixHex(body, "#FFFFFF", 0.35));
-          const derivedInk = normalizeHex(record?.ink, mixHex(baseColor, "#000000", 0.45));
+          const edge = mixHex(body, "#FFFFFF", 0.35);
+          const derivedInk = mixHex(baseColor, "#000000", 0.45);
           const ink = ensureContrastInk(body, derivedInk);
           return {
             id: runObj?.id || `agent-${fallbackIndex}`,
             name: String(record?.name || fallbackName).trim(),
             color: baseColor,
+            rawEdge: edge,
+            rawInk: derivedInk,
+            hasAgentColor: false,
             palette: { body, edge, ink },
             seed,
           };
@@ -2416,7 +2471,7 @@
               mockNote: isSampleContext
                 ? "Mock verification is not real evidence"
                 : hasMockVerify
-                ? "Mock verification (CA_MOCK) is not real evidence"
+                ? "Mock verification (mock mode) is not real evidence"
                 : "",
               stateSymbolWord,
               stateFact,
@@ -2526,24 +2581,14 @@
         }, 420);
       }
 
-      let sharedAgentGlassPromise = null;
-
-      function supportsCanvasFilter() {
-        try {
-          return typeof CanvasRenderingContext2D !== "undefined" && ("filter" in CanvasRenderingContext2D.prototype);
-        } catch {
-          return false;
+      function getSharedAgentGlass() {
+        if (window.AgentGlass && typeof window.AgentGlass.mountAgentGlass === "function") {
+          return window.AgentGlass;
         }
-      }
-
-      async function loadSharedAgentGlass() {
-        if (!supportsCanvasFilter()) return null;
-        if (!sharedAgentGlassPromise) {
-          sharedAgentGlassPromise = import("./shared/agent-glass.js")
-            .then((mod) => (typeof mod?.mountAgentGlass === "function" ? mod : null))
-            .catch(() => null);
+        if (typeof window.mountAgentGlass === "function") {
+          return { mountAgentGlass: window.mountAgentGlass };
         }
-        return sharedAgentGlassPromise;
+        return null;
       }
 
       function destroyAllAgentChips() {
@@ -2558,27 +2603,36 @@
       }
 
       function mountAllAgentChips() {
-        if (!supportsCanvasFilter()) return;
-        loadSharedAgentGlass().then((mod) => {
-          if (!mod) return;
-          const nodes = timelineScroll.querySelectorAll("[data-agent-chip]");
-          nodes.forEach((el) => {
-            const stepId = el.dataset.agentChip || "";
-            if (!stepId || mountedAgentChips.has(stepId)) return;
-            const name = el.dataset.agentName || "";
-            const color = el.dataset.agentColor || "#5C6B7A";
-            try {
-              el.classList.add("has-glass");
-              const inst = mod.mountAgentGlass(el, { id: stepId, name, color });
-              if (inst) {
-                mountedAgentChips.set(stepId, inst);
-              } else {
-                el.classList.remove("has-glass");
-              }
-            } catch {
+        if (getCurrentState() !== "expanded") return;
+        const shared = getSharedAgentGlass();
+        if (!shared) return;
+        const nodes = timelineScroll.querySelectorAll("[data-agent-chip]");
+        nodes.forEach((el) => {
+          const stepId = el.dataset.agentChip || "";
+          if (!stepId || mountedAgentChips.has(stepId)) return;
+          if (el.dataset.agentHasColor !== "1") return;
+          const name = el.dataset.agentName || "";
+          const color = el.dataset.agentColor || "";
+          const edge = el.dataset.agentEdge || "";
+          const ink = el.dataset.agentInk || "";
+          try {
+            el.classList.add("has-glass");
+            const inst = shared.mountAgentGlass(
+              el,
+              { id: stepId, name, color, edge, ink },
+              { shape: "capsule" }
+            );
+            if (inst && !inst.isFallback) {
+              mountedAgentChips.set(stepId, inst);
+            } else if (inst) {
+              el.classList.remove("has-glass");
+              mountedAgentChips.set(stepId, inst);
+            } else {
               el.classList.remove("has-glass");
             }
-          });
+          } catch {
+            el.classList.remove("has-glass");
+          }
         });
       }
 
@@ -2653,6 +2707,8 @@
             }
             syncSizeAndBridge(false, instant);
           });
+        } else {
+          destroyAllAgentChips();
         }
       }
 
@@ -2992,20 +3048,26 @@
         return nowMs - prev.updatedAt >= 3000;
       }
 
+      function setPillHtml(html) {
+        if (pillStatusLine.innerHTML !== html) {
+          pillStatusLine.innerHTML = html;
+        }
+      }
+
       function renderPill(vm) {
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
-          pillStatusLine.innerHTML = `<span class="state-text state-working">&hellip; Loading</span>`;
+          setPillHtml(`<span class="state-text state-working">&hellip; Loading</span>`);
           return;
         }
 
         if (vm.connectionStatus === "disconnected") {
-          pillStatusLine.innerHTML = `<span class="state-text state-warning">&oslash; Not connected</span>`;
+          setPillHtml(`<span class="state-text state-warning">&oslash; Not connected</span>`);
           return;
         }
 
         const latest = vm.runs[0] || null;
         if (!latest) {
-          pillStatusLine.innerHTML = `<span class="pill-idle">Ask your agents</span>`;
+          setPillHtml(`<span class="pill-idle">Ask your agents</span>`);
           return;
         }
 
@@ -3021,11 +3083,11 @@
         /* F2 & F3: No fake "Run again" action in pill; only symbol + word get state color */
         const pillDetail = latest.pillFact || latest.stateFact;
         const fact = pillDetail ? `<span class="pill-sub">&middot; ${escapeHtml(pillDetail)}</span>` : "";
-        pillStatusLine.innerHTML = `
+        setPillHtml(`
           ${dotsHtml}
           <span class="state-text ${escapeHtml(latest.stateColorClass)}">${escapeHtml(latest.stateSymbolWord)}</span>
           ${fact}
-        `;
+        `);
       }
 
       function updateLiveTicksInPlace(vm) {
@@ -3303,8 +3365,11 @@
                       class="agent-chip"
                       style="--chip-bg: ${escapeHtml(step.agentIdentity.palette.body)}; --chip-edge: ${escapeHtml(step.agentIdentity.palette.edge)}; --chip-ink: ${escapeHtml(step.agentIdentity.palette.ink)};"
                       data-agent-chip="${escapeHtml(step.id)}"
+                      data-agent-has-color="${step.agentIdentity.hasAgentColor ? "1" : "0"}"
                       data-agent-name="${escapeHtml(step.agentIdentity.name)}"
                       data-agent-color="${escapeHtml(step.agentIdentity.color)}"
+                      data-agent-edge="${escapeHtml(step.agentIdentity.rawEdge || step.agentIdentity.palette.edge)}"
+                      data-agent-ink="${escapeHtml(step.agentIdentity.rawInk || step.agentIdentity.palette.ink)}"
                     ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
                     <span class="step-event-text">${escapeHtml(stepSummaryText)}</span>
                   </span>
