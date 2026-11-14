@@ -83,19 +83,26 @@ def _gate(run, app, kind, el, text, els=()):
         # a key that is not pure navigation can submit the focused form: judge it by every actionable label
         screen += " " + " ".join(e["name"] for e in els if e.get("ref"))
 
-    def clip(v, n):
-        v = v or ""
+    def clip(v, n):  # untrusted text: printable only, no quotes, bounded
+        v = "".join(ch for ch in (v or "") if ch.isprintable()).replace('"', "'").replace("`", "'")
         return v if len(v) <= n else v[: n - 1] + "…"
 
-    if kind in ("type", "set_value"):  # the user must see what will be typed, not only where
-        shown = "%s %s: %s" % (kind, clip(target, 40), clip(text, 120))
-    else:
-        shown = ("%s %s" % (kind, clip(target or text, 60))).strip()
+    secret = (el or {}).get("role") in ("securetextfield",) or SIGN_IN.search(target or "")
+    # The question is code-written; what will be typed goes only in `detail` (shown in its own box,
+    # never persisted), masked for password and code fields.
+    typed = None
+    if kind in ("type", "set_value"):
+        typed = "(%d characters, hidden)" % len(text or "") if secret else (text or "")
+    shown = (
+        '%s into field "%s"' % (kind, clip(target, 40))
+        if typed is not None
+        else ("%s %s" % (kind, clip(target or text, 60))).strip()
+    )
 
     def ask(category, regex, tail):
         trigger = regex.search(screen).group(0).lower()  # the keyword only, never the surrounding screen text
-        q = "Allow '%s' in %s? %s (matched \"%s\")" % (shown, app, tail, trigger)
-        return runs.ask_human(run, category, q, detail=text if kind in ("type", "set_value") else None) == "approve"
+        q = '%s Allow %s in %s? (matched "%s")' % (tail, shown, app, trigger)
+        return runs.ask_human(run, category, q, detail=typed) == "approve"
 
     if kind == "press" and MESSAGING_APP.search(app or "") and SUBMIT_KEY.match((text or "").strip()):
         q = "Press %s in %s? If a message box has focus, this sends a message." % ((text or "")[:20], app)
