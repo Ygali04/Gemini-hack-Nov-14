@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var allHidden = false
     private var expanded = false
     private var prevApp: NSRunningApplication?
+    private var usr1Source: DispatchSourceSignal?
     private var currentSize = NSSize(width: 280, height: 36)
 
     // Session-only connection state (never persisted to disk)
@@ -467,6 +468,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let id = EventHotKeyID(signature: OSType(0x4341_4E59), id: 1)
         let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &ref)
         if status != noErr { NSLog("Option-Space is taken by another app (status %d)", status) }
+        // Second trigger for scripts and other launchers: `pkill -USR1 AgentNotch` toggles like Option-Space.
+        signal(SIGUSR1, SIG_IGN)
+        let src = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+        src.setEventHandler { [weak self] in self?.toggleAll() }
+        src.resume()
+        usr1Source = src
     }
 
     func toggleAll() {

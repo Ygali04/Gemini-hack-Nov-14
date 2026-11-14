@@ -1147,6 +1147,7 @@
             const cfg = await callShell("getConfig");
             if (cfg && cfg.connected) {
               sessionBaseUrl = cfg.baseUrl || "shell";
+              sessionToken = "shell-session"; /* same marker as setConnection: the real token stays in the shell */
               return { connected: true, isSampleData: false };
             }
             return { connected: false, isSampleData: false };
@@ -2066,6 +2067,8 @@
       }
 
       function syncSizeAndBridge(forcePost = false, instant = false) {
+        const view = params.get("shell");
+        if (view === "chat" || view === "notes") return; /* those windows size themselves; never resize the notch */
         const state = getCurrentState();
         let width = 280;
         let height = 36;
