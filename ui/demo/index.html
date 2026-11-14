@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent monitor demo</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-app: #0c0d10;
+      --bg-raised: #16181d;
+      --btn-hover: rgba(255, 255, 255, 0.07);
+      --btn-pressed: rgba(255, 255, 255, 0.04);
+      --line-divider: rgba(255, 255, 255, 0.08);
+      --line-strong: rgba(255, 255, 255, 0.14);
+      --focus-ring: #8a8f9e;
+
+      --text-primary: #f2f4f8;
+      --text-secondary: #a6adbb;
+      --text-muted: #767d8e;
+
+      --ink-fill: #f2f4f8;
+      --ink-text: #0c0d10;
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100vh;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      font-weight: 400;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button:focus-visible,
+    a:focus-visible {
+      outline: 1.5px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    .demo-page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    .demo-header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line-divider);
+    }
+
+    .demo-title {
+      font-size: 18px;
+      line-height: 24px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .demo-intro {
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--text-secondary);
+    }
+
+    .demo-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .demo-section + .demo-section {
+      padding-top: 24px;
+      border-top: 1px solid var(--line-divider);
+    }
+
+    .section-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 16px;
+    }
+
+    .section-heading {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .section-title {
+      font-size: 15px;
+      line-height: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .section-note {
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--text-muted);
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .control-btn,
+    .view-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 30px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line-divider);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 12px;
+      line-height: 18px;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+
+    .control-btn:hover,
+    .view-link:hover {
+      background: var(--btn-hover);
+      color: var(--text-primary);
+    }
+
+    .control-btn:active,
+    .view-link:active {
+      background: var(--btn-pressed);
+    }
+
+    .control-btn[aria-pressed="true"],
+    .view-link[aria-current="true"] {
+      background: var(--ink-fill);
+      border-color: var(--ink-fill);
+      color: var(--ink-text);
+    }
+
+    .external-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 0 4px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 18px;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .external-link:hover {
+      color: var(--text-primary);
+    }
+
+    .notch-stage {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      padding: 0 0 12px;
+      border-top: 1px solid var(--line-divider);
+      background:
+        radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.04), transparent 65%);
+    }
+
+    .notch-frame-wrap {
+      width: 100%;
+      max-width: 480px;
+      height: 540px;
+      border-left: 1px solid var(--line-divider);
+      border-right: 1px solid var(--line-divider);
+      border-bottom: 1px solid var(--line-divider);
+      border-radius: 0 0 16px 16px;
+      overflow: hidden;
+      background: var(--bg-app);
+    }
+
+    .notch-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: var(--bg-app);
+    }
+
+    .workspace-frame-wrap {
+      width: 100%;
+      height: 640px;
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg-app);
+    }
+
+    .workspace-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: var(--bg-app);
+    }
+
+    @media (max-width: 640px) {
+      .demo-page {
+        padding: 16px 12px 36px;
+        gap: 22px;
+      }
+
+      .notch-frame-wrap {
+        height: 520px;
+      }
+
+      .workspace-frame-wrap {
+        height: 540px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="demo-page">
+    <header class="demo-header">
+      <h1 class="demo-title">Agent monitor</h1>
+      <p class="demo-intro">
+        A notch panel and shared workspace for supervising coding agents — this page shows sample data, not live agent runs.
+      </p>
+    </header>
+
+    <section class="demo-section" aria-labelledby="notch-heading">
+      <div class="section-bar">
+        <div class="section-heading">
+          <h2 id="notch-heading" class="section-title">Notch panel</h2>
+          <p class="section-note">Switch sample states to inspect the expanded panel.</p>
+        </div>
+
+        <div class="control-row" role="group" aria-label="Sample panel states">
+          <button type="button" class="control-btn" data-sample="working-live" aria-pressed="true">Working</button>
+          <button type="button" class="control-btn" data-sample="awaiting-approval" aria-pressed="false">Needs approval</button>
+          <button type="button" class="control-btn" data-sample="qa-loop-verified" aria-pressed="false">Verified</button>
+          <button type="button" class="control-btn" data-sample="failed" aria-pressed="false">Failed</button>
+          <button type="button" class="control-btn" data-sample="finished-unverified" aria-pressed="false">Finished unverified</button>
+        </div>
+      </div>
+
+      <div class="notch-stage">
+        <div class="notch-frame-wrap">
+          <iframe
+            id="notch-frame"
+            class="notch-frame"
+            title="Expanded notch panel sample"
+            src="../index.html?fixture=working-live&amp;state=expanded"
+          ></iframe>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo-section" aria-labelledby="workspace-heading">
+      <div class="section-bar">
+        <div class="section-heading">
+          <h2 id="workspace-heading" class="section-title">Workspace</h2>
+          <p class="section-note">Open any view inside the frame or in a separate tab.</p>
+        </div>
+
+        <nav class="control-row" aria-label="Workspace views">
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=graph"
+            target="workspace-frame"
+            data-view="graph"
+            aria-current="true"
+          >Agent graph</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=state-machine"
+            target="workspace-frame"
+            data-view="state-machine"
+          >State machine</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=logs"
+            target="workspace-frame"
+            data-view="logs"
+          >Transcript log</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=analytics"
+            target="workspace-frame"
+            data-view="analytics"
+          >Analytics</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=onboarding"
+            target="workspace-frame"
+            data-view="onboarding"
+          >Onboarding</a>
+          <a
+            id="workspace-open-tab"
+            class="external-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=graph"
+            target="_blank"
+            rel="noopener"
+          >Open in new tab</a>
+        </nav>
+      </div>
+
+      <div class="workspace-frame-wrap">
+        <iframe
+          id="workspace-frame"
+          name="workspace-frame"
+          class="workspace-frame"
+          title="Agent workspace sample"
+          src="../workspace.html?fixture=workspace-demo&amp;view=graph"
+        ></iframe>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      const notchFrame = document.getElementById("notch-frame");
+      const sampleButtons = Array.from(document.querySelectorAll("[data-sample]"));
+      const viewLinks = Array.from(document.querySelectorAll(".view-link[data-view]"));
+      const openTabLink = document.getElementById("workspace-open-tab");
+
+      function selectNotchSample(name) {
+        const encoded = encodeURIComponent(name);
+        notchFrame.src = `../index.html?fixture=${encoded}&state=expanded`;
+        for (const btn of sampleButtons) {
+          btn.setAttribute("aria-pressed", btn.dataset.sample === name ? "true" : "false");
+        }
+      }
+
+      for (const btn of sampleButtons) {
+        btn.addEventListener("click", () => {
+          selectNotchSample(btn.dataset.sample);
+        });
+      }
+
+      for (const link of viewLinks) {
+        link.addEventListener("click", () => {
+          const targetView = link.dataset.view;
+          for (const item of viewLinks) {
+            if (item.dataset.view === targetView) {
+              item.setAttribute("aria-current", "true");
+            } else {
+              item.removeAttribute("aria-current");
+            }
+          }
+          if (openTabLink) {
+            openTabLink.href = link.getAttribute("href");
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
