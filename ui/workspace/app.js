@@ -749,16 +749,15 @@
           isVerified: false,
         };
       }
-      if (rawState === "done" && (!result || result.ok !== false)) {
-        const okTrue = Boolean(result?.ok === true);
-        const verified = Boolean(okTrue && hasVerifyPass);
+      if (rawState === "done" && result && result.ok === true) {
+        const verified = Boolean(hasVerifyPass);
         return {
           filterKey: "success",
           word: "Success",
-          symbol: okTrue ? "✓" : "●",
-          symbolWord: verified ? "✓ Success · Verified" : okTrue ? "✓ Success" : "● Success",
-          shortSymbolWord: okTrue ? "✓ Success" : "● Success",
-          colorClass: okTrue ? "state-success" : "state-neutral",
+          symbol: "✓",
+          symbolWord: verified ? "✓ Success · Verified" : "✓ Success",
+          shortSymbolWord: "✓ Success",
+          colorClass: "state-success",
           isVerified: verified,
         };
       }
@@ -1793,7 +1792,7 @@
         ? succeededEndpoints.map((e) => e.label || e).join(", ")
         : "No endpoints";
       const failedText = failedEndpoints
-        .map((e) => (e.path ? `${e.label} (${e.path})` : e.label || String(e)))
+        .map((e) => e.label || String(e))
         .join(", ");
       notices.push(`
         <div class="view-status-row" role="status">
@@ -2084,7 +2083,7 @@
         ${renderEmptyStateHtml({
           title: "Agent graph",
           subtitle: "One lead agent and the agents it starts",
-          message: "No runs yet. Send a prompt above to watch your primary agent and its child agents work.",
+          message: "No runs yet. Send a prompt above to watch your primary agent and the agents it starts work.",
           ctaLabel: "Ask agents to run a task",
           ctaAction: "focus-prompt",
         })}
@@ -2181,7 +2180,7 @@
 
     const childrenHtml = group.childNodes.length
       ? `<div class="agent-graph-tier" id="b1-children-tier">${group.childNodes.map(renderGraphNodeButton).join("")}</div>`
-      : `<div class="section-subtitle">No child agents spawned for this prompt.</div>`;
+      : `<div class="section-subtitle">No agents started for this prompt.</div>`;
 
     const stepsHtml = selectedNode.steps.length
       ? selectedNode.steps
@@ -2935,7 +2934,7 @@
 
     /* Cost per task over time (Issue #1 #2) */
     const tasksWithCost = vm.taskGroups
-      .filter((g) => g.cost && (g.cost.cost_usd > 0 || g.cost.llm_calls > 0))
+      .filter((g) => g.cost && g.cost.cost_usd != null && (g.cost.cost_usd > 0 || g.cost.llm_calls > 0))
       .slice()
       .reverse();
     let spendChartHtml = "";
@@ -3010,7 +3009,7 @@
                 <td class="num-col">${escapeHtml(c.agents ?? g.allNodes.length)}</td>
                 <td class="num-col">${escapeHtml(c.llm_calls)}</td>
                 <td class="num-col">${totalTokens.toLocaleString()} (${Number(c.prompt_tokens || 0).toLocaleString()} in / ${Number(c.completion_tokens || 0).toLocaleString()} out)</td>
-                <td class="num-col">$${Number(c.cost_usd || 0).toFixed(4)}</td>
+                <td class="num-col">${c.cost_usd != null ? `$${Number(c.cost_usd).toFixed(4)}` : "—"}</td>
                 <td class="num-col">${escapeHtml(c.model_seconds ?? 0)}s</td>
                 <td class="num-col">${escapeHtml(g.elapsedText)}</td>
               </tr>
@@ -3050,7 +3049,7 @@
                 <tr>
                   <td>${escapeHtml(p.purpose || "general")}</td>
                   <td class="num-col">${escapeHtml(p.calls ?? 0)}</td>
-                  <td class="num-col">$${Number(p.cost_usd || 0).toFixed(4)} (${share})</td>
+                  <td class="num-col">${p.cost_usd != null ? `$${Number(p.cost_usd).toFixed(4)} (${share})` : "—"}</td>
                   <td class="num-col">${p.mean_ms != null ? `${Math.round(Number(p.mean_ms))}ms` : "—"}</td>
                 </tr>
               `;
@@ -3732,7 +3731,7 @@
       </div>
 
       <p class="section-subtitle">
-        Note: Profile and approval rules are kept in this page for this session until the backend profile and rules endpoints are added. The on-screen cursor name and color still come from the backend.
+        Note: Your name is saved to your backend profile. Other preferences and approval rules are kept in this page for this session until their backend endpoints are added. The on-screen cursor name and color still come from the backend.
       </p>
     `;
 
@@ -4018,8 +4017,11 @@
       .join("");
 
     const hasLiveSpend = typeof vm.analytics?.cost_usd === "number";
-    const todaySpend = hasLiveSpend ? vm.analytics.cost_usd : HistorySettingsState.sampleTodaySpendUsd;
-    const capReached = todaySpend >= HistorySettingsState.dailyCapUsd;
+    const todaySpend = hasLiveSpend
+      ? vm.analytics.cost_usd
+      : vm.isSampleData
+        ? HistorySettingsState.sampleTodaySpendUsd
+        : null;
 
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
@@ -4131,17 +4133,15 @@
         <div class="section-header-row">
           <div>
             <h3 id="history-cap-heading" class="section-title">Daily spend cap</h3>
-            <p class="section-subtitle">Session setting — no backend spend cap endpoint yet. Pauses agents when daily spend reaches the limit.</p>
+            <p class="section-subtitle">Sample setting. No backend cap yet. Agents are not paused.</p>
           </div>
         </div>
 
         <div class="filter-bar">
           <div class="filter-group">
-            <span class="section-subtitle">${hasLiveSpend ? "Today's spend:" : "Sample today's spend:"}</span>
-            <strong>$${todaySpend.toFixed(4)}</strong>
-            <span class="state-text ${capReached ? "state-danger" : "state-success"}">
-              ${capReached ? "&times; Paused &middot; Daily cap reached" : "&#10003; Active &middot; Within daily cap"}
-            </span>
+            <span class="section-subtitle">${vm.isSampleData && !hasLiveSpend ? "Sample today's spend:" : "Today's spend:"}</span>
+            <strong>${todaySpend != null ? `$${todaySpend.toFixed(4)}` : "—"}</strong>
+            <span class="state-text state-neutral">&cir; Sample setting &middot; Agents are not paused</span>
           </div>
 
           <div class="inline-input-row">
