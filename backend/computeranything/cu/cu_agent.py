@@ -87,9 +87,11 @@ def _gate(run, app, kind, el, text, els=()):
         v = "".join(ch for ch in (v or "") if ch.isprintable()).replace('"', "'").replace("`", "'")
         return v if len(v) <= n else v[: n - 1] + "…"
 
-    secret = (el or {}).get("role") in ("securetextfield",) or SIGN_IN.search(target or "")
+    # Mask only on the OS-reported secure role. A label regex is page-controlled, so a hostile label
+    # ("Password") could hide model-written text from the approver.
+    secret = (el or {}).get("role") in ("securetextfield", "AXSecureTextField")
     # The question is code-written; what will be typed goes only in `detail` (shown in its own box,
-    # never persisted), masked for password and code fields.
+    # never persisted), masked for real secure fields.
     typed = None
     if kind in ("type", "set_value"):
         typed = "(%d characters, hidden)" % len(text or "") if secret else (text or "")
