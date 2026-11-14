@@ -50,10 +50,22 @@ flowchart LR
 ```sh
 npm install -g agent-desktop          # accessibility-tree actions (vercel-labs/agent-desktop)
 cp .env.example .env                  # OPENROUTER_API_KEY, optional ELEVENLABS_API_KEY
-python3 -m computeranything           # prints http://127.0.0.1:8765/?t=TOKEN
+bash ../notch/build.sh                # the workspace app (run from backend/, builds ../notch/build/AgentNotch)
+python3 -m computeranything           # starts the backend, the cursors and the workspace, already connected
 ```
 
 Grant your terminal Accessibility and Screen Recording. Actions run headless by element ref, so your own pointer and focus stay put.
+
+## The workspace (Option-Space)
+
+Option-Space opens the workspace at the notch with the prompt focused, like Spotlight. Press it again and the workspace, every chat window and the notifications disappear, and typing goes back to the app you were in. `pkill -USR1 AgentNotch` does the same from a script or another launcher.
+
+- **Ask and attach.** Type a task, then press Enter. Attach files with +, by dropping them on the notch, or with **Search files**, which looks names up in the Spotlight index.
+- **Chat windows.** Each task opens a chat at the top right. It shows each agent's hello, its steps and its result, and takes follow-ups that join the same conversation.
+- **Notifications.** They stack at the top left and stay until you dismiss them. A help request shows its own Approve and Deny buttons. A finished or failed task shows its result.
+- **Analytics and Settings.** Analytics shows spend and tasks for today and for all time. Settings holds what your agents call you, the voice, the model, and a faster model for each step.
+
+Agents pick their own first names and say hello when they start (cursor tag: "Hi, I'm Mark!").
 
 ## Memory
 
@@ -116,7 +128,7 @@ Every `/api` call needs the token, as header `X-CA-Token` or query `t=`. The ser
 
 | Call | Purpose |
 |---|---|
-| `POST /api/task` | JSON `{"prompt"}` or multipart with files; returns `{"run": id}` |
+| `POST /api/task` | JSON `{"prompt", "thread"?}` or multipart (`prompt`, `files`, `paths`, `thread`); returns `{"run", "thread"}`. `thread` makes it a follow-up in that chat |
 | `GET /api/runs` | all runs, newest first; child agents carry `parent` |
 | `GET /api/runs/<id>?since=N` | events after N: `decide`, `act`, `memory`, `verify`, `help`, `bug_report`, `patch`, `commit`, `result` |
 | `GET /api/help` | pending help: `captcha`, `sign_in`, `money`, `destructive`, `clarify` |
@@ -124,6 +136,14 @@ Every `/api` call needs the token, as header `X-CA-Token` or query `t=`. The ser
 | `GET /api/graph` | memory stats: screens, transitions, skills, actions logged, agents |
 | `GET /api/actions?since=N&agent=CU%201` | the graph's action log, optionally for one agent |
 | `GET /api/agents` | live cursors: agent id, name and color |
+| `GET /api/runs/<id>/transcript` | the whole chat of a task: prompt, plan, hellos, steps, questions, answers, results |
+| `GET /api/transcripts?q=` | search every chat |
+| `GET /api/runs/<id>/cost` | spend and effort for one task and all its agents |
+| `GET /api/analytics?since=` | tasks, spend, per-task cost, per role, per purpose, per app |
+| `GET /api/files?q=` | file-name search over your home folder (Spotlight index) |
+| `GET /api/profile`, `POST /api/profile` | settings: `call_me`, `voice_id`, `model`, `decide_model` |
+| `GET /api/notifications`, `POST /api/notifications/<id>/dismiss` | finished and failed tasks since the server started |
+| `GET /ui` | the workspace UI in a browser (the notch loads the same file) |
 
 A finished parent run has `result.digest`: steps, seconds, steps replayed from memory, help count and model usage.
 
@@ -135,14 +155,20 @@ A finished parent run has `result.digest`: steps, seconds, steps replayed from m
 | `CA_CONFIRM_PATCH` | `1` | ask before applying a dev-agent patch |
 | `CA_DEV_COMMIT` | `1` | commit applied patches in the target repo |
 | `CA_HOME` | `~/.computeranything` | runs, memory, uploads |
+| `CA_DECIDE_MODEL` | unset | a faster model for each step (route, verify and QA keep `CA_MODEL`) |
 | `CA_MOCK` | unset | `1` runs everything offline with a scripted model |
+| `CA_MOCK_REPLIES` | unset | JSON list of scripted replies for `CA_MOCK` (UI tests) |
+| `CA_NO_NOTCH`, `CA_NO_OVERLAY` | unset | `1` skips launching the workspace or the cursors (headless tests) |
 
 ## Checks
 
 ```sh
 python3 -m computeranything.cu.desktop
 python3 -m computeranything.cu.graph
-CA_HOME=/tmp/ca_t python3 -m computeranything.agents.orchestrator
+CA_HOME=$(mktemp -d) python3 -m computeranything.agents.orchestrator
+python3 -m computeranything.core.attach
+python3 scripts/ui_e2e.py              # headless browser, 12 checks, no spend
+python3 bench/learning_curve.py --reps 3 --out bench/results/run   # memory on vs off, real model
 python3 -m computeranything.tools.point --selftest
 ruff check computeranything
 ```
