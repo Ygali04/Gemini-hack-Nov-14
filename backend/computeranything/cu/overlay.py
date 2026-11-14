@@ -11,8 +11,15 @@ import threading
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BIN = os.path.join(BACKEND, "overlay", "overlay")
 SRC = os.path.join(BACKEND, "overlay", "Overlay.swift")
-# Distinct, high-contrast hues; the n-th agent gets PALETTE[n % len].
-PALETTE = ["#3380FF", "#FF7A00", "#1FA971", "#D6336C", "#7B5CFF", "#00A3BF", "#C99A00", "#5C6B7A"]
+# Sea-glass palettes (body, edge, ink) after github.com/mttmcknn/sea-glass; the n-th agent gets PALETTE[n % len].
+# Body is the frosted fill, edge the luminous rim, ink the label text and target outline.
+PALETTE = [
+    ("#B5D0EB", "#D6E9FF", "#2F647C"),  # lagoon
+    ("#EECED6", "#FFF0F1", "#963F59"),  # rose
+    ("#C0DED0", "#E6FFF0", "#396C5A"),  # mint
+    ("#E1CDE8", "#FBE8F7", "#71388B"),  # lilac
+    ("#F0D9BE", "#FFFCE0", "#865733"),  # amber
+]
 _proc, _lock = None, threading.Lock()
 _next = itertools.count()
 CURSORS = {}  # agent id -> {"name", "color"}
@@ -42,9 +49,10 @@ def claim(agent_id, name):
     """Give an agent its own cursor. Returns its color."""
     with _lock:
         if agent_id not in CURSORS:
-            CURSORS[agent_id] = {"name": name, "color": PALETTE[next(_next) % len(PALETTE)]}
+            body, edge, ink = PALETTE[next(_next) % len(PALETTE)]
+            CURSORS[agent_id] = {"name": name, "color": body, "edge": edge, "ink": ink}
         c = CURSORS[agent_id]
-    send({"op": "cursor", "cursor": agent_id, "name": c["name"], "color": c["color"]})
+    send({"op": "cursor", "cursor": agent_id, **c})
     return c["color"]
 
 
@@ -65,10 +73,10 @@ def point_at(bounds, label, cursor="main"):
             "op": "draw",
             "cursor": cursor,
             "shape": "rect",
-            "x": bounds["x"] - 4,
-            "y": bounds["y"] - 4,
-            "w": bounds["width"] + 8,
-            "h": bounds["height"] + 8,
+            "x": bounds["x"],  # the overlay adds its own 4 pt margin
+            "y": bounds["y"],
+            "w": bounds["width"],
+            "h": bounds["height"],
         },
     )
 
