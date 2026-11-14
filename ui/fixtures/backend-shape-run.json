@@ -30,7 +30,7 @@
       "method": "running",
       "seconds": 0.2,
       "ready_after": 0.1,
-      "window": 412,
+      "window": "w-2304",
       "lane": {
         "x": 20,
         "y": 42,

@@ -101,7 +101,9 @@
     "agent": "ComputerAnything",
     "kind": "result",
     "text": "Calculator display reads 248 for 8 * 31",
-    "meta": {},
+    "meta": {
+      "echo": true
+    },
     "color": null
   }
 ]
