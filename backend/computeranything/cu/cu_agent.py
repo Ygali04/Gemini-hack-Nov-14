@@ -49,16 +49,14 @@ def _screenshot():
     return p if os.path.exists(p) else None
 
 
-SUBMIT_KEY = re.compile(r"^(return|enter|kp_enter|(cmd|ctrl)\+(return|enter|s))$", re.I)
-
-
 def _gate(run, app, kind, el, text, els=()):
     """Code decides what needs a person; the model never gets to skip this."""
     label = "%s %s %s" % (kind, el["name"] if el else "", text or "")
     if kind == "launch" and SENSITIVE_APP.search(text or ""):
         return runs.ask_human(run, "money", "Let the agent open %s?" % text) == "approve"
-    if kind == "press" and SUBMIT_KEY.match((text or "").strip()):
-        # Return submits whatever form is focused, so judge it by what is on screen, not by the key name
+    if kind == "press":
+        # Any key can submit the focused form (return, space, shift+return...), so fail closed: judge
+        # every key press by what is on screen, not by the key name.
         label += " " + " ".join(e["name"] for e in els if e.get("ref"))
     if CAPTCHA.search(label):
         return (
@@ -189,7 +187,11 @@ def run_task(run, goal, app=None, max_steps=25):
         if kind in ("click", "double_click", "type", "set_value", "scroll") and not (el and el["ref"]):
             history.append("step %d FAILED: index %r is not an actionable element" % (step, idx))
             continue
-        if not _gate(run, app, kind, el, d.get("key") if kind == "press" else d.get("text"), els):
+        key = (d.get("key") or d.get("text")) if kind == "press" else None  # one value for gate and act
+        if kind == "press" and not key:
+            history.append("step %d FAILED: press needs a key" % step)
+            continue
+        if not _gate(run, app, kind, el, key if kind == "press" else d.get("text"), els):
             history.append("step %d: the user denied %s" % (step, kind))
             summary = "Stopped: you denied %s." % kind
             break
@@ -201,8 +203,8 @@ def run_task(run, goal, app=None, max_steps=25):
             desktop.act(
                 kind,
                 ref=el and el["ref"],
-                text=d.get("text"),
-                key=d.get("key"),
+                text=None if kind == "press" else d.get("text"),
+                key=key,
                 app=(d.get("text") or app) if kind == "launch" else app,
             )
             history.append("step %d: %s %s" % (step, akey, "'%s'" % d["text"] if d.get("text") else ""))
