@@ -24,7 +24,8 @@ Code, not the model, decides what needs a person. That covers money, sign-in, ca
 backend/
   computeranything/
     core/    llm.py (Gemini client), runs.py (runs, events, help requests, digest)
-    cu/      desktop.py (observe/act), cu_agent.py (loop), graph.py (memory), overlay.py (cursor)
+    cu/      desktop.py (observe/act), apps.py (open, wait, place), desk.py (sharing rules),
+             cu_agent.py (loop), graph.py (memory), overlay.py (cursors)
     agents/  orchestrator.py (routing, QA to dev loop, marketing, CU)
     api/     server.py (HTTP API + test page)
     tools/   point.py (one-shot: ask about the screen, cursor points)
@@ -73,6 +74,29 @@ Every action by every agent is logged against its screen node: the agent, run, a
 A prompt with independent parts, such as "work out 7 × 6 in Calculator and open Appearance settings", becomes up to 4 CU agents running in parallel. Each agent claims its own cursor with its own color and name tag (`CU 1`, `CU 2`, `QA`, `Marketing`). Its clicks run headless, so the agents never fight over your one real pointer.
 
 Measured on a Mac: two agents ran at once, one in Calculator (7 × 6 = 42) and one in System Settings (opened Appearance). All 7 of their actions landed in one shared graph, each tagged with its agent.
+
+## Opening apps and sharing the screen
+
+Agents open apps the way a person does. An agent reuses a running window, or finds the `.app` on disk and opens it, or presses cmd+space and types the name into Spotlight. It then waits until a visible window answers with accessibility elements, and only then starts working. Gemini can ask for another app mid-task with `open_app` and pick `spotlight` or `finder`.
+
+Agents share one Mac through the desk (`cu/desk.py`):
+
+| Rule | Why |
+|---|---|
+| One foreground at a time | only the lock holder may use Spotlight, activate a window or press physical keys; clicks by ref stay headless, so the others keep working |
+| One agent per app | an app lease stops two agents from driving the same window |
+| One lane per agent | each agent's window is placed in its own tile on the stage display (`CA_STAGE_DISPLAY`, default the secondary screen), so bringing one forward never covers another |
+| Pinned window | each agent reads and acts only on its own window id |
+
+`run_applescript` lets Gemini script an app on purpose. The script is logged in the graph. Scripts that contain `do shell script`, delete, send, pay or password steps wait for your approval. Text that is data, such as app names and typed words, is always passed to AppleScript as an argument, so words read off a web page can't turn into code.
+
+Measured live with Gemini 4 Argon:
+
+| Run | Result |
+|---|---|
+| Calculator "23 × 19", stale 42 on screen | cleared it, entered 23 × 19, read 437; 9 actions logged, 9 model calls, about 3.8 s per decision |
+| Font Book via Spotlight | usable 6.1 s after Return; placed at its lane, 940 × 1018 |
+| Calculator + System Settings in parallel | two lanes side by side on the external display, two cursors, no overlap |
 
 Measured on a Mac: Calculator "7 × 6" ran headless to 42. The second run replayed all 4 clicks from memory, using 1 model call instead of 5 (only the "done" check).
 
