@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Runs adapter-check, workspace-check, copy-check, and a11y-check (warn-only).
- * Prints one summary line per check and a final PASS/FAIL line.
+ * Runs adapter-check, workspace-check, copy-check, demo-check, and a11y-check.
+ * a11y-check is evaluated per file: files already at 0 findings must stay at 0
+ * (FAIL on regression), while files still being fixed are reported as WARN with count.
+ * Prints summary lines per check and a final PASS/FAIL line.
  * Exits 0 if all required checks pass, 1 otherwise.
  */
 
@@ -15,7 +17,15 @@ const CHECKS = [
   { name: "adapter-check", file: "adapter-check.mjs" },
   { name: "workspace-check", file: "workspace-check.mjs" },
   { name: "copy-check", file: "copy-check.mjs" },
-  { name: "a11y-check", file: "a11y-check.mjs", warnOnly: true },
+  { name: "demo-check", file: "demo-check.mjs" },
+];
+
+const A11Y_FILES = [
+  { file: "ui/index.html", mustBeZero: false },
+  { file: "ui/workspace.html", mustBeZero: true },
+  { file: "ui/workspace/app.js", mustBeZero: true },
+  { file: "ui/workspace/styles.css", mustBeZero: false },
+  { file: "ui/demo/index.html", mustBeZero: true },
 ];
 
 let failedCount = 0;
@@ -35,18 +45,70 @@ for (const check of CHECKS) {
 
   if (ok) {
     console.log(`PASS ${check.name}: ${summary}`);
-  } else if (check.warnOnly) {
-    console.log(`WARN ${check.name} (exit ${res.status ?? 1}): ${summary}`);
   } else {
     failedCount++;
     console.log(`FAIL ${check.name} (exit ${res.status ?? 1}): ${summary}`);
   }
 }
 
+// Run a11y-check and evaluate per file
+const a11yScript = path.join(__dirname, "a11y-check.mjs");
+const a11yRes = spawnSync(process.execPath, [a11yScript, ...process.argv.slice(2)], {
+  encoding: "utf8",
+});
+const a11yLines = `${a11yRes.stdout || ""}\n${a11yRes.stderr || ""}`
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean);
+
+const countsByFile = new Map();
+let totalParsedFindings = 0;
+for (const line of a11yLines) {
+  const m = line.match(/^([^:\s]+):(\d+):\s+[^:]+:/);
+  if (m) {
+    const file = m[1];
+    countsByFile.set(file, (countsByFile.get(file) || 0) + 1);
+    totalParsedFindings++;
+  }
+}
+
+const knownFiles = new Set(A11Y_FILES.map((entry) => entry.file));
+let a11yFailed = false;
+
+if (a11yRes.error || (a11yRes.status !== 0 && totalParsedFindings === 0)) {
+  a11yFailed = true;
+  console.log(`FAIL a11y-check (exit ${a11yRes.status ?? 1}): ${a11yRes.error ? a11yRes.error.message : a11yLines[a11yLines.length - 1] || "failed"}`);
+} else {
+  for (const { file, mustBeZero } of A11Y_FILES) {
+    const count = countsByFile.get(file) || 0;
+    const label = `${count} finding${count === 1 ? "" : "s"}`;
+    if (count === 0) {
+      console.log(`PASS a11y-check (${file}): ${label}`);
+    } else if (mustBeZero) {
+      a11yFailed = true;
+      console.log(`FAIL a11y-check (${file}): ${label}`);
+    } else {
+      console.log(`WARN a11y-check (${file}): ${label}`);
+    }
+  }
+
+  for (const [file, count] of countsByFile.entries()) {
+    if (!knownFiles.has(file)) {
+      a11yFailed = true;
+      console.log(`FAIL a11y-check (${file}): ${count} finding${count === 1 ? "" : "s"}`);
+    }
+  }
+}
+
+if (a11yFailed) {
+  failedCount++;
+}
+
+const totalChecks = CHECKS.length + 1;
 if (failedCount === 0) {
   console.log("PASS");
   process.exit(0);
 } else {
-  console.log(`FAIL (${failedCount}/${CHECKS.length} failed)`);
+  console.log(`FAIL (${failedCount}/${totalChecks} failed)`);
   process.exit(1);
 }
