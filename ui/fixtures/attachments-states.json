@@ -1,0 +1,138 @@
+{
+  "runs": [
+    {
+      "id": "r-attach-1",
+      "goal": "Summarize the receipts and fill the expense form",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 4.2,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Ready for follow-up files or screenshots."
+      }
+    }
+  ],
+  "details": {
+    "r-attach-1": {
+      "id": "r-attach-1",
+      "goal": "Summarize the receipts and fill the expense form",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 4.2,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Ready for follow-up files or screenshots."
+      },
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 2.4, "kind": "msg", "role": "agent", "msg_kind": "result", "text": "Ready for follow-up files or screenshots." },
+        { "t": 4.2, "kind": "state", "state": "done" }
+      ]
+    }
+  },
+  "help": [],
+  "agents": {},
+  "costs": {
+    "r-attach-1": { "cost_usd": 0.0012, "llm_calls": 2 }
+  },
+  "transcripts": {
+    "r-attach-1": [
+      {
+        "id": 1,
+        "ts": 1763140700,
+        "run": "r-attach-1",
+        "role": "user",
+        "agent": "",
+        "kind": "msg",
+        "text": "Summarize the receipts and fill the expense form"
+      },
+      {
+        "id": 2,
+        "ts": 1763140704,
+        "run": "r-attach-1",
+        "role": "agent",
+        "agent": "ComputerAnything",
+        "kind": "msg",
+        "text": "Ready for follow-up files or screenshots."
+      }
+    ]
+  },
+  "droppedFiles": [
+    {
+      "path": "/tmp/receipt-1.png",
+      "name": "receipt-1.png",
+      "size": 148200,
+      "kind": "image",
+      "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGPYeuE1VsQwtCQA5sycAX2Vp9EAAAAASUVORK5CYII="
+    },
+    {
+      "path": "/tmp/receipt-2.jpg",
+      "name": "receipt-2.jpg",
+      "size": 212400,
+      "kind": "image",
+      "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4d+4aVsQwtCQATIikgbw8V1MAAAAASUVORK5CYII="
+    },
+    {
+      "path": "/tmp/receipt-3.heic",
+      "name": "receipt-3.heic",
+      "size": 319000,
+      "kind": "image",
+      "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGM4cO8CVsQwtCQAvkybge1xBZcAAAAASUVORK5CYII="
+    },
+    {
+      "path": "/tmp/extra-photo.png",
+      "name": "extra-photo.png",
+      "size": 190500,
+      "kind": "image",
+      "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGP4cHMfVsQwtCQAP/mhweYJKZkAAAAASUVORK5CYII="
+    },
+    {
+      "path": "/tmp/notes.txt",
+      "name": "notes.txt",
+      "size": 420,
+      "kind": "text"
+    },
+    {
+      "path": "/tmp/invoice.pdf",
+      "name": "invoice.pdf",
+      "size": 95400,
+      "kind": "pdf",
+      "pageCount": 12,
+      "textExtracted": true
+    },
+    {
+      "path": "/tmp/scanned-contract.pdf",
+      "name": "scanned-contract.pdf",
+      "size": 840000,
+      "kind": "pdf",
+      "pageCount": 4,
+      "textExtracted": false
+    },
+    {
+      "path": "/tmp/walkthrough.mp4",
+      "name": "walkthrough.mp4",
+      "size": 4200000,
+      "kind": "other"
+    },
+    {
+      "path": "/tmp/legacy-note.dat",
+      "name": "legacy-note.dat"
+    },
+    {
+      "path": "/tmp/ReceiptsFolder",
+      "name": "ReceiptsFolder",
+      "size": 0,
+      "kind": "folder"
+    },
+    {
+      "path": "/tmp/screen-recording.mov",
+      "name": "screen-recording.mov",
+      "size": 55000000,
+      "kind": "other"
+    }
+  ]
+}
