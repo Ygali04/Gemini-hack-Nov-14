@@ -64,6 +64,7 @@
         { "t": 0.1, "kind": "state", "state": "planning" },
         { "t": 0.8, "kind": "route", "role": "qa", "repo": "/tmp/shop", "url": "http://127.0.0.1:4600", "goal": "Test /tmp/shop and fix bugs" },
         { "t": 0.8, "kind": "state", "state": "acting" },
+        { "t": 18.3, "kind": "speak", "text": "Cart total and empty-email checks now pass after 1 patch." },
         { "t": 18.4, "kind": "state", "state": "done" }
       ],
       "result": {
@@ -141,5 +142,10 @@
       }
     }
   },
-  "help": []
+  "help": [],
+  "agents": {
+    "r1763140100-1": { "name": "Orchestrator", "color": "#F0D9BE", "edge": "#FFFCE0", "ink": "#865733" },
+    "r1763140100-2": { "name": "QA 1", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" },
+    "r1763140100-3": { "name": "Dev 1", "color": "#E1CDE8", "edge": "#FBE8F7", "ink": "#71388B" }
+  }
 }

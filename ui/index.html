@@ -112,7 +112,7 @@
     }
 
     body[data-state="expanded"] .notch-shell {
-      width: 480px;
+      width: 580px;
       height: var(--panel-height, 220px);
       max-height: 600px;
       border-radius: 0 0 16px 16px;
@@ -191,7 +191,7 @@
 
     /* ---------------- EXPANDED PANEL ---------------- */
     .panel-view {
-      width: 480px;
+      width: 580px;
       max-height: 600px;
       display: flex;
       flex-direction: column;
@@ -659,6 +659,18 @@
       word-break: break-word;
     }
 
+    .help-warning {
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 600;
+      color: var(--state-warning);
+      word-break: break-word;
+    }
+
+    .help-block.is-expired .help-question {
+      color: var(--text-secondary);
+    }
+
     /* Steps list: flat rows separated by whitespace, no cards */
     .steps-list {
       display: flex;
@@ -714,6 +726,40 @@
       font-weight: 600;
       color: var(--text-primary);
       flex-shrink: 0;
+    }
+
+    /* A3: Agent identity chip — plain colored capsule by default; glass only if shared module + ctx.filter pass */
+    .agent-chip {
+      position: relative;
+      isolation: isolate;
+      overflow: visible;
+      background: var(--chip-bg, #cfd4d9);
+      border: 1px solid var(--chip-edge, #e0e3e6);
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 64px;
+      height: 24px;
+      padding: 0 10px;
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 600;
+      color: var(--chip-ink, #323b43);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .agent-chip.has-glass {
+      background: transparent;
+      border-color: transparent;
+      border-radius: 0;
+      color: var(--glass-ink, var(--chip-ink, #323b43));
+    }
+
+    .agent-chip-label {
+      position: relative;
+      z-index: 1;
     }
 
     .step-event-text {
@@ -952,6 +998,10 @@
             <span>Send</span>
           </button>
 
+          <button type="button" id="open-workspace-btn" class="btn" aria-label="Open workspace">
+            <span>Open workspace</span>
+          </button>
+
           <button type="button" id="collapse-btn" class="btn" aria-label="Collapse workspace">
             <span>Esc</span>
           </button>
@@ -984,7 +1034,7 @@
       </form>
 
       <div id="sample-banner" class="timeline-row" style="display:none;">
-        <span class="sample-tag">Sample data</span>
+        <span class="sample-tag">Sample data &mdash; mock verification is not real evidence</span>
       </div>
 
       <div id="side-view" class="side-view hidden" aria-live="polite"></div>
@@ -1157,10 +1207,19 @@
             rawText = await res.text();
           }
           const parsed = JSON.parse(rawText);
+          const nowSec = Math.floor(Date.now() / 1000);
+          const rawHelp = Array.isArray(parsed.help) ? parsed.help : [];
+          const normalizedHelp = rawHelp.map((h) => {
+            if (h && h.asked == null && h.asked_age_s != null) {
+              return { ...h, asked: nowSec - Number(h.asked_age_s) };
+            }
+            return h;
+          });
           fixtureState = {
             runs: Array.isArray(parsed.runs) ? parsed.runs : [],
             details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
-            help: Array.isArray(parsed.help) ? parsed.help : [],
+            help: normalizedHelp,
+            agents: parsed.agents && typeof parsed.agents === "object" ? parsed.agents : {},
           };
         }
 
@@ -1235,6 +1294,9 @@
           }
           if (method === "GET" && path === "/api/help") {
             return JSON.parse(JSON.stringify(fixtureState.help.filter((h) => h.answer == null)));
+          }
+          if (method === "GET" && path === "/api/agents") {
+            return JSON.parse(JSON.stringify(fixtureState.agents || {}));
           }
           if (method === "POST" && path.startsWith("/api/help/")) {
             const hid = path.slice("/api/help/".length);
@@ -1316,6 +1378,17 @@
           }
         }
 
+        async function openWorkspace(fixtureName) {
+          if (hasShellBridge()) {
+            return callShell("openWorkspace", fixtureName ? { fixture: fixtureName } : {});
+          }
+          const url = new URL("./workspace.html", window.location.href);
+          if (fixtureName) url.searchParams.set("fixture", fixtureName);
+          if (queryToken) url.searchParams.set("t", queryToken);
+          window.open(url.toString(), "_blank", "noopener");
+          return { ok: true };
+        }
+
         return {
           init,
           setConnection,
@@ -1324,6 +1397,7 @@
           request,
           pickFiles,
           post,
+          openWorkspace,
         };
       })();
 
@@ -1331,6 +1405,113 @@
          2. SINGLE ADAPTER (Maps upstream /api/* shapes -> ViewModel; views read ONLY ViewModel)
          ============================================================================ */
       const WorkspaceAdapter = (function () {
+        const NEUTRAL_AGENT_COLOR = "#5C6B7A";
+
+        const APPROVAL_KIND_WARNINGS = {
+          destructive: "This can't be undone",
+          sign_in: "This changes sign-in or security settings",
+          money: "This spends money",
+        };
+
+        function normalizeHex(hex, fallback) {
+          const s = String(hex || "").trim();
+          if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toUpperCase();
+          if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+            return (
+              "#" +
+              s[1] + s[1] +
+              s[2] + s[2] +
+              s[3] + s[3]
+            ).toUpperCase();
+          }
+          return fallback;
+        }
+
+        function hexToRgb(hex) {
+          const clean = normalizeHex(hex, "#000000").slice(1);
+          const n = parseInt(clean, 16);
+          return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        }
+
+        function rgbToHex(r, g, b) {
+          const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+          return (
+            "#" +
+            [clamp(r), clamp(g), clamp(b)]
+              .map((v) => v.toString(16).padStart(2, "0"))
+              .join("")
+              .toUpperCase()
+          );
+        }
+
+        function mixHex(hexA, hexB, weightB) {
+          const [r1, g1, b1] = hexToRgb(hexA);
+          const [r2, g2, b2] = hexToRgb(hexB);
+          const w = Math.max(0, Math.min(1, weightB));
+          return rgbToHex(
+            r1 + (r2 - r1) * w,
+            g1 + (g2 - g1) * w,
+            b1 + (b2 - b1) * w
+          );
+        }
+
+        function relativeLuminance(hex) {
+          const [r, g, b] = hexToRgb(hex).map((v) => {
+            const c = v / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+          });
+          return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        }
+
+        function contrastRatio(hexA, hexB) {
+          const l1 = relativeLuminance(hexA);
+          const l2 = relativeLuminance(hexB);
+          const hi = Math.max(l1, l2);
+          const lo = Math.min(l1, l2);
+          return (hi + 0.05) / (lo + 0.05);
+        }
+
+        function ensureContrastInk(bodyHex, rawInkHex) {
+          let ink = normalizeHex(rawInkHex, mixHex(bodyHex, "#101216", 0.65));
+          for (let step = 0; step < 6; step++) {
+            if (contrastRatio(bodyHex, ink) >= 4.7) return ink;
+            ink = mixHex(ink, "#101216", 0.28);
+          }
+          return ink;
+        }
+
+        function hashString(str) {
+          let h = 2166136261;
+          for (let i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = Math.imul(h, 16777619);
+          }
+          return h >>> 0;
+        }
+
+        function resolveAgentIdentity(runObj, agentsMap, fallbackIndex) {
+          const record = agentsMap && runObj?.id ? agentsMap[runObj.id] : null;
+          const seed = hashString(String(runObj?.id || actorLabelForRole(runObj?.role) || "agent")) % 10000;
+          const baseColor = normalizeHex(record?.color || record?.body, NEUTRAL_AGENT_COLOR);
+          const body = mixHex(baseColor, "#FFFFFF", 0.70);
+          const edge = normalizeHex(record?.edge, mixHex(body, "#FFFFFF", 0.35));
+          const derivedInk = normalizeHex(record?.ink, mixHex(baseColor, "#000000", 0.45));
+          const ink = ensureContrastInk(body, derivedInk);
+          return {
+            id: runObj?.id || `agent-${fallbackIndex}`,
+            name: String(record?.name || actorLabelForRole(runObj?.role)).trim(),
+            color: baseColor,
+            palette: { body, edge, ink },
+            seed,
+          };
+        }
+
+        function pluralizeUnits(text) {
+          return String(text || "")
+            .replace(/(\d+)\s+round\(s\)/gi, (_, n) => `${n} round${Number(n) === 1 ? "" : "s"}`)
+            .replace(/(\d+)\s+patch\(es\)/gi, (_, n) => `${n} patch${Number(n) === 1 ? "" : "es"}`);
+        }
+
         function formatSeconds(sec) {
           const n = Math.max(0, Number(sec) || 0);
           if (n < 1) return "<1s";
@@ -1404,7 +1585,10 @@
             case "help":
               return ev.question ? `Asked: ${ev.question}` : "Waiting for approval";
             case "help_answer":
-              return `Answered: ${sentenceCase(ev.answer || "")}${ev.timed_out ? " (timed out)" : ""}`;
+              if (ev.timed_out) return "Approval expired";
+              return `Answered: ${sentenceCase(ev.answer || "")}`;
+            case "speak":
+              return ev.text || ev.msg || ev.message ? sentenceCase(ev.text || ev.msg || ev.message) : "";
             case "artifact":
               return ev.tagline ? `Created brief: ${ev.tagline}` : "Saved output";
             case "tour":
@@ -1465,18 +1649,65 @@
           return null;
         }
 
+        function extractSpeakText(allRunsInGroup, detailsById) {
+          let latest = "";
+          for (const r of allRunsInGroup) {
+            const detail = detailsById[r.id];
+            const evs = Array.isArray(detail?.events) ? detail.events : [];
+            const speak = [...evs].reverse().find((e) => e.kind === "speak" && (e.text || e.msg || e.message));
+            if (speak) {
+              latest = String(speak.text || speak.msg || speak.message).trim();
+              if (latest) return latest;
+            }
+          }
+          return latest;
+        }
+
+        function hasVerifyPass(allRunsInGroup, detailsById) {
+          let seenVerify = false;
+          for (const r of allRunsInGroup) {
+            const detail = detailsById[r.id];
+            const evs = Array.isArray(detail?.events) ? detail.events : [];
+            for (let i = evs.length - 1; i >= 0; i--) {
+              if (evs[i]?.kind === "verify") {
+                seenVerify = true;
+                if (evs[i].achieved === true) return { seenVerify: true, passed: true };
+                if (evs[i].achieved === false) return { seenVerify: true, passed: false };
+              }
+            }
+          }
+          return { seenVerify, passed: false };
+        }
+
         function cleanFailureFact(rawSummary) {
-          const text = String(rawSummary || "").trim();
+          const text = pluralizeUnits(String(rawSummary || "").trim());
           if (!text) return "Stopped before finishing";
           const withoutRepo = text.replace(/^QA\s+\S+:\s*/i, "");
           return sentenceCase(withoutRepo);
         }
 
-        function mapStep(childRun, detail, pendingHelpForChild) {
+        function buildPillFact(cleanText, isVerified) {
+          const text = String(cleanText || "").trim();
+          if (!text) return "";
+          if (isVerified) {
+            const loopMatch = text.match(/(\d+\s+rounds?),?\s*(\d+\s+patch(?:es)?)/i);
+            if (loopMatch) {
+              return `${loopMatch[1]}, ${loopMatch[2]}`;
+            }
+          }
+          if (text.length <= 24) return text;
+          const cut = text.slice(0, 23);
+          const lastSpace = cut.lastIndexOf(" ");
+          return (lastSpace > 8 ? cut.slice(0, lastSpace) : cut).trim();
+        }
+
+        function mapStep(childRun, detail, pendingHelpForChild, agentsMap, fallbackIndex, isMockContext) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role);
+          const agentIdentity = resolveAgentIdentity(childRun, agentsMap, fallbackIndex);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
           const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
+          const isMockStep = Boolean(isMockContext || childRun.mock || childRun.ca_mock || childRun.result?.mock || childRun.result?.ca_mock);
 
           let stateSymbolWord = "▶ Running";
           let stateColorClass = "state-working";
@@ -1494,9 +1725,9 @@
             stateColorClass = "state-working";
             isWorking = true;
           } else if (childRun.state === "done" && childRun.result?.ok === true) {
-            stateSymbolWord = "✓ Verified";
+            stateSymbolWord = isMockStep ? "✓ Verified (mock)" : "✓ Verified";
             stateColorClass = "state-success";
-          } else if (childRun.state === "failed" || (childRun.state === "done" && childRun.result?.ok === false)) {
+          } else if (childRun.state === "failed" || childRun.result?.ok === false) {
             stateSymbolWord = "× Failed";
             stateColorClass = "state-danger";
           } else {
@@ -1521,7 +1752,7 @@
             if (verifiedEvent?.evidence) {
               latestSummary = `Verified: ${verifiedEvent.evidence}`;
             } else if (childRun.result?.summary) {
-              latestSummary = sentenceCase(childRun.result.summary);
+              latestSummary = cleanFailureFact(childRun.result.summary);
             } else if (isWorking) {
               latestSummary = "Working…";
             }
@@ -1532,6 +1763,7 @@
           return {
             id: childRun.id,
             actorLabel,
+            agentIdentity,
             stateSymbolWord,
             stateColorClass,
             latestSummary,
@@ -1544,6 +1776,8 @@
         function mapRuns(rawRuns, detailsById, pendingHelpList, meta) {
           const runsList = Array.isArray(rawRuns) ? rawRuns : [];
           const helpList = Array.isArray(pendingHelpList) ? pendingHelpList : [];
+          const agentsMap = meta && meta.agentsById && typeof meta.agentsById === "object" ? meta.agentsById : {};
+          const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : (Date.now() / 1000);
           const byId = new Map(runsList.map((r) => [r.id, r]));
 
           /* Group child runs under parent orchestrator runs */
@@ -1561,59 +1795,132 @@
             const groupRuns = [parent, ...rawChildren];
             const groupRunIds = new Set(groupRuns.map((r) => r.id));
 
-            const pendingHelp = helpList
-              .filter((h) => groupRunIds.has(h.run) && h.answer == null)
-              .map((h) => ({
-                id: h.id,
-                question: h.question || "Approval needed",
-                options: Array.isArray(h.options) && h.options.length ? h.options : ["approve", "deny"],
-                detail: h.detail ? String(h.detail) : "",
-                timeoutNote: "No answer in 5m declines this.",
-              }));
+            const timedOutHelpIds = new Set();
+            const helpEventsById = new Map();
+            for (const gr of groupRuns) {
+              const evs = Array.isArray(detailsById[gr.id]?.events) ? detailsById[gr.id].events : [];
+              for (const ev of evs) {
+                if (ev?.kind === "help" && ev.id) {
+                  helpEventsById.set(ev.id, { ...ev, run: gr.id });
+                } else if (ev?.kind === "help_answer" && ev.id && ev.timed_out === true) {
+                  timedOutHelpIds.add(ev.id);
+                }
+              }
+            }
 
-            const steps = (rawChildren.length ? rawChildren : [parent]).map((child) => {
-              const childHelp = helpList.filter((h) => h.run === child.id && h.answer == null);
-              return mapStep(child, detailsById[child.id], childHelp);
+            const helpItemsById = new Map();
+            for (const h of helpList) {
+              if (!h || !groupRunIds.has(h.run) || h.answer != null) continue;
+              helpItemsById.set(h.id, h);
+            }
+            for (const hid of timedOutHelpIds) {
+              if (!helpItemsById.has(hid) && helpEventsById.has(hid)) {
+                const he = helpEventsById.get(hid);
+                helpItemsById.set(hid, {
+                  id: hid,
+                  run: he.run,
+                  kind: he.help_kind || he.kind_name || "",
+                  question: he.question || "Approval needed",
+                  options: Array.isArray(he.options) ? he.options : [],
+                  detail: he.detail || "",
+                  answer: null,
+                  timed_out: true,
+                });
+              }
+            }
+
+            const pendingHelp = Array.from(helpItemsById.values()).map((h) => {
+              const helpEv = helpEventsById.get(h.id);
+              const kind = h.kind || helpEv?.help_kind || "";
+              const kindWarning = APPROVAL_KIND_WARNINGS[kind] || "";
+              const ageExpired =
+                (h.asked != null && (nowSec - Number(h.asked)) >= 300) ||
+                (h.asked_age_s != null && Number(h.asked_age_s) >= 300);
+              const isExpired = Boolean(h.timed_out || timedOutHelpIds.has(h.id) || ageExpired);
+              return {
+                id: h.id,
+                run: h.run,
+                kind,
+                kindWarning,
+                isExpired,
+                statusText: isExpired ? "Expired" : "",
+                question: h.question || "Approval needed",
+                options: Array.isArray(h.options) ? h.options : [],
+                detail: h.detail ? String(h.detail) : "",
+                timeoutNote: isExpired ? "No answer received within 5m." : "No answer in 5m declines this.",
+              };
+            });
+
+            const activePendingHelp = pendingHelp.filter((h) => !h.isExpired);
+
+            const isMockRun = Boolean(
+              meta.isSampleData ||
+              parent.mock ||
+              parent.ca_mock ||
+              parent.result?.mock ||
+              parent.result?.ca_mock ||
+              rawChildren.some((c) => c.mock || c.ca_mock || c.result?.mock || c.result?.ca_mock)
+            );
+
+            const steps = (rawChildren.length ? rawChildren : [parent]).map((child, idx) => {
+              const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
+              return mapStep(child, detailsById[child.id], childHelp, agentsMap, idx, isMockRun);
             });
 
             const evidenceText = extractVerificationEvidence(groupRuns, detailsById);
+            const speakText = extractSpeakText(groupRuns, detailsById);
             const unappliedPatch = hasUnappliedPatch(groupRuns, detailsById);
 
-            /* Truth rules (Requirement 4):
-               "✓ Verified" ONLY when parent run is done AND result.ok === true. */
+            /* Truth rules (Requirement 4 & A5):
+               Check mark (✓) ONLY when parent run is done AND parent.result.ok === true.
+               Under CA_MOCK / sample data, label clearly that mock verification is not evidence. */
             let state = "working"; // "working" | "waiting" | "verified" | "failed"
             let stateSymbolWord = "▶ Running";
             let stateFact = "";
+            let pillFact = "";
             let stateColorClass = "state-working";
 
-            if (pendingHelp.length > 0 || parent.state === "awaiting_human" || rawChildren.some((c) => c.state === "awaiting_human")) {
+            if (activePendingHelp.length > 0 || parent.state === "awaiting_human" || rawChildren.some((c) => c.state === "awaiting_human")) {
               state = "waiting";
               stateSymbolWord = "◔ Needs approval";
-              stateFact = pendingHelp[0]?.question || "Waiting for your answer";
+              stateFact = activePendingHelp[0]?.question || pendingHelp[0]?.question || "Waiting for your answer";
+              pillFact = buildPillFact(stateFact, false);
               stateColorClass = "state-warning";
             } else if (parent.state === "queued" || parent.state === "planning" || parent.state === "acting") {
               state = "working";
               stateSymbolWord = "▶ Running";
               const activeChild = steps.find((s) => s.isWorking);
-              stateFact = activeChild ? activeChild.actorLabel : "Planning";
+              stateFact = activeChild ? (activeChild.agentIdentity?.name || activeChild.actorLabel) : "Planning";
+              pillFact = buildPillFact(stateFact, false);
               stateColorClass = "state-working";
             } else if (parent.state === "done" && parent.result?.ok === true) {
               state = "verified";
-              stateSymbolWord = "✓ Verified";
-              stateFact = cleanFailureFact(parent.result.summary) || "All checks passed";
+              stateSymbolWord = isMockRun ? "✓ Verified (mock)" : "✓ Verified";
+              const rawSummary = parent.result.summary || speakText;
+              stateFact = rawSummary ? cleanFailureFact(rawSummary) : "All checks passed";
+              pillFact = buildPillFact(stateFact, true);
               stateColorClass = "state-success";
-            } else if (parent.state === "failed" || (parent.state === "done" && parent.result?.ok === false)) {
+            } else if (parent.state === "failed" || parent.result?.ok === false) {
               state = "failed";
               stateSymbolWord = "× Failed";
               const baseSummary = cleanFailureFact(parent.result?.summary);
               stateFact = unappliedPatch
                 ? `${baseSummary} · Nothing was changed.`
                 : baseSummary;
+              pillFact = buildPillFact(baseSummary, false);
               stateColorClass = "state-danger";
+            } else if (parent.state === "done") {
+              state = "unverified";
+              stateSymbolWord = "◔ Finished, not verified";
+              const baseSummary = cleanFailureFact(parent.result?.summary || speakText);
+              stateFact = baseSummary;
+              pillFact = buildPillFact(baseSummary, false);
+              stateColorClass = "state-warning";
             } else {
               state = "failed";
               stateSymbolWord = "× Failed";
               stateFact = "Run stopped without a verified result";
+              pillFact = buildPillFact(stateFact, false);
               stateColorClass = "state-danger";
             }
 
@@ -1622,10 +1929,14 @@
               goal: parent.goal || "Untitled run",
               elapsedText: formatSeconds(parent.elapsed),
               state,
+              isMock: isMockRun,
+              mockNote: isMockRun ? "Mock verification is not real evidence" : "",
               stateSymbolWord,
               stateFact,
+              pillFact,
               stateColorClass,
               evidenceText,
+              speakText,
               steps,
               pendingHelp,
             };
@@ -1649,6 +1960,7 @@
       const pillTrigger = document.getElementById("pill-trigger");
       const pillStatusLine = document.getElementById("pill-status-line");
       const panelView = document.getElementById("panel-view");
+      const openWorkspaceBtn = document.getElementById("open-workspace-btn");
       const collapseBtn = document.getElementById("collapse-btn");
       const promptForm = document.getElementById("prompt-form");
       const promptFieldWrap = document.getElementById("prompt-field-wrap");
@@ -1669,6 +1981,7 @@
       let rawRuns = [];
       let detailsById = {};
       let pendingHelp = [];
+      let agentsById = {};
       let optimisticRuns = [];
       let sendErrorText = "";
       let connectionStatus = "loading"; // "loading" | "disconnected" | "stale" | "connected"
@@ -1680,7 +1993,64 @@
       const expandedStepIds = new Set();
       const knownStepFingerprints = new Map();
       const highlightedStepIds = new Set();
+      const mountedAgentChips = new Map();
       let lastPostedResize = { width: 0, height: 0, state: "" };
+
+      let sharedAgentGlassPromise = null;
+
+      function supportsCanvasFilter() {
+        try {
+          return typeof CanvasRenderingContext2D !== "undefined" && ("filter" in CanvasRenderingContext2D.prototype);
+        } catch {
+          return false;
+        }
+      }
+
+      async function loadSharedAgentGlass() {
+        if (!supportsCanvasFilter()) return null;
+        if (!sharedAgentGlassPromise) {
+          sharedAgentGlassPromise = import("./shared/agent-glass.js")
+            .then((mod) => (typeof mod?.mountAgentGlass === "function" ? mod : null))
+            .catch(() => null);
+        }
+        return sharedAgentGlassPromise;
+      }
+
+      function destroyAllAgentChips() {
+        for (const entry of mountedAgentChips.values()) {
+          try {
+            entry?.destroy?.();
+          } catch {
+            // Ignore teardown errors
+          }
+        }
+        mountedAgentChips.clear();
+      }
+
+      function mountAllAgentChips() {
+        if (!supportsCanvasFilter()) return;
+        loadSharedAgentGlass().then((mod) => {
+          if (!mod) return;
+          const nodes = timelineScroll.querySelectorAll("[data-agent-chip]");
+          nodes.forEach((el) => {
+            const stepId = el.dataset.agentChip || "";
+            if (!stepId || mountedAgentChips.has(stepId)) return;
+            const name = el.dataset.agentName || "";
+            const color = el.dataset.agentColor || "#5C6B7A";
+            try {
+              el.classList.add("has-glass");
+              const inst = mod.mountAgentGlass(el, { id: stepId, name, color });
+              if (inst) {
+                mountedAgentChips.set(stepId, inst);
+              } else {
+                el.classList.remove("has-glass");
+              }
+            } catch {
+              el.classList.remove("has-glass");
+            }
+          });
+        });
+      }
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -1701,7 +2071,7 @@
         let height = 36;
 
         if (state === "expanded") {
-          width = 480;
+          width = 580;
           const naturalHeight = panelView.scrollHeight;
           height = Math.min(600, Math.max(150, Math.ceil(naturalHeight)));
           notchShell.style.setProperty("--panel-height", `${height}px`);
@@ -1744,6 +2114,7 @@
 
         if (normalized === "expanded") {
           requestAnimationFrame(() => {
+            mountAllAgentChips();
             if (connectionStatus === "disconnected") {
               const connectInput = document.getElementById("connect-url-input");
               if (connectInput) connectInput.focus();
@@ -1764,6 +2135,10 @@
 
       pillTrigger.addEventListener("click", (e) => {
         setState("expanded", { instant: e.detail === 0 });
+      });
+
+      openWorkspaceBtn.addEventListener("click", () => {
+        Transport.openWorkspace(fixtureParam || "");
       });
 
       collapseBtn.addEventListener("click", (e) => {
@@ -2100,7 +2475,8 @@
         }
 
         /* F2 & F3: No fake "Run again" action in pill; only symbol + word get state color */
-        const fact = latest.stateFact ? `<span class="pill-sub">&middot; ${escapeHtml(latest.stateFact)}</span>` : "";
+        const pillDetail = latest.pillFact || latest.stateFact;
+        const fact = pillDetail ? `<span class="pill-sub">&middot; ${escapeHtml(pillDetail)}</span>` : "";
         pillStatusLine.innerHTML = `
           <span class="state-text ${escapeHtml(latest.stateColorClass)}">${escapeHtml(latest.stateSymbolWord)}</span>
           ${fact}
@@ -2111,6 +2487,7 @@
         sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
 
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+          destroyAllAgentChips();
           timelineScroll.innerHTML = `
             <div class="timeline-row">
               <span class="state-text state-working">&hellip; Loading</span>
@@ -2122,6 +2499,7 @@
         }
 
         if (vm.connectionStatus === "disconnected") {
+          destroyAllAgentChips();
           const prevInput = document.getElementById("connect-url-input")?.value || "";
           timelineScroll.innerHTML = `
             <div class="timeline-block">
@@ -2166,6 +2544,7 @@
         }
 
         if (!vm.runs.length) {
+          destroyAllAgentChips();
           blocks.push(`
             <div class="timeline-row">
               <span class="state-text state-neutral">&cir; No runs yet</span>
@@ -2189,29 +2568,33 @@
           savedScroll.set(el.dataset.detailScroll, el.scrollTop);
         });
 
-        /* Inline pending help rows inside timeline (Requirement 5) */
+        /* Inline pending help rows inside timeline (Requirement 5 & A4) */
         const helpHtml = activeRun.pendingHelp
           .map(
             (h) => `
-              <div class="help-block">
+              <div class="help-block ${h.isExpired ? "is-expired" : ""}">
                 <div class="help-row">
                   <span class="help-question">${escapeHtml(h.question)}</span>
                   <span class="help-actions">
-                    ${h.options
-                      .map(
-                        (opt) => `
-                          <button
-                            type="button"
-                            class="btn"
-                            data-action="answer-help"
-                            data-help-id="${escapeHtml(h.id)}"
-                            data-choice="${escapeHtml(opt)}"
-                          >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
-                        `
-                      )
-                      .join("")}
+                    ${h.isExpired
+                      ? `<span class="state-text state-danger">&oslash; Expired</span>`
+                      : h.options
+                          .map(
+                            (opt) => `
+                              <button
+                                type="button"
+                                class="btn"
+                                data-action="answer-help"
+                                data-help-id="${escapeHtml(h.id)}"
+                                data-choice="${escapeHtml(opt)}"
+                              >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
+                            `
+                          )
+                          .join("")
+                    }
                   </span>
                 </div>
+                ${h.kindWarning ? `<div class="help-warning">${escapeHtml(h.kindWarning)}</div>` : ""}
                 ${h.detail ? `<div class="help-meta">${escapeHtml(h.detail)}</div>` : ""}
                 <div class="help-meta">${escapeHtml(h.timeoutNote)}</div>
               </div>
@@ -2219,11 +2602,11 @@
           )
           .join("");
 
-        /* Steps (F5: NO elapsed duplicated on child steps) */
+        /* Steps (F5: NO elapsed duplicated on child steps; A3: agent sea-glass chip + current step) */
         const stepsHtml = activeRun.steps
           .map((step) => {
             const isExpanded = expandedStepIds.has(step.id);
-            const fingerprint = `${step.stateSymbolWord}:${step.latestSummary}`;
+            const fingerprint = `${step.stateSymbolWord}:${step.agentIdentity.name}:${step.latestSummary}`;
             const prev = knownStepFingerprints.get(step.id);
             if (prev && prev !== fingerprint) {
               highlightedStepIds.add(step.id);
@@ -2257,7 +2640,13 @@
                 >
                   <span class="step-left">
                     <span class="state-text ${escapeHtml(step.stateColorClass)}">${escapeHtml(step.stateSymbolWord)}</span>
-                    <span class="step-actor">${escapeHtml(step.actorLabel)}</span>
+                    <span
+                      class="agent-chip"
+                      style="--chip-bg: ${escapeHtml(step.agentIdentity.palette.body)}; --chip-edge: ${escapeHtml(step.agentIdentity.palette.edge)}; --chip-ink: ${escapeHtml(step.agentIdentity.palette.ink)};"
+                      data-agent-chip="${escapeHtml(step.id)}"
+                      data-agent-name="${escapeHtml(step.agentIdentity.name)}"
+                      data-agent-color="${escapeHtml(step.agentIdentity.color)}"
+                    ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
                     <span class="step-event-text">${escapeHtml(step.latestSummary)}</span>
                   </span>
                 </button>
@@ -2272,9 +2661,19 @@
             ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
             : "";
 
+        const speakHtml =
+          activeRun.speakText && activeRun.speakText !== activeRun.evidenceText
+            ? `<div class="run-evidence-line">${escapeHtml(activeRun.speakText)}</div>`
+            : "";
+
         const evidenceHtml = activeRun.evidenceText
           ? `<div class="run-evidence-line">Verified on screen: ${escapeHtml(activeRun.evidenceText)}</div>`
           : "";
+
+        const mockBannerHtml =
+          activeRun.mockNote && !vm.isSampleData
+            ? `<div class="sample-tag">${escapeHtml(activeRun.mockNote)}</div>`
+            : "";
 
         blocks.push(`
           <div class="timeline-block">
@@ -2290,6 +2689,8 @@
                 </div>
                 ${runAgainHtml}
               </div>
+              ${mockBannerHtml}
+              ${speakHtml}
               ${evidenceHtml}
             </div>
             ${helpHtml}
@@ -2323,6 +2724,7 @@
           `);
         }
 
+        destroyAllAgentChips();
         timelineScroll.innerHTML = blocks.join("");
 
         timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
@@ -2330,6 +2732,7 @@
           if (prev != null) el.scrollTop = prev;
         });
 
+        mountAllAgentChips();
         syncSizeAndBridge();
       }
 
@@ -2338,6 +2741,7 @@
           connectionStatus,
           connectionError,
           isSampleData,
+          agentsById,
         });
         renderPill(vm);
         renderPanel(vm);
@@ -2389,7 +2793,9 @@
           if (action === "answer-help") {
             const hid = actionBtn.dataset.helpId;
             const choice = actionBtn.dataset.choice;
-            if (hid && choice) {
+            const helpRecord = pendingHelp.find((h) => h.id === hid);
+            const allowedOptions = Array.isArray(helpRecord?.options) ? helpRecord.options : [];
+            if (hid && choice && allowedOptions.includes(choice)) {
               actionBtn.disabled = true;
               try {
                 await Transport.request("POST", `/api/help/${encodeURIComponent(hid)}`, {
@@ -2433,13 +2839,15 @@
         }
 
         try {
-          const [runsResp, helpResp] = await Promise.all([
+          const [runsResp, helpResp, agentsResp] = await Promise.all([
             Transport.request("GET", "/api/runs"),
             Transport.request("GET", "/api/help"),
+            Transport.request("GET", "/api/agents").catch(() => ({})),
           ]);
 
           const nextRuns = Array.isArray(runsResp) ? runsResp : [];
           const nextHelp = Array.isArray(helpResp) ? helpResp : [];
+          const nextAgents = agentsResp && typeof agentsResp === "object" ? agentsResp : {};
 
           /* Fetch incremental event details for active/selected runs */
           const parents = nextRuns.filter((r) => !r.parent);
@@ -2476,6 +2884,7 @@
 
           rawRuns = nextRuns;
           pendingHelp = nextHelp;
+          agentsById = nextAgents;
           hasLoadedOnce = true;
           connectionStatus = "connected";
           connectionError = "";
