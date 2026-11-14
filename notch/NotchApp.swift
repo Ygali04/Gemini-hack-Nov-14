@@ -228,8 +228,17 @@ final class ChatWindow {
 
 @MainActor
 final class NotchPanel: NSPanel {
+    var onCancel: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) {
+        if let onCancel = onCancel {
+            onCancel()
+        } else {
+            super.cancelOperation(sender)
+        }
+    }
 }
 
 @MainActor
@@ -240,16 +249,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var webView: WKWebView!
     private var workspaceWindow: NSWindow?
     private var workspaceWebView: WKWebView?
+    private var workspaceSheetPanel: NotchPanel?
+    private var workspaceSheetWebView: ShellWebView?
+    private var workspaceSheetSize = NSSize(width: 960, height: 680)
     private var sharedContentController: WKUserContentController!
     private var notesPanel: NotchPanel!
     private var notesWeb: ShellWebView!
+    private var notesWidth: CGFloat = 320
     private var notesHeight: CGFloat = 0
     private var chats: [String: ChatWindow] = [:]
     private var allHidden = false
     private var expanded = false
+    private var panelState = "collapsed"
     private var prevApp: NSRunningApplication?
     private var usr1Source: DispatchSourceSignal?
     private var currentSize = NSSize(width: 280, height: 36)
+    private let motionDuration: TimeInterval = 0.18
 
     // Session-only connection state (never persisted to disk)
     private var connectionBaseURL: URL?
@@ -411,12 +426,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         statusItem.menu = menu
     }
 
-    private func topCenteredFrame(for size: NSSize) -> NSRect {
-        let screen = NSScreen.main ?? NSScreen.screens.first
+    private func notchScreen() -> NSScreen? {
+        if let notched = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) {
+            return notched
+        }
+        return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func topCenteredFrame(for size: NSSize, on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let x = round(screenFrame.midX - (size.width / 2.0))
         let y = round(screenFrame.maxY - size.height)
         return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private func notesFrame(for width: CGFloat, height: CGFloat, on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let vis = screen?.visibleFrame ?? screenFrame
+        let notchClearance = max(screen?.safeAreaInsets.top ?? 0, 36.0)
+        let baseTopY = min(vis.maxY, screenFrame.maxY - notchClearance) - 8.0
+        let panelBottomY = (panel != nil && panel.isVisible) ? (panel.frame.minY - 8.0) : baseTopY
+        let anchorTopY = min(baseTopY, panelBottomY)
+        let clampedW = min(max(width, 240.0), max(240.0, vis.width - 32.0))
+        let maxAvailH = max(80.0, anchorTopY - vis.minY - 8.0)
+        let clampedH = min(height, maxAvailH)
+        let x = round(screenFrame.midX - (clampedW / 2.0))
+        let y = round(anchorTopY - clampedH)
+        return NSRect(x: x, y: y, width: clampedW, height: clampedH)
+    }
+
+    private func animateWindow(
+        _ win: NSWindow,
+        to targetFrame: NSRect,
+        instant: Bool,
+        reveal: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
+        if instant {
+            win.setFrame(targetFrame, display: true)
+            win.alphaValue = 1.0
+            completion?()
+            return
+        }
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            win.setFrame(targetFrame, display: true)
+            win.alphaValue = reveal ? 0.0 : 0.72
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = motionDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                win.animator().alphaValue = 1.0
+            }, completionHandler: {
+                Task { @MainActor in completion?() }
+            })
+            return
+        }
+
+        win.alphaValue = 1.0
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = motionDuration
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+            win.animator().setFrame(targetFrame, display: true)
+        }, completionHandler: {
+            Task { @MainActor in completion?() }
+        })
+    }
+
+    private func hideWindowWithMotion(_ win: NSWindow, shrinkTo anchorFrame: NSRect? = nil, instant: Bool = false) {
+        guard win.isVisible else { return }
+        if instant {
+            win.orderOut(nil)
+            win.alphaValue = 1.0
+            return
+        }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = motionDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                win.animator().alphaValue = 0.0
+            }, completionHandler: {
+                Task { @MainActor in
+                    win.orderOut(nil)
+                    win.alphaValue = 1.0
+                }
+            })
+            return
+        }
+        if let anchor = anchorFrame {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = motionDuration
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+                win.animator().setFrame(anchor, display: true)
+            }, completionHandler: {
+                Task { @MainActor in
+                    win.orderOut(nil)
+                }
+            })
+        } else {
+            win.orderOut(nil)
+        }
     }
 
     private func setupPanel() {
@@ -488,6 +598,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let script = "window.__notchBridgeReceive && window.__notchBridgeReceive(\(json));"
         webView?.evaluateJavaScript(script, completionHandler: nil)
         workspaceWebView?.evaluateJavaScript(script, completionHandler: nil)
+        workspaceSheetWebView?.evaluateJavaScript(script, completionHandler: nil)
         notesWeb?.evaluateJavaScript(script, completionHandler: nil)
         chats.values.forEach { $0.web.evaluateJavaScript(script, completionHandler: nil) }
     }
@@ -502,15 +613,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         switch type {
         case "resize" where senderWebView === notesWeb:
+            let w = CGFloat((body["width"] as? NSNumber)?.doubleValue ?? Double(notesWidth))
             let h = CGFloat((body["height"] as? NSNumber)?.doubleValue ?? 0)
-            layoutNotes(height: h, fresh: body["fresh"] as? Bool ?? false)
+            notesWidth = min(max(w, 240.0), 480.0)
+            layoutNotes(height: h, fresh: body["fresh"] as? Bool ?? false, instant: body["instant"] as? Bool ?? false)
         case "resize":
             guard senderWebView === webView else { return }
             handleResize(body)
         case "openChat":
             if let run = body["run"] as? String, !run.isEmpty { openChat(run) }
         case "closeWindow":
-            for c in chats.values where c.web === senderWebView { c.open = false; c.panel.orderOut(nil) }
+            if senderWebView === workspaceSheetWebView {
+                foldWorkspaceSheet(instant: body["instant"] as? Bool ?? false)
+            } else {
+                for c in chats.values where c.web === senderWebView { c.open = false; c.panel.orderOut(nil) }
+            }
         case "getConfig":
             let vc = currentVoiceCapability()
             postToWeb([
@@ -562,11 +679,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
     }
 
+    private func workspaceTargetURL(fixtureName: String?) -> URL? {
+        guard let wsFileURL = resolveWorkspaceFileURL() else { return nil }
+        var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
+        var queryItems = [URLQueryItem(name: "shell", value: "notch")]
+        if let fixtureName = fixtureName {
+            queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
+        }
+        components?.queryItems = queryItems
+        return components?.url ?? wsFileURL
+    }
+
+    private func loadWorkspaceContent(into wv: WKWebView, fixtureName: String?) {
+        if let wsFileURL = resolveWorkspaceFileURL(),
+           let targetURL = workspaceTargetURL(fixtureName: fixtureName) {
+            let uiDir = wsFileURL.deletingLastPathComponent()
+            if wv.url?.standardizedFileURL != targetURL.standardizedFileURL {
+                wv.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
+            }
+        } else {
+            let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
+            wv.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    private func foldWorkspaceSheet(instant: Bool = false) {
+        guard let sheet = workspaceSheetPanel, sheet.isVisible else { return }
+        let shrinkFrame = topCenteredFrame(for: currentSize)
+        hideWindowWithMotion(sheet, shrinkTo: shrinkFrame, instant: instant)
+        returnFocus()
+    }
+
     private func handleOpenWorkspace(_ body: [String: Any], to senderWebView: WKWebView?) {
         let reqId = body["id"] as? String ?? ""
         let reqFixture = (body["fixture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let envFixture = ProcessInfo.processInfo.environment["CA_FIXTURE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fixtureName = (reqFixture?.isEmpty == false ? reqFixture : (envFixture?.isEmpty == false ? envFixture : nil))
+        let mode = (body["mode"] as? String ?? "").lowercased()
+
+        if mode == "sheet" {
+            let screen = notchScreen()
+            let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let reqW = (body["width"] as? NSNumber)?.doubleValue ?? 960.0
+            let reqH = (body["height"] as? NSNumber)?.doubleValue ?? 680.0
+            let maxW = max(480.0, Double(vis.width - 48.0))
+            let maxH = max(320.0, Double(vis.height - 16.0))
+            workspaceSheetSize = NSSize(
+                width: CGFloat(min(max(reqW, 480.0), min(1040.0, maxW))),
+                height: CGFloat(min(max(reqH, 320.0), min(740.0, maxH)))
+            )
+            let targetFrame = topCenteredFrame(for: workspaceSheetSize, on: screen)
+
+            if workspaceSheetPanel == nil || workspaceSheetWebView == nil {
+                let startFrame = panel != nil ? panel.frame : targetFrame
+                let sheet = floatingPanel(startFrame, level: .statusBar)
+                sheet.onCancel = { [weak self] in self?.foldWorkspaceSheet() }
+                let wv = makeWebView(startFrame.size)
+                sheet.contentView = wv
+                workspaceSheetPanel = sheet
+                workspaceSheetWebView = wv
+            }
+
+            if let sheet = workspaceSheetPanel, let wv = workspaceSheetWebView {
+                let wasHidden = !sheet.isVisible
+                loadWorkspaceContent(into: wv, fixtureName: fixtureName)
+                if wasHidden {
+                    rememberFrontApp()
+                    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                        let startFrame = panel != nil ? panel.frame : NSRect(x: targetFrame.origin.x, y: targetFrame.maxY - 36, width: targetFrame.width, height: 36)
+                        sheet.setFrame(startFrame, display: true)
+                    }
+                }
+                NSApp.activate(ignoringOtherApps: true)
+                sheet.makeKeyAndOrderFront(nil)
+                animateWindow(sheet, to: targetFrame, instant: body["instant"] as? Bool ?? false, reveal: wasHidden)
+            }
+
+            postToWeb([
+                "type": "workspaceOpened",
+                "id": reqId,
+                "ok": true,
+                "mode": "sheet"
+            ], to: senderWebView)
+            return
+        }
 
         if workspaceWindow == nil || workspaceWebView == nil {
             let initialRect = NSRect(x: 0, y: 0, width: 960, height: 680)
@@ -595,22 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
 
         if let workspaceWebView = workspaceWebView {
-            if let wsFileURL = resolveWorkspaceFileURL() {
-                let uiDir = wsFileURL.deletingLastPathComponent()
-                var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: false)
-                var queryItems = [URLQueryItem(name: "shell", value: "notch")]
-                if let fixtureName = fixtureName {
-                    queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
-                }
-                components?.queryItems = queryItems
-                let targetURL = components?.url ?? wsFileURL
-                if workspaceWebView.url?.standardizedFileURL != targetURL.standardizedFileURL {
-                    workspaceWebView.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
-                }
-            } else {
-                let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
-                workspaceWebView.loadHTMLString(html, baseURL: nil)
-            }
+            loadWorkspaceContent(into: workspaceWebView, fixtureName: fixtureName)
         }
 
         NSApp.activate(ignoringOtherApps: true)
@@ -628,30 +809,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let state = body["state"] as? String ?? ""
         let instant = (body["instant"] as? Bool) ?? false
 
-        let clampedWidth = CGFloat(min(max(rawWidth, 200.0), 640.0))
-        let clampedHeight = CGFloat(min(max(rawHeight, 32.0), 640.0))
+        let screen = notchScreen()
+        let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let isSheet = (state == "sheet")
+        let maxW = isSheet ? min(1040.0, max(480.0, Double(vis.width - 48.0))) : 640.0
+        let maxH = isSheet ? min(740.0, max(320.0, Double(vis.height - 16.0))) : 640.0
+        let minW = isSheet ? 480.0 : 200.0
+        let minH = isSheet ? 320.0 : 32.0
+
+        let clampedWidth = CGFloat(min(max(rawWidth, minW), maxW))
+        let clampedHeight = CGFloat(min(max(rawHeight, minH), maxH))
         currentSize = NSSize(width: clampedWidth, height: clampedHeight)
+        let prevState = panelState
+        panelState = state
 
-        let targetFrame = topCenteredFrame(for: currentSize)
-        if instant {
-            panel.setFrame(targetFrame, display: true)
-        } else {
-            let duration = (state == "collapsed") ? 0.117 : 0.18
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = duration
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
-                panel.animator().setFrame(targetFrame, display: true)
-            }
-        }
+        let targetFrame = topCenteredFrame(for: currentSize, on: screen)
+        animateWindow(panel, to: targetFrame, instant: instant, reveal: (state != prevState))
 
+        let isOpen = (state == "expanded" || state == "sheet")
         let wasExpanded = expanded
-        expanded = (state == "expanded")
-        if state == "expanded" {
+        expanded = isOpen
+        if isOpen {
             if !wasExpanded { rememberFrontApp() }
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
         } else if wasExpanded {
             returnFocus()
+        }
+
+        if notesHeight > 0 && notesPanel.isVisible {
+            layoutNotes(height: notesHeight, fresh: false, instant: instant)
         }
     }
 
@@ -686,23 +873,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         return p
     }
 
-    // Persistent notifications, stacked at the top left of the main screen.
+    // Persistent notifications, stacked directly under the notch, centered on the notch screen.
     private func setupNotes() {
-        let vis = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        notesPanel = floatingPanel(NSRect(x: vis.minX + 12, y: vis.maxY - 8, width: 320, height: 1), level: .statusBar)
+        let initialFrame = notesFrame(for: notesWidth, height: 1)
+        notesPanel = floatingPanel(initialFrame, level: .statusBar)
         notesPanel.hasShadow = false  // each card draws its own edge
-        notesWeb = makeWebView(NSSize(width: 320, height: 1))
+        notesWeb = makeWebView(NSSize(width: notesWidth, height: 1))
         notesPanel.contentView = notesWeb
         loadView(notesWeb, [URLQueryItem(name: "shell", value: "notes")])
     }
 
-    private func layoutNotes(height: CGFloat, fresh: Bool) {
+    private func layoutNotes(height: CGFloat, fresh: Bool, instant: Bool = false) {
         notesHeight = height
-        guard height > 0 else { notesPanel.orderOut(nil); return }
-        let vis = (NSScreen.main ?? NSScreen.screens[0]).visibleFrame
-        let h = min(height, vis.height - 40)
-        notesPanel.setFrame(NSRect(x: vis.minX + 12, y: vis.maxY - 8 - h, width: 320, height: h), display: true)
-        if !allHidden || fresh { notesPanel.orderFrontRegardless() }  // a new notification shows itself
+        guard height > 0 else {
+            hideWindowWithMotion(notesPanel, instant: instant)
+            return
+        }
+        let targetFrame = notesFrame(for: notesWidth, height: height)
+        let shouldShow = !allHidden || fresh
+        let wasHidden = !notesPanel.isVisible
+        if shouldShow {
+            if wasHidden {
+                if !instant && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    notesPanel.setFrame(NSRect(x: targetFrame.origin.x, y: targetFrame.maxY - 1, width: targetFrame.width, height: 1), display: true)
+                }
+                notesPanel.orderFrontRegardless()
+            }
+            animateWindow(notesPanel, to: targetFrame, instant: instant, reveal: wasHidden)
+        } else {
+            notesPanel.setFrame(targetFrame, display: true)
+        }
     }
 
     // One floating chat window per conversation, cascading down from the top right.
@@ -745,6 +945,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func toggleAll() {
+        if let sheet = workspaceSheetPanel, sheet.isVisible {
+            foldWorkspaceSheet()
+            return
+        }
         if allHidden || !expanded {
             allHidden = false
             rememberFrontApp()
@@ -752,11 +956,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             panel.orderFrontRegardless()
             postToWeb(["type": "hotkey"], to: webView)  // the page expands, then asks for focus via resize
             for c in chats.values where c.open { c.panel.orderFrontRegardless() }
-            if notesHeight > 0 { notesPanel.orderFrontRegardless() }
+            if notesHeight > 0 { layoutNotes(height: notesHeight, fresh: false, instant: true) }
         } else {
             allHidden = true
             panel.orderOut(nil)
             workspaceWindow?.orderOut(nil)
+            workspaceSheetPanel?.orderOut(nil)
             chats.values.forEach { $0.panel.orderOut(nil) }
             notesPanel.orderOut(nil)
             returnFocus()
@@ -1416,8 +1621,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     @objc private func screenParametersDidChange(_ notification: Notification) {
-        let targetFrame = topCenteredFrame(for: currentSize)
+        let screen = notchScreen()
+        let targetFrame = topCenteredFrame(for: currentSize, on: screen)
         panel.setFrame(targetFrame, display: true)
+        if let sheet = workspaceSheetPanel, sheet.isVisible {
+            let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let clamped = NSSize(
+                width: min(workspaceSheetSize.width, max(480.0, vis.width - 48.0)),
+                height: min(workspaceSheetSize.height, max(320.0, vis.height - 16.0))
+            )
+            sheet.setFrame(topCenteredFrame(for: clamped, on: screen), display: true)
+        }
+        if notesHeight > 0 && notesPanel.isVisible {
+            notesPanel.setFrame(notesFrame(for: notesWidth, height: notesHeight, on: screen), display: true)
+        }
     }
 
     @objc private func togglePanel(_ sender: Any?) {
@@ -1491,12 +1708,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 "id": reqId,
                 "ok": true,
                 "panel": quartzRectDict(for: panel) ?? NSNull(),
-                "workspace": quartzRectDict(for: workspaceWindow) ?? NSNull()
+                "notes": quartzRectDict(for: notesPanel) ?? NSNull(),
+                "workspace": quartzRectDict(for: (workspaceSheetPanel?.isVisible == true ? workspaceSheetPanel : nil) ?? workspaceWindow) ?? NSNull()
             ])
         case "eval":
             let target = req["target"] as? String ?? "notch"
             let js = req["js"] as? String ?? ""
-            let wv: WKWebView? = (target == "workspace") ? workspaceWebView : webView
+            let wv: WKWebView? = (target == "workspace") ? ((workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? workspaceWebView) : webView
             guard let targetWebView = wv else {
                 writeInspectResponse([
                     "id": reqId,
