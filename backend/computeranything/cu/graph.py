@@ -19,6 +19,7 @@ import time
 
 HOME = os.path.expanduser(os.environ.get("CA_HOME", "~/.computeranything"))
 PATH = os.path.join(HOME, "graph.json")
+LOG = os.path.join(HOME, "actions.jsonl")  # append-only: every action by every agent
 MERGE = 0.8
 LAMBDA = 0.05
 DESTRUCTIVE = re.compile(
@@ -54,6 +55,7 @@ STOP = {
     "at",
 }
 _lock = threading.Lock()
+EXECUTED = {"ok", "failed"}  # only these move reliability; denied/help/done are logged, not scored
 
 
 def clean(s):
@@ -76,9 +78,14 @@ def action_key(kind, el=None, text=None, key=None):
 class Graph:
     def __init__(self):
         self.nodes, self.edges, self.skills = {}, {}, {}
+        self.mu = threading.RLock()  # several CU agents share one graph
 
     # ---------- identity
     def identify(self, app, title, els):
+        with self.mu:
+            return self._identify(app, title, els)
+
+    def _identify(self, app, title, els):
         l0 = "%s|%s" % (app, clean(title)[:60])
         labels = {"%s:%s" % (e["role"], clean(e["name"])[:40]) for e in els if e["name"]}
         best, best_j = None, 0.0
@@ -96,15 +103,46 @@ class Graph:
         return nid
 
     # ---------- edges
-    def record(self, src, akey, dst, ok, ms):
-        e = self.edges.setdefault(src, {}).setdefault(
-            akey, {"n": 0, "k": 0, "ms": [], "to": {}, "destructive": bool(DESTRUCTIVE.search(akey))}
-        )
-        e["n"] += 1
-        e["k"] += int(bool(ok))
-        e["ms"] = (e["ms"] + [int(ms)])[-50:]
-        if dst:
-            e["to"][dst] = e["to"].get(dst, 0) + 1
+    def record(self, src, akey, dst, outcome, ms, run=None, agent=None, app=None, source=None, detail=None, log=LOG):
+        """Log one action taken from screen `src`. outcome: ok | failed | denied | help | done_verified |
+        done_rejected. Every call lands in the edge and in the append-only log; only executed actions
+        (ok/failed) change n and k, so a person saying no never makes a button look unreliable."""
+        if outcome is True or outcome is False:
+            outcome = "ok" if outcome else "failed"
+        with self.mu:
+            e = self.edges.setdefault(src, {}).setdefault(
+                akey,
+                {"n": 0, "k": 0, "ms": [], "to": {}, "destructive": bool(DESTRUCTIVE.search(akey))},
+            )
+            e.setdefault("outcomes", {})
+            e.setdefault("agents", {})
+            e["outcomes"][outcome] = e["outcomes"].get(outcome, 0) + 1
+            if agent:
+                e["agents"][agent] = e["agents"].get(agent, 0) + 1
+            if outcome in EXECUTED:
+                e["n"] += 1
+                e["k"] += int(outcome == "ok")
+                e["ms"] = (e["ms"] + [int(ms)])[-50:]
+            if dst:
+                e["to"][dst] = e["to"].get(dst, 0) + 1
+            if log:
+                os.makedirs(os.path.dirname(log), exist_ok=True)
+                row = {
+                    "ts": round(time.time(), 3),
+                    "run": run,
+                    "agent": agent,
+                    "app": app,
+                    "from": src,
+                    "action": akey,
+                    "to": dst,
+                    "outcome": outcome,
+                    "ms": int(ms),
+                    "source": source,
+                }
+                if detail:
+                    row["detail"] = detail
+                with open(log, "a") as f:
+                    f.write(json.dumps(row) + "\n")
 
     @staticmethod
     def p(e):
@@ -150,6 +188,10 @@ class Graph:
 
     # ---------- skills (macro replay)
     def save_skill(self, app, goal, steps):
+        with self.mu:
+            self._save_skill(app, goal, steps)
+
+    def _save_skill(self, app, goal, steps):
         self.skills.setdefault(app, []).append(
             {"goal": goal, "toks": sorted(toks(goal)), "steps": steps, "ok": 1, "saved": time.time()}
         )
@@ -172,13 +214,19 @@ class Graph:
             "apps": sorted({n["app"] for n in self.nodes.values()}),
             "mean_edge_p": round(sum(map(self.p, es)) / len(es), 3) if es else None,
             "destructive_edges": sum(e["destructive"] for e in es),
+            "actions_logged": sum(sum(e.get("outcomes", {}).values()) for e in es),
+            "agents": sorted({a for e in es for a in e.get("agents", {})}),
         }
 
     # ---------- persistence
     def save(self, path=PATH):
+        with self.mu:
+            self._save(path)
+
+    def _save(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         nodes = {k: {**v, "labels": sorted(v["labels"])} for k, v in self.nodes.items()}
-        tmp = path + ".tmp"
+        tmp = "%s.%d.tmp" % (path, threading.get_ident())
         with open(tmp, "w") as f:
             json.dump({"nodes": nodes, "edges": self.edges, "skills": self.skills}, f)
         os.replace(tmp, path)
@@ -217,6 +265,11 @@ def selftest():
     g.record(a, action_key("click", home[0]), b, True, 300)
     g.record(b, action_key("click", batt[1]), h, True, 400)
     g.record(b, "click:button:delete all data", h, True, 100)  # shorter but destructive
+    tmplog = os.path.join(__import__("tempfile").mkdtemp(), "actions.jsonl")
+    g.record(b, "click:button:delete all data", None, "denied", 0, run="r9", agent="QA", log=tmplog)
+    e = g.edges[b]["click:button:delete all data"]
+    assert e["n"] == 1 and e["outcomes"] == {"ok": 1, "denied": 1} and e["agents"] == {"QA": 1}, e
+    assert json.loads(open(tmplog).read())["outcome"] == "denied"
     p = g.plan(a, "check battery health")
     assert p and p["action"] == "click:button:battery" and p["hops"] == 2, p
     assert abs(Graph.p(g.edges[a]["click:button:battery"]) - 2 / 3) < 1e-9  # (1+1)/(2+1)

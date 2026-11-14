@@ -101,12 +101,36 @@ def _verify(goal, app, title, els):
         return False, "verifier error: %s" % e
 
 
+def agent_name(run):
+    """Name on the agent's cursor tag and in the graph log, e.g. "QA 3f2" or a name the orchestrator set."""
+    return getattr(run, "agent_name", None) or "%s %s" % (run.role.upper(), run.id[-3:])
+
+
 def run_task(run, goal, app=None, max_steps=25):
-    """Drive `app` until `goal` is met. Returns {"ok", "summary", "steps"} and records everything on `run`."""
+    """Drive `app` until `goal` is met with this agent's own cursor. Every action, executed or not, is
+    logged in the state-machine graph under this agent. Returns {"ok", "summary", "steps"}."""
+    me = agent_name(run)
+    overlay.claim(run.id, me)
+    try:
+        return _run(run, goal, app, max_steps, me)
+    finally:
+        overlay.release(run.id)
+
+
+def _run(run, goal, app, max_steps, me):
     g = graph.load()
     app = app or desktop.frontmost_app()
+    nid = None  # current screen node
+
+    def log(akey, outcome, dst=None, ms=0, source="llm", detail=None):
+        g.record(
+            nid or "%s:?" % app, akey, dst, outcome, ms, run=run.id, agent=me, app=app, source=source, detail=detail
+        )
+        run.emit("graph", action=akey, outcome=outcome, node=nid, to=dst)
+
     run.set("planning")
     if SENSITIVE_APP.search(app) and runs.ask_human(run, "money", "Let the agent use %s?" % app) != "approve":
+        log("launch:%s" % app.lower(), "denied", source="policy")
         run.result = {"ok": False, "summary": "You declined access to %s." % app, "steps": 0}
         run.set("failed")
         return run.result
@@ -119,7 +143,7 @@ def run_task(run, goal, app=None, max_steps=25):
     if skill:
         run.emit("memory", msg="replaying a saved skill", goal=skill["goal"], steps=len(replay))
     history, trail, summary, ok = [], [], "", False
-    prev = None  # (node, action_key, t0)
+    pending = None  # (node, action_key, t0, source): an executed action waiting to see where it led
     run.set("acting")
     for step in range(max_steps):
         t_obs = time.time()
@@ -130,8 +154,11 @@ def run_task(run, goal, app=None, max_steps=25):
             time.sleep(0.5)
             continue
         nid = g.identify(app, title, els)
-        if prev:
-            g.record(prev[0], prev[1], nid, True, (t_obs - prev[2]) * 1000)
+        if pending:  # the last action worked; now we know which screen it led to
+            src, akey, t0, source = pending
+            g.record(src, akey, nid, "ok", (t_obs - t0) * 1000, run=run.id, agent=me, app=app, source=source)
+            run.emit("graph", action=akey, outcome="ok", node=src, to=nid)
+            pending = None
         obs_ms = int((time.time() - t_obs) * 1000)
         source, d = "llm", None
         if replay:  # tier 1: replay a remembered step by label
@@ -147,16 +174,9 @@ def run_task(run, goal, app=None, max_steps=25):
         if d is None:  # tier 2: Gemini decides
             shot = _screenshot() if (step == 0 or len(els) < 4 or (history and "FAILED" in history[-1])) else None
             t0 = time.time()
+            plan = g.plan(nid, goal)
             try:
-                d = _decide(
-                    goal,
-                    app,
-                    title,
-                    els,
-                    history,
-                    g.hints(nid) + ([str(g.plan(nid, goal))] if g.plan(nid, goal) else []),
-                    shot,
-                )
+                d = _decide(goal, app, title, els, history, g.hints(nid) + ([str(plan)] if plan else []), shot)
             except Exception as e:
                 run.emit("error", msg="decide: %s" % e)
                 break
@@ -165,6 +185,7 @@ def run_task(run, goal, app=None, max_steps=25):
         if kind == "done":
             achieved, evidence = _verify(goal, app, title, els)
             run.emit("verify", achieved=achieved, evidence=evidence)
+            log("done", "done_verified" if achieved else "done_rejected", source=source, detail=evidence[:200])
             if achieved:
                 ok, summary = True, d.get("summary") or evidence
                 break
@@ -174,6 +195,7 @@ def run_task(run, goal, app=None, max_steps=25):
             ans = runs.ask_human(
                 run, d.get("help") or "clarify", d.get("thought") or "Need your help", ("done", "cancel")
             )
+            log("ask_human:%s" % (d.get("help") or "clarify"), "help", source=source, detail=ans)
             history.append("asked the user (%s): %s" % (d.get("help"), ans))
             if ans != "done":
                 summary = "Stopped: you cancelled at a %s step." % d.get("help")
@@ -185,19 +207,22 @@ def run_task(run, goal, app=None, max_steps=25):
         if tgt and not (el and el["name"].lower() == tgt):  # index and label disagree: trust the label
             el = next((e for e in els if e["ref"] and e["name"].lower() == tgt), el)
         if kind in ("click", "double_click", "type", "set_value", "scroll") and not (el and el["ref"]):
+            log("%s:invalid-target" % kind, "failed", source=source, detail=str(idx))
             history.append("step %d FAILED: index %r is not an actionable element" % (step, idx))
             continue
         key = (d.get("key") or d.get("text")) if kind == "press" else None  # one value for gate and act
         if kind == "press" and not key:
+            log("press:no-key", "failed", source=source)
             history.append("step %d FAILED: press needs a key" % step)
             continue
+        akey = graph.action_key(kind, el, d.get("text"), key)
         if not _gate(run, app, kind, el, key if kind == "press" else d.get("text"), els):
+            log(akey, "denied", source=source)
             history.append("step %d: the user denied %s" % (step, kind))
             summary = "Stopped: you denied %s." % kind
             break
         if el:
-            overlay.point_at(el.get("bounds"), el["name"] or kind)
-        akey = graph.action_key(kind, el, d.get("text"), d.get("key"))
+            overlay.point_at(el.get("bounds"), el["name"] or kind, cursor=run.id)
         t_act = time.time()
         try:
             desktop.act(
@@ -209,11 +234,10 @@ def run_task(run, goal, app=None, max_steps=25):
             )
             history.append("step %d: %s %s" % (step, akey, "'%s'" % d["text"] if d.get("text") else ""))
             trail.append(akey)
-            prev = (nid, akey, t_act)
+            pending = (nid, akey, t_act, source)
         except desktop.DesktopError as e:
-            g.record(nid, akey, None, False, (time.time() - t_act) * 1000)
+            log(akey, "failed", ms=(time.time() - t_act) * 1000, source=source, detail=str(e)[:200])
             history.append("step %d FAILED: %s -> %s" % (step, akey, e))
-            prev = None
         run.emit(
             "act",
             step=step,
@@ -222,7 +246,11 @@ def run_task(run, goal, app=None, max_steps=25):
             observe_ms=obs_ms,
             act_ms=int((time.time() - t_act) * 1000),
             node=nid,
+            agent=me,
         )
+    if pending:  # last executed action never got a follow-up observation
+        src, akey, t0, source = pending
+        g.record(src, akey, None, "ok", (time.time() - t0) * 1000, run=run.id, agent=me, app=app, source=source)
     if ok and trail and not skill:
         g.save_skill(app, goal, [a for a in trail if not a.startswith("type:")])
     g.save()
