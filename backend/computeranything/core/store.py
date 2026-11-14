@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 CREATE TABLE IF NOT EXISTS actions (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, agent TEXT, app TEXT, from_node TEXT,
   action TEXT, to_node TEXT, outcome TEXT, ms INTEGER, source TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, run TEXT, role TEXT, agent TEXT, kind TEXT, text TEXT,
+  meta TEXT);
+CREATE INDEX IF NOT EXISTS msg_run ON messages(run);
 CREATE INDEX IF NOT EXISTS llm_run ON llm_calls(run);
 CREATE INDEX IF NOT EXISTS act_run ON actions(run);
 CREATE INDEX IF NOT EXISTS runs_parent ON runs(parent);
@@ -114,6 +118,64 @@ def action(row):
     )
 
 
+def message(run_id, role, agent, kind, text, meta=None):
+    """One chat-transcript turn. role: user | assistant | agent. kind: prompt | plan | step | ask | answer |
+    result | error."""
+    _x(
+        "INSERT INTO messages (ts,run,role,agent,kind,text,meta) VALUES (?,?,?,?,?,?,?)",
+        (time.time(), run_id, role, agent, kind, text, json.dumps(meta or {}, default=str)),
+    )
+
+
+def _msg_rows(rows):
+    keys = ("id", "ts", "run", "role", "agent", "kind", "text", "meta")
+    return [dict(zip(keys, r[:7] + (json.loads(r[7] or "{}"),), strict=True)) for r in rows]
+
+
+def transcript(run_id):
+    """The whole conversation of a task: the parent run and every child agent, in time order."""
+    ids = _tree(run_id)
+    q = "SELECT * FROM messages WHERE run IN (%s) ORDER BY ts, id" % ",".join("?" * len(ids))
+    return _msg_rows(_x(q, ids).fetchall())
+
+
+def search_messages(q, limit=50):
+    """Substring search over every transcript, newest first."""
+    # ponytail: LIKE scan; switch to an FTS5 table when transcripts reach ~100k rows
+    rows = _x(
+        "SELECT * FROM messages WHERE text LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?",
+        ("%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%", int(limit)),
+    ).fetchall()
+    return _msg_rows(rows)
+
+
+def root(run_id):
+    """The conversation a run belongs to: walk parents to the top."""
+    seen = 0
+    while seen < 50:
+        row = _x("SELECT parent FROM runs WHERE id=?", (run_id,)).fetchone()
+        if not row or not row[0]:
+            return run_id
+        run_id, seen = row[0], seen + 1
+    return run_id
+
+
+def run_info(run_id):
+    row = _x("SELECT goal, ok, summary FROM runs WHERE id=?", (run_id,)).fetchone()
+    return dict(zip(("goal", "ok", "summary"), row, strict=True)) if row else {}
+
+
+def notifiable(since_ts, limit=40):
+    """Transcript turns worth a persistent notification: a task's result or error. (Hellos live in the chat
+    and on the cursor tag; help requests come from /api/help.)"""
+    rows = _x(
+        "SELECT * FROM messages WHERE ts>=? AND role='assistant' AND kind IN ('result','error') "
+        "ORDER BY id DESC LIMIT ?",
+        (since_ts, int(limit)),
+    ).fetchall()
+    return _msg_rows(rows)
+
+
 def _tree(run_id):
     """The run and all its descendants (a task's child agents)."""
     ids, frontier = [run_id], [run_id]
@@ -180,7 +242,8 @@ def summary(since=0):
             (since,),
         ).fetchall()
     ]
-    tasks = _x("SELECT COUNT(*) FROM runs WHERE parent IS NULL AND started>=?", (since,)).fetchone()[0]
+    # every prompt you send is a task, follow-ups in a chat included (they are orchestrator runs under the chat root)
+    tasks = _x("SELECT COUNT(*) FROM runs WHERE role='orchestrator' AND started>=?", (since,)).fetchone()[0]
     total = _x("SELECT COALESCE(SUM(cost),0), COUNT(*) FROM llm_calls WHERE ts>=?", (since,)).fetchone()
     return {
         "tasks": tasks,

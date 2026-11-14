@@ -20,6 +20,9 @@ MODEL = os.environ.get("CA_MODEL", "google/gemini-4-argon")
 DECIDE_MODEL = os.environ.get("CA_DECIDE_MODEL") or None
 USAGE = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
 _mock = []  # queued fake replies (tests)
+if os.environ.get("CA_MOCK") == "1" and os.environ.get("CA_MOCK_REPLIES"):  # scripted replies for UI tests
+    with open(os.environ["CA_MOCK_REPLIES"]) as _f:
+        _mock = [r if isinstance(r, str) else json.dumps(r) for r in json.load(_f)]
 
 
 ENV_PATH = os.path.join(HERE, ".env")
@@ -99,7 +102,8 @@ def _chat(system, user, images, json_mode, max_tokens, temperature, model):
         raise RuntimeError("OPENROUTER_API_KEY is not set (put it in backend/.env)")
     content = [{"type": "text", "text": user}]
     for p in images:
-        mime = "image/png" if p.endswith(".png") else "image/jpeg"
+        ext = os.path.splitext(p)[1].lower()
+        mime = {".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}.get(ext, "image/jpeg")
         content.append(
             {
                 "type": "image_url",

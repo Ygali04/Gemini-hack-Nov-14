@@ -2,7 +2,6 @@
 so nothing else on the machine can send it clicks). Every CU agent claims its own cursor: own color,
 own name tag, own position, so parallel agents are visibly separate on screen."""
 
-import itertools
 import json
 import os
 import subprocess
@@ -21,7 +20,6 @@ PALETTE = [
     ("#F0D9BE", "#FFFCE0", "#865733"),  # amber
 ]
 _proc, _lock = None, threading.Lock()
-_next = itertools.count()
 CURSORS = {}  # agent id -> {"name", "color"}
 
 
@@ -45,11 +43,17 @@ def send(*ops):
         return True
 
 
+def palette_for(name):
+    """An agent's colours follow its name, so the cursor, chat and notifications all match."""
+    # ponytail: 5 palettes, two live agents can share one; pick the least-used palette if that matters
+    return PALETTE[sum(map(ord, name or "")) % len(PALETTE)]
+
+
 def claim(agent_id, name):
     """Give an agent its own cursor. Returns its color."""
     with _lock:
         if agent_id not in CURSORS:
-            body, edge, ink = PALETTE[next(_next) % len(PALETTE)]
+            body, edge, ink = palette_for(name)
             CURSORS[agent_id] = {"name": name, "color": body, "edge": edge, "ink": ink}
         c = CURSORS[agent_id]
     send({"op": "cursor", "cursor": agent_id, **c})
@@ -67,8 +71,15 @@ def point_at(bounds, label, cursor="main"):
     if not bounds:
         return False
     x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+    me = CURSORS.get(cursor) or {}
+    hello = bool(me) and not me.get("greeted")  # the first time this agent shows up, it says hi
+    if hello:
+        me["greeted"] = True
+    pt = {"op": "point", "cursor": cursor, "x": x, "y": y, "label": label[:40]}
+    if hello and me.get("name"):
+        pt.update(label="Hi, I'm %s!" % me["name"], bare=True)
     return send(
-        {"op": "point", "cursor": cursor, "x": x, "y": y, "label": label[:40]},
+        pt,
         {
             "op": "draw",
             "cursor": cursor,
