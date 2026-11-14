@@ -264,6 +264,10 @@ class Handler(BaseHTTPRequestHandler):
                 from ..core import profile
 
                 return self._send(200, profile.view())
+            if p == "/api/memory":
+                from ..core import memory
+
+                return self._send(200, memory.list_facts())
             if p == "/api/notifications":  # hellos, results and errors since this server started
                 return self._send(200, notifications())
             if p == "/api/graph":
@@ -318,6 +322,11 @@ class Handler(BaseHTTPRequestHandler):
             if p.startswith("/api/notifications/") and p.endswith("/dismiss"):
                 DISMISSED.add(p[len("/api/notifications/") : -len("/dismiss")])
                 return self._send(200, {"ok": True})
+            if p.startswith("/api/runs/") and p.endswith("/stop"):
+                rid = p[len("/api/runs/") : -len("/stop")]
+                if not runs.request_stop(rid):
+                    return self._send(404, {"error": "no such run"})
+                return self._send(200, {"ok": True})
             if p.startswith("/api/help/"):
                 hid = p[len("/api/help/") :]
                 if hid not in runs.HELP:
@@ -329,6 +338,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         except ValueError as e:
             return self._send(400, {"error": str(e)})
+        except Exception as e:
+            traceback.print_exc()
+            return self._send(500, {"error": str(e)})
+
+    def do_DELETE(self):
+        if not self._guard():
+            return
+        p = urlparse(self.path).path
+        try:
+            from ..core import memory
+
+            if p == "/api/memory":
+                memory.forget_all()
+                return self._send(200, {"ok": True})
+            if p.startswith("/api/memory/"):
+                fid = p[len("/api/memory/") :]
+                if not memory.delete(fid):
+                    return self._send(404, {"ok": False, "error": "no such memory"})
+                return self._send(200, {"ok": True})
+            return self._send(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
             return self._send(500, {"error": str(e)})

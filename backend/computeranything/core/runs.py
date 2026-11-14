@@ -36,6 +36,7 @@ class Run:
         self.goal, self.role, self.parent = goal, role, parent
         self.state, self.started, self.ended = "queued", time.time(), None
         self.events, self.result = [], None
+        self.stop_requested = False
         self.usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0, "ms": 0}
         with _lock:
             RUNS[self.id] = self
@@ -116,6 +117,29 @@ def answer(hid, choice):
         return False
     req["answer"] = choice
     req["event"].set()
+    return True
+
+
+def request_stop(rid):
+    """Flag a run and its children to stop, and deny any pending help requests for them."""
+    with _lock:
+        if rid not in RUNS:
+            return False
+        ids = {rid}
+        all_runs = list(RUNS.values())
+    changed = True
+    while changed:
+        changed = False
+        for r in all_runs:
+            if r.parent in ids and r.id not in ids:
+                ids.add(r.id)
+                changed = True
+    for r in all_runs:
+        if r.id in ids:
+            r.stop_requested = True
+    for hid, req in list(HELP.items()):
+        if req["run"] in ids and req["answer"] is None:
+            answer(hid, "deny")
     return True
 
 
