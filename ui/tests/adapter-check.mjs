@@ -553,6 +553,79 @@ function runChecks() {
     assert.equal(actual.kindWarning, expected.expectWarning, `Warning mismatch for ${expected.id}`);
     assert.equal(actual.isExpired, false, `${expected.id} should not be expired at 15s`);
   }
+
+  // =========================================================================
+  // 5. Backend-shape fixtures (ui/fixtures/backend-shape-*.json from origin/main)
+  // =========================================================================
+  {
+    const readBackendFixture = (name) =>
+      JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), "utf8"));
+
+    const bsRuns = readBackendFixture("backend-shape-runs.json");
+    const bsRunDetail = readBackendFixture("backend-shape-run.json");
+    const bsHelp = readBackendFixture("backend-shape-help.json");
+    const bsAgents = readBackendFixture("backend-shape-agents.json");
+    const bsActions = readBackendFixture("backend-shape-actions.json");
+    const bsGraph = readBackendFixture("backend-shape-graph.json");
+    const bsAnalytics = readBackendFixture("backend-shape-analytics.json");
+    const bsCost = readBackendFixture("backend-shape-cost.json");
+    const bsTranscripts = readBackendFixture("backend-shape-transcripts.json");
+    const bsTranscript = readBackendFixture("backend-shape-transcript.json");
+
+    assert.ok(Array.isArray(bsRuns) && bsRuns.length === 4, "backend-shape-runs.json must have 4 run views");
+    assert.equal(bsRunDetail.id, "r1763149000-2-c3d4", "backend-shape-run.json must be child run view");
+    assert.ok(Array.isArray(bsHelp) && bsHelp.length === 1, "backend-shape-help.json must have 1 pending help item");
+    assert.equal(typeof bsAgents, "object", "backend-shape-agents.json must be an object");
+    assert.ok(Array.isArray(bsActions.actions), "backend-shape-actions.json must have actions array");
+    assert.equal(bsGraph.screens, 5, "backend-shape-graph.json must have screens count");
+    assert.equal(bsAnalytics.tasks, 2, "backend-shape-analytics.json must have tasks count");
+    assert.equal(bsCost.run, "r1763149000-1-a1b2", "backend-shape-cost.json must match parent run");
+    assert.ok(Array.isArray(bsTranscripts) && bsTranscripts.length >= 1, "backend-shape-transcripts.json must be array");
+    assert.ok(Array.isArray(bsTranscript) && bsTranscript.length >= 1, "backend-shape-transcript.json must be array");
+
+    const bsNowSec = 1763149020;
+    const vmBackend = WorkspaceAdapter.mapRuns(
+      bsRuns,
+      { [bsRunDetail.id]: bsRunDetail },
+      bsHelp,
+      {
+        connectionStatus: "connected",
+        isSampleData: false,
+        agentsById: bsAgents,
+        costsById: { [bsCost.run]: bsCost },
+        nowSec: bsNowSec,
+      }
+    );
+
+    assert.equal(vmBackend.runs.length, 2, "backend-shape: expected 2 parent run groups");
+
+    const waitingRun = vmBackend.runs.find((r) => r.id === "r1763149010-3-e5f6");
+    assert.ok(waitingRun, "backend-shape: expected waiting parent run r1763149010-3-e5f6");
+    assert.equal(waitingRun.state, "waiting", "backend-shape: active run with pending help must be waiting");
+    assert.equal(waitingRun.stateSymbolWord, "◔ Needs approval");
+    assert.equal(waitingRun.pendingHelp.length, 1);
+    assert.equal(waitingRun.pendingHelp[0].id, "h1");
+    assert.equal(waitingRun.pendingHelp[0].kindWarning, "This spends money");
+    assert.equal(waitingRun.pendingHelp[0].isExpired, false);
+    assert.equal(waitingRun.steps.length, 1);
+    assert.equal(waitingRun.steps[0].agentIdentity.name, "Leo");
+    assert.equal(waitingRun.steps[0].agentIdentity.color, "#EECED6");
+
+    const verifiedRun = vmBackend.runs.find((r) => r.id === "r1763149000-1-a1b2");
+    assert.ok(verifiedRun, "backend-shape: expected verified parent run r1763149000-1-a1b2");
+    assert.equal(verifiedRun.state, "verified", "backend-shape: completed run with verify pass must be verified");
+    assert.equal(verifiedRun.stateSymbolWord, "✓ Verified");
+    assert.equal(verifiedRun.evidenceText, "Calculator display reads 248");
+    assert.equal(verifiedRun.steps.length, 1);
+    assert.equal(verifiedRun.steps[0].agentIdentity.name, "Iris");
+    assert.equal(verifiedRun.steps[0].agentIdentity.color, "#B5D0EB");
+    assert.equal(verifiedRun.steps[0].app, "Calculator");
+    assert.ok(verifiedRun.digest, "backend-shape: verified run must include digest");
+    assert.equal(verifiedRun.digest.totalSteps, 2);
+    assert.equal(verifiedRun.digest.memorySteps, 1);
+    assert.equal(verifiedRun.digest.costUsd, 0.0049);
+    assert.equal(verifiedRun.digest.costText, "$0.0049");
+  }
 }
 
 try {
