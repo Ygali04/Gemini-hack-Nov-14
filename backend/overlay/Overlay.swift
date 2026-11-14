@@ -59,9 +59,10 @@ func pebblePath(scale s: CGFloat = 1.0) -> CGPath {
     return p
 }
 
-// Paints the pebble once per palette: domed radial body, soft specular near the crown, a luminous rim
-// inside the edge (bright on top, fading below), and a faint ink hairline so it still reads on white.
-func pebbleImage(_ g: Glass, _ path: CGPath, _ box: CGRect, _ px: CGFloat) -> CGImage? {
+// One glass painter for cursors (tint 1, opaque dome) and target bubbles (tint < 1, see-through):
+// contact shadow outside the shape only, frosted body, specular, luminous inner rim lit from above,
+// faint ink hairline so the edge still reads on white.
+func glassImage(_ g: Glass, _ path: CGPath, _ box: CGRect, _ px: CGFloat, tint: CGFloat = 1) -> CGImage? {
     let cs = CGColorSpace(name: CGColorSpace.sRGB)!
     guard let ctx = CGContext(data: nil, width: Int(ceil(box.width * px)), height: Int(ceil(box.height * px)),
                               bitsPerComponent: 8, bytesPerRow: 0, space: cs,
@@ -69,24 +70,42 @@ func pebbleImage(_ g: Glass, _ path: CGPath, _ box: CGRect, _ px: CGFloat) -> CG
     ctx.scaleBy(x: px, y: px)
     ctx.translateBy(x: -box.minX, y: -box.minY)
     let pb = path.boundingBoxOfPath
-    let crown = CGPoint(x: pb.minX + pb.width * 0.32, y: pb.maxY - pb.height * 0.3)
+    let bubble = tint < 1
     func grad(_ c: [NSColor], _ loc: [CGFloat]) -> CGGradient {
         CGGradient(colorsSpace: cs, colors: c.map { $0.cgColor } as CFArray, locations: loc)!
     }
+    // contact shadow (shadow geometry ignores the CTM, so scale it by hand), then clear the inside
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -3 * px), blur: (bubble ? 10 : 7) * px,
+                  color: mix(g.body, g.ink, 0.55).withAlphaComponent(bubble ? 0.35 : 0.5).cgColor)
+    ctx.addPath(path); ctx.setFillColor(.white); ctx.fillPath()
+    ctx.restoreGState()
+    ctx.saveGState(); ctx.setBlendMode(.clear); ctx.addPath(path); ctx.fillPath(); ctx.restoreGState()
     ctx.saveGState()
     ctx.addPath(path); ctx.clip()
-    ctx.drawRadialGradient(grad([mix(g.body, .white, 0.45), g.body, mix(g.body, g.ink, 0.45)], [0, 0.45, 1]),
-                           startCenter: crown, startRadius: 0, endCenter: crown,
-                           endRadius: max(pb.width, pb.height) * 0.9, options: [.drawsAfterEndLocation])
-    let spot = CGPoint(x: crown.x + 1, y: crown.y + 3)
-    ctx.drawRadialGradient(grad([NSColor(white: 1, alpha: 0.85), NSColor(white: 1, alpha: 0)], [0, 1]),
-                           startCenter: spot, startRadius: 0, endCenter: spot, endRadius: pb.width * 0.3, options: [])
-    ctx.addPath(path); ctx.setLineWidth(3); ctx.replacePathWithStrokedPath(); ctx.clip()  // inner half of the edge
+    if bubble {
+        ctx.drawLinearGradient(grad([mix(g.body, .white, 0.45).withAlphaComponent(tint),
+                                     mix(g.body, g.ink, 0.2).withAlphaComponent(min(1, tint * 1.4))], [0, 1]),
+                               start: CGPoint(x: 0, y: pb.maxY), end: CGPoint(x: 0, y: pb.minY), options: [])
+        // specular: a soft band along the top edge only, so the label underneath stays clear
+        ctx.drawLinearGradient(grad([NSColor(white: 1, alpha: 0.5), NSColor(white: 1, alpha: 0)], [0, 1]),
+                               start: CGPoint(x: 0, y: pb.maxY), end: CGPoint(x: 0, y: pb.maxY - min(14, pb.height * 0.4)),
+                               options: [])
+    } else {
+        let crown = CGPoint(x: pb.minX + pb.width * 0.32, y: pb.maxY - pb.height * 0.3)
+        ctx.drawRadialGradient(grad([mix(g.body, .white, 0.45), g.body, mix(g.body, g.ink, 0.45)], [0, 0.45, 1]),
+                               startCenter: crown, startRadius: 0, endCenter: crown,
+                               endRadius: max(pb.width, pb.height) * 0.9, options: [.drawsAfterEndLocation])
+        let spot = CGPoint(x: crown.x + 1, y: crown.y + 3)
+        ctx.drawRadialGradient(grad([NSColor(white: 1, alpha: 0.85), NSColor(white: 1, alpha: 0)], [0, 1]),
+                               startCenter: spot, startRadius: 0, endCenter: spot, endRadius: pb.width * 0.3, options: [])
+    }
+    ctx.addPath(path); ctx.setLineWidth(bubble ? 2.5 : 3); ctx.replacePathWithStrokedPath(); ctx.clip()  // inner half
     ctx.drawLinearGradient(grad([g.edge, g.edge.withAlphaComponent(0.15)], [0, 1]),
                            start: CGPoint(x: 0, y: pb.maxY), end: CGPoint(x: 0, y: pb.minY), options: [])
     ctx.restoreGState()
     ctx.addPath(path)
-    ctx.setStrokeColor(g.ink.withAlphaComponent(0.25).cgColor); ctx.setLineWidth(0.75); ctx.strokePath()
+    ctx.setStrokeColor(g.ink.withAlphaComponent(bubble ? 0.35 : 0.25).cgColor); ctx.setLineWidth(0.75); ctx.strokePath()
     return ctx.makeImage()
 }
 
@@ -95,7 +114,6 @@ let pixelScale = NSScreen.screens.map { $0.backingScaleFactor }.max() ?? 2
 // One agent's cursor: a 3D sea-glass pebble plus a frosted name tag that follows it.
 final class Cursor {
     let root = CALayer()
-    let shadow = CAShapeLayer()
     let glyph = CALayer()
     let tag = CALayer()
     let tagRim = CAGradientLayer()
@@ -108,17 +126,9 @@ final class Cursor {
 
     init(name: String, glass: Glass, start: CGPoint) {
         self.name = name; self.glass = glass; self.pos = start
-        box = path.boundingBoxOfPath.insetBy(dx: -2, dy: -2)
+        box = path.boundingBoxOfPath.insetBy(dx: -10, dy: -10)  // room for the baked shadow
         root.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
         root.anchorPoint = .zero
-        // contact shadow: fixed overhead light, so it always falls straight below the body
-        shadow.path = path
-        shadow.position = CGPoint(x: 1.5, y: -4.5)
-        shadow.fillColor = NSColor.clear.cgColor
-        shadow.shadowPath = path
-        shadow.shadowOffset = .zero
-        shadow.shadowRadius = 5
-        shadow.shadowOpacity = 0.45
         glyph.frame = box
         glyph.contentsScale = pixelScale
         // frosted name tag
@@ -133,14 +143,13 @@ final class Cursor {
         text.alignmentMode = .center
         tag.addSublayer(tagRim); tag.addSublayer(text)
         tag.isHidden = true
-        for l in [shadow, glyph, tag] as [CALayer] { root.addSublayer(l) }
+        for l in [glyph, tag] as [CALayer] { root.addSublayer(l) }
         apply(glass)
     }
 
     func apply(_ g: Glass) {
         glass = g
-        shadow.shadowColor = mix(g.body, g.ink, 0.55).cgColor
-        glyph.contents = pebbleImage(g, path, box, pixelScale)
+        glyph.contents = glassImage(g, path, box, pixelScale)
         tag.backgroundColor = mix(g.body, .white, 0.45).withAlphaComponent(0.88).cgColor
         tag.borderColor = g.edge.withAlphaComponent(0.9).cgColor
         tag.shadowColor = g.ink.cgColor
@@ -257,56 +266,61 @@ final class Overlay {
         c.pos = target
     }
 
-    // Target marks: a thin rounded outline in the agent's ink with a faint glass tint. No glow.
+    // Target marks: rects and circles become see-through glass bubbles in the agent's palette (stronger
+    // tint for "highlight"); arrows stay a thin ink stroke. Marks sit under every cursor and fade after 1.8 s.
     func shape(_ kind: String, _ x: Double, _ y: Double, _ w: Double, _ h: Double, fill: Bool, glass g: Glass) {
         let tl = appKit(x, y)
         guard let (panel, view) = host(for: tl), let root = view.layer else { return }
         let o = local(tl, panel)
         let rect = CGRect(x: o.x, y: o.y - h, width: w, height: h)
-        let layer = CAShapeLayer()
-        let path = CGMutablePath()
-        switch kind {
-        case "circle": path.addEllipse(in: rect.insetBy(dx: -6, dy: -6))
-        case "arrow":
+        let mark: CALayer
+        if kind == "arrow" {
+            let line = CAShapeLayer(), path = CGMutablePath()
             let a = CGPoint(x: rect.minX, y: rect.maxY), b = CGPoint(x: rect.maxX, y: rect.minY)
-            path.move(to: a); path.addLine(to: b)
             let ang = atan2(b.y - a.y, b.x - a.x), len: CGFloat = 14
+            path.move(to: a); path.addLine(to: b)
             path.move(to: b); path.addLine(to: CGPoint(x: b.x - len * cos(ang - .pi / 7), y: b.y - len * sin(ang - .pi / 7)))
             path.move(to: b); path.addLine(to: CGPoint(x: b.x - len * cos(ang + .pi / 7), y: b.y - len * sin(ang + .pi / 7)))
-        default:
-            let r = min(10, min(rect.width, rect.height) * 0.3)
-            path.addRoundedRect(in: rect.insetBy(dx: -4, dy: -4), cornerWidth: r, cornerHeight: r)
+            line.frame = root.bounds
+            line.path = path
+            line.strokeColor = g.ink.withAlphaComponent(0.7).cgColor
+            line.fillColor = nil
+            line.lineWidth = 2
+            line.lineCap = .round
+            mark = line
+        } else {
+            let outer = rect.insetBy(dx: kind == "circle" ? -6 : -5, dy: kind == "circle" ? -6 : -5)
+            let local = CGRect(origin: .zero, size: outer.size), path = CGMutablePath()
+            if kind == "circle" {
+                path.addEllipse(in: local)
+            } else {
+                let r = min(16, outer.height / 2, outer.width / 2)  // bubble: pill-round up to 16 pt
+                path.addRoundedRect(in: local, cornerWidth: r, cornerHeight: r)
+            }
+            let m: CGFloat = 14
+            mark = CALayer()
+            mark.frame = outer.insetBy(dx: -m, dy: -m)
+            mark.contentsScale = pixelScale
+            mark.contents = glassImage(g, path, local.insetBy(dx: -m, dy: -m), pixelScale, tint: fill ? 0.42 : 0.28)
         }
-        layer.frame = root.bounds
-        layer.path = path
-        layer.strokeColor = g.ink.withAlphaComponent(0.55).cgColor
-        layer.lineWidth = 1.25
-        layer.lineCap = .round
-        layer.lineJoin = .round
-        layer.fillColor = (kind == "arrow" ? NSColor.clear : g.body.withAlphaComponent(fill ? 0.28 : 0.14)).cgColor
-        root.insertSublayer(layer, at: 0)  // marks sit under every cursor
-        // appear: settle from slightly larger, with the outline drawing itself
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        layer.anchorPoint = CGPoint(x: center.x / max(1, root.bounds.width), y: center.y / max(1, root.bounds.height))
-        layer.position = center
-        if !reduceMotion {
-            let grow = CABasicAnimation(keyPath: "transform.scale")
-            grow.fromValue = 1.06; grow.toValue = 1; grow.duration = 0.35
-            grow.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            let draw = CABasicAnimation(keyPath: "strokeEnd")
-            draw.fromValue = 0; draw.toValue = 1; draw.duration = 0.45
-            layer.add(grow, forKey: "grow"); layer.add(draw, forKey: "draw")
+        root.insertSublayer(mark, at: 0)
+        if !reduceMotion && kind != "arrow" {  // a bubble settles from slightly larger, like it was set down
+            let grow = CASpringAnimation(keyPath: "transform.scale")
+            grow.fromValue = 1.08; grow.toValue = 1
+            grow.damping = 14; grow.stiffness = 220
+            grow.duration = grow.settlingDuration
+            mark.add(grow, forKey: "grow")
         }
         let fadeIn = CABasicAnimation(keyPath: "opacity")
         fadeIn.fromValue = 0; fadeIn.toValue = 1; fadeIn.duration = 0.2
-        layer.add(fadeIn, forKey: "in")
+        mark.add(fadeIn, forKey: "in")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             CATransaction.begin()
-            CATransaction.setCompletionBlock { layer.removeFromSuperlayer() }
+            CATransaction.setCompletionBlock { mark.removeFromSuperlayer() }
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1; fade.toValue = 0; fade.duration = 0.5
-            layer.opacity = 0
-            layer.add(fade, forKey: "fade")
+            mark.opacity = 0
+            mark.add(fade, forKey: "fade")
             CATransaction.commit()
         }
     }

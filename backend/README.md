@@ -73,9 +73,15 @@ Every action by every agent is logged against its screen node: the agent, run, a
 
 A prompt with independent parts, such as "work out 7 × 6 in Calculator and open Appearance settings", becomes up to 4 CU agents running in parallel. Each agent claims its own cursor with its own color and name tag (`CU 1`, `CU 2`, `QA`, `Marketing`). Its clicks run headless, so the agents never fight over your one real pointer.
 
-![Three agent cursors in sea glass, each with its name tag, two with target marks](../docs/img/seaglass-cursors.png)
+![Five agents in sea glass: pointers with name pills, highlight bubbles on buttons, draw bubbles on fields and icons](../docs/img/seaglass/scene_light.png)
 
-Each cursor is a frosted glass pebble lit from above, in one of five palettes (lagoon, rose, mint, lilac, amber; after [sea-glass](https://github.com/mttmcknn/sea-glass)). Targets get a thin rounded outline in the agent's ink that fades after two seconds. With Reduce Motion on, cursors fade in place instead of flying.
+Each cursor is a domed glass pointer lit from above, in one of five palettes (lagoon, rose, mint, lilac, amber; after [sea-glass](https://github.com/mttmcknn/sea-glass)). Its frosted pill carries the agent's name and current target. Targets get a see-through glass bubble in the agent's colour instead of a box: `highlight` tints it more, `draw` less. The bubble springs into place and fades after two seconds, and its shadow is cleared inside so the button under it stays readable. With Reduce Motion on, cursors fade in place instead of flying.
+
+| | |
+|---|---|
+| ![pointers](../docs/img/seaglass/pointers_light.png) | ![dark mode](../docs/img/seaglass/bubbles_dark.png) |
+
+Re-shoot with `python3 scripts/shoot_overlay.py`: it captures the overlay window alone and composites it on mock light and dark UIs, so none of your screen is in the images.
 
 Measured on a Mac: two agents ran at once, one in Calculator (7 × 6 = 42) and one in System Settings (opened Appearance). All 7 of their actions landed in one shared graph, each tagged with its agent.
 
