@@ -20,13 +20,17 @@ ROLES = ("qa", "marketing", "cu")
 TEST_TIMEOUT = 300
 MAX_FILES, FILE_CHARS, OUT_TAIL = 6, 6000, 4000
 
+MAX_PARALLEL = 4  # concurrent CU agents; each one drives its own app with its own cursor
+
 ROUTER_SYS = """You route one user request for a macOS computer agent to a role.
 Roles:
 - qa: test a software project or web app, find bugs, fix them (needs a repo path and/or a localhost url)
 - marketing: make launch/promo material (tagline, launch video script, shot list) for an app or url
 - cu: anything else done by operating a Mac app (mail, calendar, browser, settings, files)
 Reply with JSON only: {"role": "qa"|"marketing"|"cu", "app": str|null, "repo": str|null (absolute or ~ path),
-"url": str|null, "goal": str (one clear sentence)}."""
+"url": str|null, "goal": str (one clear sentence),
+"subtasks": [{"goal": str, "app": str}] (cu only: when the request has independent parts in different apps,
+one entry per part so separate agents can run them in parallel; otherwise [])}."""
 
 QA_SYS = """You are a QA engineer. From test output and UI check notes, list real bugs only.
 Reply with JSON only: {"bugs": [{"id": str, "title": str, "severity": "high"|"med"|"low",
@@ -77,6 +81,12 @@ def route(prompt, attachments=()):
         r = _keyword_route(prompt)
         r["fallback"] = str(e)[:200]
     out = {k: r.get(k) or None for k in ("role", "app", "repo", "url", "goal")}
+    subs = r.get("subtasks") if out["role"] == "cu" else None
+    out["subtasks"] = [
+        {"goal": str(t["goal"]), "app": t.get("app") or None}
+        for t in (subs if isinstance(subs, list) else [])
+        if isinstance(t, dict) and t.get("goal")
+    ][:MAX_PARALLEL]
     out["goal"] = out["goal"] or prompt.strip()
     if out["repo"]:
         out["repo"] = os.path.abspath(os.path.expanduser(out["repo"]))
@@ -110,7 +120,7 @@ def _pipeline(parent, prompt, attachments):
         elif r["role"] == "marketing":
             res, children = marketing(parent, r["url"] or r["app"], r["goal"])
         else:
-            res, children = cu(parent, r["goal"], r["app"])
+            res, children = cu(parent, r["goal"], r["app"], r.get("subtasks"))
         parent.result = {"ok": bool(res.get("ok")), "summary": res.get("summary", "")}
         parent.result["digest"] = runs.digest(parent, children)
         parent.set("done" if parent.result["ok"] else "failed")
@@ -140,12 +150,39 @@ def _finish(run, ok, summary, **extra):
 # ---------------------------------------------------------------- cu role
 
 
-def cu(parent, goal, app=None):
-    child = runs.Run(goal, role="cu", parent=parent.id)
-    child.set("acting")
-    res = _cu().run_task(child, goal, app=app)
-    _finish(child, bool(res.get("ok")), res.get("summary", ""), steps=res.get("steps", 0))
-    return res, [child]
+def cu(parent, goal, app=None, subtasks=None):
+    """One CU agent, or several in parallel (one per independent subtask). Each child is its own agent:
+    own Run, own cursor on screen, own trail in the action graph."""
+    tasks = subtasks if subtasks and len(subtasks) > 1 else [{"goal": goal, "app": app}]
+    children, results = [], [None] * len(tasks)
+
+    def work(i, t):
+        child = children[i]
+        child.set("acting")
+        try:
+            res = _cu().run_task(child, t["goal"], app=t.get("app"))
+        except Exception as e:  # noqa: BLE001 - one agent failing must not kill its siblings
+            child.emit("error", error="%s: %s" % (type(e).__name__, e))
+            res = {"ok": False, "summary": "agent error: %s" % e, "steps": 0}
+        _finish(child, bool(res.get("ok")), res.get("summary", ""), steps=res.get("steps", 0))
+        results[i] = res
+
+    for i, t in enumerate(tasks):
+        child = runs.Run(t["goal"], role="cu", parent=parent.id)
+        child.agent_name = "CU %d" % (i + 1)
+        children.append(child)
+    threads = [threading.Thread(target=work, args=(i, t), daemon=True) for i, t in enumerate(tasks)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    if len(tasks) == 1:
+        return results[0], children
+    ok = all(r.get("ok") for r in results)
+    summary = " | ".join(
+        "%s: %s" % (c.agent_name, r.get("summary", "")) for c, r in zip(children, results, strict=True)
+    )
+    return {"ok": ok, "summary": summary, "steps": sum(r.get("steps", 0) for r in results)}, children
 
 
 # ---------------------------------------------------------------- qa role
@@ -313,7 +350,9 @@ def commit_patch(dev, repo, patch, explanation, rnd):
 def qa_loop(parent, repo, url, goal, max_rounds=5):
     """QA agent finds bugs, dev agent patches them, until clean, stuck, or out of rounds."""
     qa = runs.Run(goal, role="qa", parent=parent.id)
+    qa.agent_name = "QA"
     dev = runs.Run(goal, role="dev", parent=parent.id)
+    dev.agent_name = "Dev"
     children = [qa, dev]
     if not repo or not os.path.isdir(repo):
         msg = "no project folder to test (got %r)" % repo
@@ -353,6 +392,7 @@ def _shot(path):
 
 def marketing(parent, url_or_app, goal):
     child = runs.Run(goal, role="marketing", parent=parent.id)
+    child.agent_name = "Marketing"
     child.set("acting")
     out_dir = os.path.join(runs.HOME, "marketing", child.id)
     os.makedirs(out_dir, exist_ok=True)
