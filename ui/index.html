@@ -1535,37 +1535,53 @@
       overflow-wrap: anywhere;
       user-select: text;
     }
-    .chat-result-card {
-      background: var(--bg-raised);
-      border-radius: 10px;
-      padding: 8px 10px;
+    .prompt-section.hidden { display: none; }
+    .chat-result-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 2px;
+    }
+    .chat-result-body {
+      min-width: 0;
+      flex: 1;
       display: flex;
       flex-direction: column;
       gap: 4px;
-    }
-    .chat-result-card.is-verified {
-      border-left: 2px solid var(--state-success);
     }
     .chat-result-main {
       font-size: 13px;
       line-height: 19px;
       color: var(--text-primary);
       overflow-wrap: anywhere;
+      -webkit-user-select: text;
       user-select: text;
     }
-    .chat-result-meta {
+    .chat-result-main.is-expandable {
+      cursor: pointer;
+    }
+    .chat-result-detail {
       font-size: 12px;
-      line-height: 16px;
+      line-height: 17px;
       color: var(--text-secondary);
-      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+      -webkit-user-select: text;
       user-select: text;
     }
     .chat-result-acts {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 2px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .chat-handoff-line {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      padding: 2px 2px 0;
+      -webkit-user-select: text;
+      user-select: text;
     }
     .chat-failure-event {
       display: flex;
@@ -1588,12 +1604,24 @@
       flex-direction: column;
       gap: 2px;
     }
+    .chat-list-item {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--line-divider);
+      border-radius: 8px;
+    }
+    .chat-list-row-wrap {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      min-width: 0;
+    }
     .chat-list-row {
-      width: 100%;
+      flex: 1;
+      min-width: 0;
       min-height: 48px;
       padding: 8px 6px;
       border: none;
-      border-bottom: 1px solid var(--line-divider);
       border-radius: 8px;
       background: transparent;
       color: var(--text-primary);
@@ -1605,6 +1633,47 @@
       cursor: pointer;
       -webkit-user-select: text;
       user-select: text;
+    }
+    .chat-row-more-btn {
+      opacity: 0;
+      flex-shrink: 0;
+      transition: opacity 120ms ease;
+    }
+    .chat-list-item:hover .chat-row-more-btn,
+    .chat-list-item:focus-within .chat-row-more-btn,
+    .chat-list-item.is-menu-open .chat-row-more-btn,
+    .chat-row-more-btn:focus-visible {
+      opacity: 1;
+    }
+    .chat-row-menu {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 6px 8px 48px;
+    }
+    .chat-row-menu-item {
+      height: 26px;
+      min-height: 26px;
+      padding: 0 8px;
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .chat-row-confirm {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+    }
+    .chat-row-confirm-acts {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .chat-list-row:focus-visible {
       outline: 2px solid var(--focus-ring);
@@ -3531,7 +3600,7 @@
           const cleaned = withoutRepo
             .replace(/^failed(?:\s*[:·-]\s*|\s+to\s+)/i, (m) => (/to\s+/i.test(m) ? "Could not " : ""))
             .replace(/\bfailed\b/gi, "did not finish")
-            .replace(/\s*[×✕✗]\s*/g, " ")
+            .replace(/^\s*[✕✗]+\s*/g, "")
             .trim();
           return sentenceCase(cleaned || "Stopped before finishing");
         }
@@ -4380,7 +4449,7 @@
               } else {
                 state = "verified";
                 stateSymbolWord = "✓ Verified";
-                stateFact = plainResultSummary ? cleanFailureFact(plainResultSummary) : "All checks passed";
+                stateFact = plainResultSummary ? sentenceCase(plainResultSummary) : "All checks passed";
                 pillFact = buildPillFact(stateFact, true);
                 stateColorClass = "state-success";
               }
@@ -4635,9 +4704,38 @@
       let lastScrolledRunKey = "";
       const LAST_THREAD_STORAGE_KEY = "ca.lastThreadId";
       const SEEN_FAILED_STORAGE_KEY = "ca.seenFailedRuns";
+      const HIDDEN_CHATS_STORAGE_KEY = "ca.hiddenChatIds";
       let hasInitializedFailureBaseline = false;
       let pillFailureToast = null; // { runId, text, expiresAt }
       let pillFailureTimer = null;
+      let openRowMenuKey = "";
+      let confirmDeleteRunId = "";
+      const openResultDetailIds = new Set();
+
+      function readHiddenChatIds() {
+        if (fixtureParam) return new Set();
+        try {
+          if (typeof localStorage === "undefined") return new Set();
+          const raw = localStorage.getItem(HIDDEN_CHATS_STORAGE_KEY);
+          if (!raw) return new Set();
+          const arr = JSON.parse(raw);
+          return new Set(Array.isArray(arr) ? arr.map(String) : []);
+        } catch {
+          return new Set();
+        }
+      }
+
+      let hiddenChatIds = readHiddenChatIds();
+
+      function persistHiddenChatIds() {
+        if (fixtureParam) return;
+        try {
+          if (typeof localStorage === "undefined") return;
+          localStorage.setItem(HIDDEN_CHATS_STORAGE_KEY, JSON.stringify(Array.from(hiddenChatIds).slice(-200)));
+        } catch {
+          // Ignore storage errors
+        }
+      }
 
       function readSeenFailedRuns() {
         if (fixtureParam) {
@@ -5294,6 +5392,13 @@
       window.addEventListener("keydown", (e) => {
         if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") {
+          if (openRowMenuKey || confirmDeleteRunId) {
+            e.preventDefault();
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            renderNow();
+            return;
+          }
           if (attachMenu.classList.contains("open")) {
             e.preventDefault();
             closeAttachMenu();
@@ -6124,7 +6229,8 @@
 
       function updateLiveTicksInPlace(vm) {
         if (viewMode !== "chat" || isComposingNewChat) return false;
-        const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
+        const visibleRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
+        const activeRun = visibleRuns.find((r) => r.id === selectedRunId) || visibleRuns[0];
         if (!activeRun) return false;
 
         let expiryCrossed = false;
@@ -6159,13 +6265,14 @@
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) return `loading:${primaryRaw}`;
         if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}:${primaryRaw}`;
         const listSummaryKey = vm.runs
+          .filter((r) => !hiddenChatIds.has(r.id))
           .map((r) => `${r.id}:${r.state}:${r.stateSymbolWord}:${isFailedRunSeen(r.id) ? 1 : 0}:${r.lastLinePreview}:${r.elapsedText}`)
           .join("|");
         if (viewMode === "list") {
-          return `list:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${listSummaryKey}`;
+          return `list:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${openRowMenuKey}:${confirmDeleteRunId}:${hiddenChatIds.size}:${listSummaryKey}`;
         }
         if (isComposingNewChat || !activeRun) {
-          return `new:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}`;
+          return `new:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}:${hiddenChatIds.size}`;
         }
 
         const helpKey = activeRun.pendingHelp
@@ -6186,6 +6293,7 @@
         const outputKey = activeRun.producedOutputs
           .map((o) => `${o.id}:${openOutputPreviewIds.has(`${activeRun.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${activeRun.id}:${o.id}`) ? 1 : 0}`)
           .join("|");
+        const resultDetailKey = openResultDetailIds.has(activeRun.id) ? 1 : 0;
         const transcriptKey = activeRun.transcriptRows
           .map((t) => `${t.id}:${t.role}:${t.who}:${t.color}:${t.text}`)
           .join("|");
@@ -6208,6 +6316,7 @@
           pendingStopIds.has(activeRun.id) ? 1 : 0,
           stopNoticesByRunId.get(activeRun.id) || "",
           copiedItemIds.has(`result:${activeRun.id}`) ? 1 : 0,
+          resultDetailKey,
           activeRun.permissionIssue ? activeRun.permissionIssue.key : "",
           outputKey,
           transcriptKey,
@@ -6278,25 +6387,80 @@
         return null;
       }
 
+      function renderRowMenuHtml(menuKey, runObj) {
+        if (openRowMenuKey !== menuKey) return "";
+        if (runObj && confirmDeleteRunId === runObj.id) {
+          return `
+            <div class="chat-row-menu" role="menu" aria-label="Confirm delete chat">
+              <div class="chat-row-confirm">
+                <span>Delete this chat? Removes it from this list.</span>
+                <span class="chat-row-confirm-acts">
+                  <button type="button" class="btn btn-danger chat-row-menu-item" data-action="confirm-delete-chat" data-run-id="${escapeHtml(runObj.id)}">Delete</button>
+                  <button type="button" class="btn chat-row-menu-item" data-action="cancel-delete-chat">Keep</button>
+                </span>
+              </div>
+            </div>
+          `;
+        }
+        const openAction = runObj ? `data-action="select-chat" data-run-id="${escapeHtml(runObj.id)}"` : `data-action="new-primary-chat"`;
+        const canStop = Boolean(runObj && !runObj.isFinished && stopRouteSupported);
+        return `
+          <div class="chat-row-menu" role="menu" aria-label="Chat options">
+            <button type="button" class="btn chat-row-menu-item" role="menuitem" ${openAction}>Open</button>
+            ${
+              runObj && (runObj.copyResultText || runObj.lastLinePreview)
+                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-copy-result" data-run-id="${escapeHtml(runObj.id)}">Copy last result</button>`
+                : ""
+            }
+            <button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-agent-settings">Agent settings</button>
+            ${
+              canStop
+                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-stop-chat" data-run-id="${escapeHtml(runObj.id)}">Stop</button>`
+                : ""
+            }
+            ${
+              runObj
+                ? `<button type="button" class="btn btn-danger chat-row-menu-item" role="menuitem" data-action="menu-ask-delete" data-run-id="${escapeHtml(runObj.id)}">Delete</button>`
+                : ""
+            }
+          </div>
+        `;
+      }
+
       function renderChatListHtml(vm) {
         const primary = getPrimaryAgentRowIdentity();
-        const primaryLabel = primary.name === "ComputerAnything" ? "Your agent" : primary.name;
-        const primaryRoleTag = primary.name === "ComputerAnything" ? "" : `<span class="chat-list-role">&middot; your agent</span>`;
+        const primaryLabel = primary.name || "ComputerAnything";
+        const primaryMenuOpen = openRowMenuKey === "__primary__";
         const primaryRowHtml = `
-          <div role="button" tabindex="0" class="chat-list-row" data-action="new-primary-chat" aria-label="Start new chat with ${escapeHtml(primaryLabel)}">
-            ${renderAvatarHtml(primary, true)}
-            <div class="chat-list-mid">
-              <div class="chat-list-name-row">
-                <span class="chat-list-name">${escapeHtml(primaryLabel)}</span>
-                ${primaryRoleTag}
+          <div class="chat-list-item ${primaryMenuOpen ? "is-menu-open" : ""}" data-row-key="__primary__">
+            <div class="chat-list-row-wrap">
+              <div role="button" tabindex="0" class="chat-list-row" data-action="new-primary-chat" data-row-key="__primary__" aria-label="Start new chat with ${escapeHtml(primaryLabel)}">
+                ${renderAvatarHtml(primary, true)}
+                <div class="chat-list-mid">
+                  <div class="chat-list-name-row">
+                    <span class="chat-list-name">${escapeHtml(primaryLabel)}</span>
+                  </div>
+                  <div class="chat-list-preview">Start a new chat</div>
+                </div>
+                <div class="chat-list-rt">&nbsp;</div>
               </div>
-              <div class="chat-list-preview">Type here to start a new chat</div>
+              <button
+                type="button"
+                class="btn btn-icon chat-row-more-btn"
+                data-action="toggle-row-menu"
+                data-row-key="__primary__"
+                aria-label="More options for ${escapeHtml(primaryLabel)}"
+                aria-expanded="${primaryMenuOpen ? "true" : "false"}"
+                title="More options"
+              >&middot;&middot;&middot;</button>
             </div>
-            <div class="chat-list-rt">&nbsp;</div>
+            ${renderRowMenuHtml("__primary__", null)}
           </div>
         `;
 
-        const indexed = vm.runs.map((r, idx) => ({ r, idx }));
+        const indexed = vm.runs
+          .filter((r) => !hiddenChatIds.has(r.id))
+          .map((r, idx) => ({ r, idx }));
         indexed.sort((a, b) => {
           const aNeeds = a.r.state === "waiting" ? 0 : 1;
           const bNeeds = b.r.state === "waiting" ? 0 : 1;
@@ -6322,19 +6486,34 @@
               : primary.name;
             const badge = formatListStateBadge(r);
             const timeText = r.listClockText || (r.elapsedText && r.elapsedText !== "—" ? r.elapsedText : "");
+            const isMenuOpen = openRowMenuKey === r.id;
             return `
-              <div role="button" tabindex="0" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}" aria-label="Open chat with ${escapeHtml(displayNames)}">
-                ${renderAvatarHtml(leadIdentity, false)}
-                <div class="chat-list-mid">
-                  <div class="chat-list-name-row">
-                    <span class="chat-list-name">${escapeHtml(displayNames)}</span>
+              <div class="chat-list-item ${isMenuOpen ? "is-menu-open" : ""}" data-row-key="${escapeHtml(r.id)}">
+                <div class="chat-list-row-wrap">
+                  <div role="button" tabindex="0" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}" data-row-key="${escapeHtml(r.id)}" aria-label="Open chat with ${escapeHtml(displayNames)}">
+                    ${renderAvatarHtml(leadIdentity, false)}
+                    <div class="chat-list-mid">
+                      <div class="chat-list-name-row">
+                        <span class="chat-list-name">${escapeHtml(displayNames)}</span>
+                      </div>
+                      <div class="chat-list-preview">${escapeHtml(r.lastLinePreview || r.goal)}</div>
+                    </div>
+                    <div class="chat-list-rt">
+                      ${badge ? `<span class="state-text ${escapeHtml(badge.cls)}">${escapeHtml(badge.text)}</span>` : ""}
+                      ${timeText ? `<span class="chat-list-time">${escapeHtml(timeText)}</span>` : ""}
+                    </div>
                   </div>
-                  <div class="chat-list-preview">${escapeHtml(r.lastLinePreview || r.goal)}</div>
+                  <button
+                    type="button"
+                    class="btn btn-icon chat-row-more-btn"
+                    data-action="toggle-row-menu"
+                    data-row-key="${escapeHtml(r.id)}"
+                    aria-label="More options for ${escapeHtml(displayNames)}"
+                    aria-expanded="${isMenuOpen ? "true" : "false"}"
+                    title="More options"
+                  >&middot;&middot;&middot;</button>
                 </div>
-                <div class="chat-list-rt">
-                  ${badge ? `<span class="state-text ${escapeHtml(badge.cls)}">${escapeHtml(badge.text)}</span>` : ""}
-                  ${timeText ? `<span class="chat-list-time">${escapeHtml(timeText)}</span>` : ""}
-                </div>
+                ${renderRowMenuHtml(r.id, r)}
               </div>
             `;
           })
@@ -6401,6 +6580,9 @@
         lastViewModel = vm;
         sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
         syncThreadModeBar();
+        if (promptForm) {
+          promptForm.classList.toggle("hidden", viewMode === "list");
+        }
 
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
           lastPanelStructureKey = "loading";
@@ -6468,22 +6650,23 @@
         if (viewMode === "list") {
           lastPanelStructureKey = buildPanelStructureKey(vm, null);
           destroyAllAgentChips();
-          const workingCount = vm.runs.filter((r) => r.state === "working").length;
+          const visibleListRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
+          const workingCount = visibleListRuns.filter((r) => r.state === "working").length;
           setPanelHeaderHtml(`
             <span class="list-nav-title">Chats</span>
             <span style="flex:1"></span>
             <span class="panel-header-right">
               ${workingCount > 0 ? `<span class="state-text state-working">${escapeHtml(String(workingCount))} working</span>` : ""}
               ${stopAllBtnHtml}
-              <button type="button" class="btn btn-icon" data-action="new-primary-chat" aria-label="New chat" title="New chat">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M7 2.5V11.5M2.5 7H11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
-              </button>
               <button type="button" class="btn btn-icon" data-action="open-app-settings" aria-label="App settings" title="App settings">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4"/>
                   <path d="M8 2.2V3.6M8 12.4V13.8M13.8 8H12.4M3.6 8H2.2M12.1 3.9L11.1 4.9M4.9 11.1L3.9 12.1M12.1 12.1L11.1 11.1M4.9 4.9L3.9 3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button type="button" class="btn btn-icon" data-action="new-primary-chat" aria-label="New chat" title="New chat">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M7 2.5V11.5M2.5 7H11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
               </button>
               <button type="button" class="btn btn-esc" data-action="close-notch" aria-label="Close notch" title="Close (Esc)">Esc</button>
@@ -6496,25 +6679,26 @@
           return;
         }
 
-        if (vm.runs.length) {
-          const newestId = vm.runs[0].id;
+        const visibleRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
+        if (visibleRuns.length) {
+          const newestId = visibleRuns[0].id;
           if (latestSeenRunId === null) {
             latestSeenRunId = newestId;
             const storedThreadId = readStoredLastThreadId();
-            if (storedThreadId && vm.runs.some((r) => r.id === storedThreadId)) {
+            if (storedThreadId && visibleRuns.some((r) => r.id === storedThreadId)) {
               selectedRunId = storedThreadId;
-            } else if (!selectedRunId || !vm.runs.some((r) => r.id === selectedRunId)) {
+            } else if (!selectedRunId || !visibleRuns.some((r) => r.id === selectedRunId)) {
               selectedRunId = newestId;
             }
           } else {
             latestSeenRunId = newestId;
-            if (!selectedRunId || (!vm.runs.some((r) => r.id === selectedRunId) && !optimisticRuns.length)) {
+            if (!selectedRunId || (!visibleRuns.some((r) => r.id === selectedRunId) && !optimisticRuns.length)) {
               selectedRunId = newestId;
             }
           }
         }
 
-        if (!vm.runs.length || isComposingNewChat) {
+        if (!visibleRuns.length || isComposingNewChat) {
           lastPanelStructureKey = buildPanelStructureKey(vm, null);
           destroyAllAgentChips();
           const primary = getPrimaryAgentRowIdentity();
@@ -6543,7 +6727,7 @@
           return;
         }
 
-        const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
+        const activeRun = visibleRuns.find((r) => r.id === selectedRunId) || visibleRuns[0];
         selectedRunId = activeRun.id;
 
         if (getCurrentState() === "expanded" && activeRun.isRealFailure) {
@@ -6628,6 +6812,17 @@
         const attachedWorkStepIds = new Set();
         const attachedLiveStepIds = new Set();
         const primaryIdentity = getPrimaryAgentRowIdentity();
+        const introducedAgents = new Set([headerAgent.name, primaryIdentity.name, "ComputerAnything"].filter(Boolean));
+        const buildHandoffLineHtml = (agentName, targetApp) => {
+          const cleanName = String(agentName || "").trim();
+          if (!cleanName || introducedAgents.has(cleanName)) return "";
+          introducedAgents.add(cleanName);
+          const cleanApp = String(targetApp || "").trim();
+          const introCopy = cleanApp
+            ? `Asked ${cleanName} to do this in ${cleanApp}`
+            : `Asked ${cleanName} to help`;
+          return `<div class="chat-handoff-line">${escapeHtml(introCopy)}</div>`;
+        };
 
         let renderedAgentBubble = false;
         rows.forEach((row, idx) => {
@@ -6657,12 +6852,14 @@
                   ink: "#1E2630",
                 },
               };
+          const handoffLineHtml = buildHandoffLineHtml(chipIdentity.name, matchingStep?.app || "");
           let workHtml = "";
           if (matchingStep && !attachedWorkStepIds.has(matchingStep.id)) {
             attachedWorkStepIds.add(matchingStep.id);
             workHtml = renderWorkDividerHtml(activeRun.id, matchingStep);
           }
           messageNodes.push(`
+            ${handoffLineHtml}
             <div class="chat-msg-row is-agent">
               <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}</div>
               <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
@@ -6693,7 +6890,9 @@
           }
           if (greetingText || workHtml) {
             attachedWorkStepIds.add(step.id);
+            const handoffLineHtml = greetingText ? buildHandoffLineHtml(step.agentIdentity?.name, step.app) : "";
             messageNodes.push(`
+              ${handoffLineHtml}
               <div class="chat-msg-row is-agent">
                 ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div>` : ""}
                 ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
@@ -6794,18 +6993,19 @@
             `;
           } else {
             const isVerified = activeRun.state === "verified";
-            const summaryLine = isVerified
-              ? activeRun.stateFact || activeRun.evidenceText || "Done"
+            const compactFact = isVerified
+              ? activeRun.evidenceText || activeRun.stateFact || "Done"
               : activeRun.stateFact || activeRun.stateSymbolWord || "Finished";
-            const stepsCount =
-              activeRun.digest?.totalSteps ||
-              activeRun.steps.reduce((acc, s) => acc + (s.workStepCount || s.workSteps.length || 0), 0);
-            const metaParts = [];
+            const detailSentence =
+              activeRun.stateFact &&
+              activeRun.stateFact.toLowerCase() !== compactFact.toLowerCase() &&
+              !compactFact.toLowerCase().includes(activeRun.stateFact.toLowerCase())
+                ? activeRun.stateFact
+                : "";
+            const isDetailOpen = Boolean(detailSentence && openResultDetailIds.has(activeRun.id));
+            const inlineParts = [compactFact];
             if (activeRun.elapsedText && activeRun.elapsedText !== "—") {
-              metaParts.push(activeRun.elapsedText);
-            }
-            if (stepsCount > 0) {
-              metaParts.push(`${stepsCount} ${stepsCount === 1 ? "step" : "steps"}`);
+              inlineParts.push(activeRun.elapsedText);
             }
             if (
               isVerified &&
@@ -6813,23 +7013,33 @@
               activeRun.digest.costText !== "—" &&
               !activeRun.isMock
             ) {
-              metaParts.push(activeRun.digest.costText);
+              inlineParts.push(activeRun.digest.costText);
             }
             const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
             const firstOpenableOutput = activeRun.producedOutputs.find((o) => o.openUrl || o.previewText) || null;
             const firstPreviewKey = firstOpenableOutput ? `${activeRun.id}:${firstOpenableOutput.id}` : "";
             const isFirstPreviewOpen = firstPreviewKey ? openOutputPreviewIds.has(firstPreviewKey) : false;
+            const copyIconHtml = isCopiedResult
+              ? `<span class="state-success">&#10003;</span>`
+              : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3.5C11 2.95 10.55 2.5 10 2.5H3.5C2.95 2.5 2.5 2.95 2.5 3.5V10C2.5 10.55 2.95 11 3.5 11H5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
 
             outcomeHtml = `
-              <div class="chat-result-card ${isVerified ? "is-verified" : ""}">
-                <div class="chat-result-main">${
-                  isVerified ? `<span class="state-success">&#10003;</span> ` : ""
-                }${escapeHtml(summaryLine)}</div>
-                ${metaParts.length ? `<div class="chat-result-meta">${escapeHtml(metaParts.join(" · "))}</div>` : ""}
+              <div class="chat-result-line ${isVerified ? "is-verified" : ""}">
+                <div class="chat-result-body">
+                  <div
+                    class="chat-result-main ${detailSentence ? "is-expandable" : ""}"
+                    ${
+                      detailSentence
+                        ? `role="button" tabindex="0" data-action="toggle-result-detail" data-run-id="${escapeHtml(activeRun.id)}" aria-expanded="${isDetailOpen ? "true" : "false"}"`
+                        : ""
+                    }
+                  >${isVerified ? `<span class="state-success">&#10003;</span> ` : ""}${escapeHtml(inlineParts.join(" · "))}</div>
+                  ${isDetailOpen ? `<div class="chat-result-detail">${escapeHtml(detailSentence)}</div>` : ""}
+                </div>
                 <div class="chat-result-acts">
                   ${
                     activeRun.copyResultText
-                      ? `<button type="button" class="btn" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}">${isCopiedResult ? "&#10003; Copied" : "Copy"}</button>`
+                      ? `<button type="button" class="btn btn-icon" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}" aria-label="${isCopiedResult ? "Copied result" : "Copy result"}" title="${isCopiedResult ? "Copied" : "Copy result"}">${copyIconHtml}</button>`
                       : ""
                   }
                   ${
@@ -6973,6 +7183,17 @@
         }
 
         const actionBtn = e.target.closest("[data-action]");
+        if (openRowMenuKey) {
+          const inMenu = Boolean(e.target.closest(".chat-row-menu, .chat-row-more-btn"));
+          if (!inMenu && (!actionBtn || actionBtn.dataset.action !== "toggle-row-menu")) {
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            if (!actionBtn) {
+              renderNow();
+              return;
+            }
+          }
+        }
         if (actionBtn) {
           const action = actionBtn.dataset.action;
           if (action === "select-chat" || action === "new-primary-chat") {
@@ -6989,17 +7210,23 @@
             setState("collapsed", { instant: true });
             return;
           }
-          if (action === "open-agent-settings") {
+          if (action === "open-agent-settings" || action === "menu-agent-settings") {
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
             Transport.openWorkspace(fixtureParam || "", { view: "agent-settings" });
             return;
           }
           if (action === "open-app-settings") {
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
             Transport.openWorkspace(fixtureParam || "", { view: "app-settings" });
             return;
           }
           if (action === "open-chat-list") {
             viewMode = "list";
             isComposingNewChat = false;
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
             renderNow();
             return;
           }
@@ -7007,6 +7234,8 @@
             selectedRunId = null;
             viewMode = "chat";
             isComposingNewChat = true;
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
             renderNow();
             promptInput.focus();
             return;
@@ -7017,9 +7246,93 @@
               selectedRunId = runId;
               viewMode = "chat";
               isComposingNewChat = false;
+              openRowMenuKey = "";
+              confirmDeleteRunId = "";
               saveLastThreadId(runId);
               markFailedRunSeen(runId);
               stopStepReplay();
+              renderNow();
+            }
+            return;
+          }
+          if (action === "toggle-row-menu") {
+            const rowKey = actionBtn.dataset.rowKey || "";
+            if (rowKey) {
+              if (openRowMenuKey === rowKey) {
+                openRowMenuKey = "";
+                confirmDeleteRunId = "";
+              } else {
+                openRowMenuKey = rowKey;
+                confirmDeleteRunId = "";
+              }
+              renderNow();
+            }
+            return;
+          }
+          if (action === "menu-copy-result") {
+            const runId = actionBtn.dataset.runId || "";
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            const text = runVm?.copyResultText || runVm?.lastLinePreview || "";
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            if (text) {
+              await copyTextWithFeedback(text, `result:${runId}`, "Copied result");
+            } else {
+              renderNow();
+            }
+            return;
+          }
+          if (action === "menu-ask-delete") {
+            const runId = actionBtn.dataset.runId || "";
+            if (runId) {
+              openRowMenuKey = runId;
+              confirmDeleteRunId = runId;
+              renderNow();
+            }
+            return;
+          }
+          if (action === "cancel-delete-chat") {
+            confirmDeleteRunId = "";
+            openRowMenuKey = "";
+            renderNow();
+            return;
+          }
+          if (action === "confirm-delete-chat") {
+            const runId = actionBtn.dataset.runId || "";
+            if (!runId) return;
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            if (runVm && !runVm.isFinished && stopRouteSupported && !isSampleData && Transport.isConnected()) {
+              pendingStopIds.add(runId);
+              try {
+                await Transport.request("POST", `/api/runs/${encodeURIComponent(runId)}/stop`, {});
+              } catch {
+                // Still hide deleted chat from list if already stopped or unreachable
+              } finally {
+                pendingStopIds.delete(runId);
+              }
+            }
+            hiddenChatIds.add(runId);
+            persistHiddenChatIds();
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            if (selectedRunId === runId) {
+              selectedRunId = null;
+            }
+            if (readStoredLastThreadId() === runId) {
+              saveLastThreadId("");
+            }
+            announceStatus("Deleted chat");
+            renderNow();
+            return;
+          }
+          if (action === "toggle-result-detail") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            if (runId) {
+              if (openResultDetailIds.has(runId)) {
+                openResultDetailIds.delete(runId);
+              } else {
+                openResultDetailIds.add(runId);
+              }
               renderNow();
             }
             return;
@@ -7167,8 +7480,10 @@
             }
             return;
           }
-          if (action === "stop-run" || action === "stop-agent") {
+          if (action === "stop-run" || action === "stop-agent" || action === "menu-stop-chat") {
             const targetRunId = actionBtn.dataset.runId || selectedRunId;
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
             if (!targetRunId || pendingStopIds.has(targetRunId)) return;
             const targetRunObj = rawRuns.find((r) => r.id === targetRunId);
             const parentNoticeId =
@@ -7281,8 +7596,33 @@
         }
       });
 
+      panelView.addEventListener("contextmenu", (e) => {
+        if (viewMode !== "list") return;
+        const rowEl = e.target.closest("[data-row-key]");
+        if (!rowEl) return;
+        const rowKey = rowEl.dataset.rowKey || "";
+        if (!rowKey) return;
+        e.preventDefault();
+        openRowMenuKey = rowKey;
+        confirmDeleteRunId = "";
+        renderNow();
+      });
+
       panelView.addEventListener("keydown", (e) => {
         if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+          if (viewMode === "list") {
+            const rowEl = e.target.closest("[data-row-key]");
+            const rowKey = rowEl?.dataset?.rowKey || "";
+            if (rowKey) {
+              e.preventDefault();
+              openRowMenuKey = rowKey;
+              confirmDeleteRunId = "";
+              renderNow();
+            }
+          }
+          return;
+        }
         if (e.key !== "Enter" && e.key !== " ") return;
         const roleBtn = e.target.closest('[role="button"][data-action]');
         if (!roleBtn || roleBtn.tagName === "BUTTON") return;
@@ -7625,7 +7965,35 @@
 
       window.addEventListener("shell-event", (e) => {
         const msg = e.detail || {};
-        if (msg.type === "hotkey") setState("expanded", { instant: true });
+        if (msg.type === "hotkey") {
+          if (viewMode === "list") {
+            const visibleRuns = (lastViewModel?.runs || []).filter((r) => !hiddenChatIds.has(r.id));
+            const storedThreadId = readStoredLastThreadId();
+            const targetRun =
+              (storedThreadId && visibleRuns.find((r) => r.id === storedThreadId)) ||
+              visibleRuns[0] ||
+              null;
+            viewMode = "chat";
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            if (targetRun) {
+              selectedRunId = targetRun.id;
+              isComposingNewChat = false;
+              saveLastThreadId(targetRun.id);
+            } else {
+              selectedRunId = null;
+              isComposingNewChat = true;
+            }
+            renderNow();
+          }
+          setState("expanded", { instant: true });
+          if (promptInput && viewMode === "chat") {
+            promptInput.focus();
+            setTimeout(() => {
+              if (promptInput && viewMode === "chat") promptInput.focus();
+            }, 0);
+          }
+        }
         if (msg.type === "primaryAgentUpdated") {
           const payload = msg.primaryAgent && typeof msg.primaryAgent === "object"
             ? msg.primaryAgent
