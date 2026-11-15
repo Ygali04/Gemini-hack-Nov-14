@@ -296,7 +296,11 @@
         runs: Array.isArray(parsed.runs) ? parsed.runs : [],
         details: parsed.details && typeof parsed.details === "object" ? parsed.details : {},
         help: Array.isArray(parsed.help) ? parsed.help : [],
-        transcripts: Array.isArray(parsed.transcripts) ? parsed.transcripts : [],
+        transcripts: Array.isArray(parsed.transcripts)
+          ? parsed.transcripts
+          : parsed.transcripts && typeof parsed.transcripts === "object"
+            ? Object.values(parsed.transcripts).flat().filter(Boolean)
+            : [],
         actions: actionList,
         graph: parsed.graph && typeof parsed.graph === "object" ? parsed.graph : null,
         analytics: parsed.analytics && typeof parsed.analytics === "object" ? parsed.analytics : null,
@@ -373,6 +377,24 @@
       return data;
     }
 
+    function collectFixtureSubtreeIds(rootRunId) {
+      const ids = [];
+      const seen = new Set();
+      const queue = [rootRunId];
+      while (queue.length) {
+        const cur = queue.shift();
+        if (!cur || seen.has(cur)) continue;
+        seen.add(cur);
+        ids.push(cur);
+        for (const r of fixtureState.runs || []) {
+          if (r && r.parent === cur && !seen.has(r.id)) {
+            queue.push(r.id);
+          }
+        }
+      }
+      return ids;
+    }
+
     function handleFixtureRequest(method, path, options) {
       if (!fixtureState) throw new Error("Sample data unavailable");
       const [cleanPath, queryStr] = String(path || "").split("?");
@@ -383,22 +405,28 @@
       }
       if (method === "GET" && cleanPath.startsWith("/api/runs/") && cleanPath.endsWith("/cost")) {
         const runId = decodeURIComponent(cleanPath.slice("/api/runs/".length, -"/cost".length));
-        const entry = fixtureState.costs[runId] || {
-          run: runId,
-          agents: 1,
-          llm_calls: 0,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          cost_usd: 0,
-          model_seconds: 0,
-          actions: {},
-          by_agent: [],
-        };
+        const runObj = (fixtureState.runs || []).find((r) => r.id === runId);
+        const detailObj = fixtureState.details?.[runId];
+        const entry =
+          fixtureState.costs[runId] ||
+          runObj?.result?.digest?.task_cost ||
+          detailObj?.result?.digest?.task_cost || {
+            run: runId,
+            agents: 1,
+            llm_calls: 0,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cost_usd: 0,
+            model_seconds: 0,
+            actions: {},
+            by_agent: [],
+          };
         return JSON.parse(JSON.stringify(entry));
       }
       if (method === "GET" && cleanPath.startsWith("/api/runs/") && cleanPath.endsWith("/transcript")) {
         const runId = decodeURIComponent(cleanPath.slice("/api/runs/".length, -"/transcript".length));
-        const rows = (fixtureState.transcripts || []).filter((t) => t.run === runId);
+        const subtreeIds = new Set(collectFixtureSubtreeIds(runId));
+        const rows = (fixtureState.transcripts || []).filter((t) => subtreeIds.has(t.run));
         return JSON.parse(JSON.stringify(rows));
       }
       if (method === "GET" && cleanPath === "/api/transcripts") {
@@ -447,6 +475,26 @@
       }
       if (method === "GET" && cleanPath === "/api/analytics") {
         if (fixtureState.analytics) return JSON.parse(JSON.stringify(fixtureState.analytics));
+        const analyticsFailed = Boolean(
+          fixtureState.workspaceState?.failedEndpoints?.some((e) => e && e.key === "analytics")
+        );
+        const taskRuns = (fixtureState.runs || []).filter((r) => !r.parent || r.role === "orchestrator");
+        const taskCosts = taskRuns
+          .map((r) => fixtureState.costs?.[r.id] || r.result?.digest?.task_cost || fixtureState.details?.[r.id]?.result?.digest?.task_cost)
+          .filter(Boolean);
+        if (!analyticsFailed && taskCosts.length > 0) {
+          const totalCost = Number(taskCosts.reduce((s, c) => s + Number(c.cost_usd || 0), 0).toFixed(6));
+          const totalCalls = taskCosts.reduce((s, c) => s + Number(c.llm_calls || 0), 0);
+          return {
+            tasks: taskRuns.length,
+            cost_usd: totalCost,
+            llm_calls: totalCalls,
+            mean_cost_per_task: taskRuns.length ? Number((totalCost / taskRuns.length).toFixed(6)) : null,
+            by_role: [],
+            by_purpose: [],
+            by_app: [],
+          };
+        }
         return {
           tasks: 0,
           cost_usd: 0,
@@ -502,7 +550,9 @@
         if (!target) {
           throw Object.assign(new Error("no such run"), { status: 404, code: "HTTP" });
         }
-        const toStop = fixtureState.runs.filter((r) => r.id === rid || r.parent === rid);
+        const toStop = fixtureState.runs.filter(
+          (r) => r.id === rid || (r.parent === rid && r.role !== "orchestrator")
+        );
         for (const r of toStop) {
           if (r.state !== "done" && r.state !== "failed") {
             r.state = "failed";
@@ -591,7 +641,7 @@
         }
         const parentId = targetRun?.parent;
         if (parentId) {
-          const siblings = fixtureState.runs.filter((r) => r.parent === parentId);
+          const siblings = fixtureState.runs.filter((r) => r.parent === parentId && r.role !== "orchestrator");
           const parent = fixtureState.runs.find((r) => r.id === parentId);
           const anyWaiting = siblings.some((s) => s.state === "awaiting_human");
           const anyFailed = siblings.some((s) => s.state === "failed");
@@ -1821,13 +1871,38 @@
       const runsList = Array.isArray(rawRuns) ? rawRuns : [];
       const helpList = Array.isArray(pendingHelp) ? pendingHelp : [];
       const byId = new Map(runsList.map((r) => [r.id, r]));
+      const isTaskRun = (r) => Boolean(r && (!r.parent || !byId.has(r.parent) || r.role === "orchestrator"));
 
-      const parents = runsList.filter((r) => !r.parent || !byId.has(r.parent));
+      const parents = runsList.filter((r) => isTaskRun(r));
       const childrenByParent = new Map();
+      const childOrchestratorsByParent = new Map();
       for (const r of runsList) {
         if (r.parent && byId.has(r.parent)) {
-          if (!childrenByParent.has(r.parent)) childrenByParent.set(r.parent, []);
-          childrenByParent.get(r.parent).push(r);
+          if (isTaskRun(r)) {
+            if (!childOrchestratorsByParent.has(r.parent)) childOrchestratorsByParent.set(r.parent, []);
+            childOrchestratorsByParent.get(r.parent).push(r);
+          } else {
+            if (!childrenByParent.has(r.parent)) childrenByParent.set(r.parent, []);
+            childrenByParent.get(r.parent).push(r);
+          }
+        }
+      }
+
+      const allTranscriptRowsByKey = new Map();
+      const allTranscriptRowsList = [];
+      if (transcriptsByRunId && typeof transcriptsByRunId === "object") {
+        for (const rows of Object.values(transcriptsByRunId)) {
+          if (!Array.isArray(rows)) continue;
+          for (const tr of rows) {
+            if (!tr || typeof tr !== "object") continue;
+            const dedupKey = tr.id != null
+              ? `id:${tr.id}`
+              : `raw:${tr.ts ?? ""}|${tr.run ?? ""}|${tr.kind ?? ""}|${tr.text ?? ""}`;
+            if (!allTranscriptRowsByKey.has(dedupKey)) {
+              allTranscriptRowsByKey.set(dedupKey, tr);
+              allTranscriptRowsList.push(tr);
+            }
+          }
         }
       }
 
@@ -1866,14 +1941,69 @@
         /* Up to 4 child computer-use / specialist agents per prompt (Section 1B - B1) */
         const rawChildren = [...(childrenByParent.get(parent.id) || [])].slice(0, 4);
         const allGroupRuns = [parent, ...rawChildren];
+        const groupRunIds = new Set(allGroupRuns.map((r) => r.id));
+
+        const rawCostForTask = (taskRun) => {
+          if (!taskRun) return null;
+          const fetched = costsById?.[taskRun.id] || null;
+          const digest = taskRun.result?.digest?.task_cost || detailsById[taskRun.id]?.result?.digest?.task_cost || null;
+          if (fetched && (Number(fetched.llm_calls || 0) > 0 || Number(fetched.cost_usd || 0) > 0 || !digest)) {
+            return fetched;
+          }
+          return digest || fetched || null;
+        };
+
+        const resolveGroupCost = () => {
+          const baseCost = rawCostForTask(parent);
+          if (!baseCost) return null;
+          const directChildOrchestrators = childOrchestratorsByParent.get(parent.id) || [];
+          if (!directChildOrchestrators.length || Number(baseCost.agents || 0) <= allGroupRuns.length) {
+            return baseCost;
+          }
+          let subAgents = 0;
+          let subCalls = 0;
+          let subPromptTokens = 0;
+          let subCompletionTokens = 0;
+          let subCostUsd = 0;
+          let subModelSec = 0;
+          for (const dc of directChildOrchestrators) {
+            const dcCost = rawCostForTask(dc);
+            if (dcCost) {
+              subAgents += Number(dcCost.agents || 0);
+              subCalls += Number(dcCost.llm_calls || 0);
+              subPromptTokens += Number(dcCost.prompt_tokens || 0);
+              subCompletionTokens += Number(dcCost.completion_tokens || 0);
+              subCostUsd += Number(dcCost.cost_usd || 0);
+              subModelSec += Number(dcCost.model_seconds || 0);
+            } else {
+              const dcChildren = childrenByParent.get(dc.id) || [];
+              subAgents += 1 + dcChildren.length;
+            }
+          }
+          return {
+            ...baseCost,
+            agents: Math.max(allGroupRuns.length, Number(baseCost.agents || 0) - subAgents),
+            llm_calls: Math.max(0, Number(baseCost.llm_calls || 0) - subCalls),
+            prompt_tokens: Math.max(0, Number(baseCost.prompt_tokens || 0) - subPromptTokens),
+            completion_tokens: Math.max(0, Number(baseCost.completion_tokens || 0) - subCompletionTokens),
+            cost_usd: Number(Math.max(0, Number(baseCost.cost_usd || 0) - subCostUsd).toFixed(6)),
+            model_seconds: Number(Math.max(0, Number(baseCost.model_seconds || 0) - subModelSec).toFixed(1)),
+          };
+        };
+
+        const groupCost = resolveGroupCost();
         const isMockGroup = isMockRunGroup(
           allGroupRuns,
           detailsById,
-          costsById[parent.id],
+          groupCost,
           Boolean(isSampleData)
         );
 
-        const parentTranscriptRows = transcriptsByRunId[parent.id] || [];
+        const directParentRows = Array.isArray(transcriptsByRunId?.[parent.id]) ? transcriptsByRunId[parent.id] : [];
+        const parentTranscriptRows = allTranscriptRowsList
+          .filter((tr) => (tr.run ? groupRunIds.has(tr.run) : directParentRows.includes(tr)))
+          .slice()
+          .sort((a, b) => (Number(a.ts || 0) - Number(b.ts || 0)) || (Number(a.id || 0) - Number(b.id || 0)));
         const parentEvents = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
         const recoveredByRunId = new Map();
         const recoveredByAgentName = new Map();
@@ -2016,7 +2146,7 @@
             : [];
         const attachments = Array.from(new Set([...uiSentFiles, ...backendAttachments]));
 
-        const transcriptRows = transcriptsByRunId[parent.id] || [];
+        const transcriptRows = parentTranscriptRows;
         const combinedEvents = [];
         if (transcriptRows.length) {
           for (const tr of transcriptRows) {
@@ -2095,7 +2225,7 @@
           childNodes,
           allNodes: nodes,
           combinedEvents,
-          cost: costsById[parent.id] || null,
+          cost: groupCost,
         };
       });
 
@@ -2122,7 +2252,10 @@
           if (g.overallStatus.filterKey !== logStatusFilter) return false;
         }
         if (!qLower) return true;
-        if (matchedRunIdsFromEndpoint && matchedRunIdsFromEndpoint.has(g.id)) {
+        if (
+          matchedRunIdsFromEndpoint &&
+          (matchedRunIdsFromEndpoint.has(g.id) || g.allNodes.some((n) => matchedRunIdsFromEndpoint.has(n.runId)))
+        ) {
           return true;
         }
         const haystacks = [
@@ -2137,6 +2270,12 @@
 
       /* Build B1b State Machine Graph */
       const runById = new Map(runsList.map((r) => [r.id, r]));
+      const nodeNameByRunId = new Map();
+      for (const g of taskGroups) {
+        for (const n of g.allNodes) {
+          if (n.runId && n.agentName) nodeNameByRunId.set(n.runId, n.agentName);
+        }
+      }
       const resolveSmAgentName = (rawAgent, runId) => {
         const raw = String(rawAgent || "").trim();
         const fromAgents =
@@ -2144,9 +2283,14 @@
           (runId && rawAgents?.[runId]?.name) ||
           "";
         if (fromAgents) return String(fromAgents).trim();
+        const fromNode =
+          (runId && nodeNameByRunId.get(runId)) ||
+          (raw && nodeNameByRunId.get(raw)) ||
+          "";
+        if (fromNode) return String(fromNode).trim();
         const rObj = (runId && runById.get(runId)) || (raw && runById.get(raw)) || null;
         if (rObj?.agent_name) return String(rObj.agent_name).trim();
-        if (raw && !/^r\d{6,}-\d+$/.test(raw) && !/^[0-9a-f]{6,}$/i.test(raw)) {
+        if (raw && !/^r\d{6,}-\d+(?:-[0-9a-f]+)?$/i.test(raw) && !/^[0-9a-f]{6,}$/i.test(raw)) {
           return raw;
         }
         if (rObj?.role === "orchestrator" || raw === "orchestrator") {
@@ -2181,7 +2325,7 @@
           const isPrimaryRun = !r.parent || r.role === "orchestrator";
           const agentName = isPrimaryRun
             ? getPrimaryAgentDisplayName(rawAgents?.[r.id]?.name || r.agent_name || "Primary orchestrator")
-            : (rawAgents?.[r.id]?.name || r.role || "Agent");
+            : (rawAgents?.[r.id]?.name || nodeNameByRunId.get(r.id) || r.role || "Agent");
 
           let steps = [];
           if (actEvents.length) {
@@ -2487,6 +2631,23 @@
         });
       }
 
+      let resolvedAnalytics = rawAnalytics;
+      if (!resolvedAnalytics && taskGroups.some((g) => g.cost && (Number(g.cost.llm_calls || 0) > 0 || Number(g.cost.cost_usd || 0) > 0))) {
+        const totalCostUsd = Number(
+          taskGroups.reduce((sum, g) => sum + Number(g.cost?.cost_usd || 0), 0).toFixed(6)
+        );
+        const totalLlmCalls = taskGroups.reduce((sum, g) => sum + Number(g.cost?.llm_calls || 0), 0);
+        resolvedAnalytics = {
+          tasks: taskGroups.length,
+          cost_usd: totalCostUsd,
+          llm_calls: totalLlmCalls,
+          mean_cost_per_task: taskGroups.length ? Number((totalCostUsd / taskGroups.length).toFixed(6)) : null,
+          by_role: [],
+          by_purpose: [],
+          by_app: [],
+        };
+      }
+
       return {
         connectionStatus,
         connectionError,
@@ -2513,7 +2674,7 @@
           actions_logged: Array.isArray(rawActions) ? rawActions.length : 0,
           agents: stateMachine.allAgents,
         },
-        analytics: rawAnalytics,
+        analytics: resolvedAnalytics,
         costsById,
       };
     }
@@ -2895,7 +3056,7 @@
     }
 
     const activeRunCount = (rawRuns || []).filter(
-      (r) => !r.parent && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
+      (r) => (!r.parent || r.role === "orchestrator") && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
     ).length;
     const stopWrapEl = document.getElementById("stop-all-wrap");
     const stopBtnEl = document.getElementById("stop-all-btn");
@@ -5965,6 +6126,7 @@
       if (isSpike) exceptionParts.push("Cost spike");
       return {
         id: g.id,
+        runIds: (g.allNodes || []).map((n) => n.runId).filter(Boolean),
         goal: g.goal || "Untitled task",
         apps,
         outcomeKey: g.overallStatus?.filterKey || "running",
@@ -6020,7 +6182,7 @@
       if (costFilter === "over-5c" && !(row.costUsd !== null && row.costUsd > 0.05)) return false;
       if (costFilter === "spike" && !row.hasException) return false;
       if (query) {
-        if (transcriptMatchRunIds && transcriptMatchRunIds.has(row.id)) return true;
+        if (transcriptMatchRunIds && (transcriptMatchRunIds.has(row.id) || (row.runIds || []).some((rid) => transcriptMatchRunIds.has(rid)))) return true;
         const hay = `${row.goal} ${row.apps.join(" ")} ${row.outcomeLabel}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
@@ -6833,7 +6995,7 @@
   async function stopAllRunningAgents() {
     if (stopAllBusy || !stopRouteSupported) return;
     const activeParents = (rawRuns || []).filter(
-      (r) => !r.parent && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
+      (r) => (!r.parent || r.role === "orchestrator") && (r.state === "queued" || r.state === "planning" || r.state === "acting" || r.state === "awaiting_human")
     );
     if (!activeParents.length) return;
     stopAllBusy = true;
@@ -7047,7 +7209,7 @@
         })
       );
 
-      const parentRuns = nextRuns.filter((r) => !r.parent);
+      const parentRuns = nextRuns.filter((r) => !r.parent || r.role === "orchestrator");
       await Promise.all(
         parentRuns.slice(0, 8).map(async (p) => {
           try {
