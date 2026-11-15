@@ -785,13 +785,18 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      min-height: 24px;
+      min-height: 22px;
       min-width: 0;
+      width: 100%;
       font-size: 12px;
       line-height: 16px;
-      color: var(--text-primary);
+      color: var(--text-secondary);
       opacity: 1;
       transition: opacity var(--dur-enter) ease;
+    }
+
+    .chat-msg-row.is-agent .live-step-line {
+      padding-left: 2px;
     }
 
     .live-step-line.is-faded {
@@ -1357,12 +1362,14 @@
     }
     .chat-nav-title {
       font-size: 12px;
-      line-height: 18px;
+      line-height: 16px;
       font-weight: 500;
       color: var(--text-secondary);
       overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow-wrap: break-word;
       min-width: 0;
     }
     .list-nav-title {
@@ -1954,11 +1961,31 @@
         async function init() {
           if (fixtureParam) {
             await loadFixture(fixtureParam);
+            let voiceMeta = {
+              speechAvailable: Boolean(fixtureState?.speechAvailable),
+              onDeviceSpeech: Boolean(fixtureState?.onDeviceSpeech),
+              isDictating: Boolean(fixtureState?.isDictating),
+              isSpeaking: Boolean(fixtureState?.isSpeaking),
+              speakText: fixtureState?.speakText ? String(fixtureState.speakText) : "",
+            };
+            if (fixtureState?.speechAvailable === undefined && hasShellBridge()) {
+              const cfg = await callShell("getConfig").catch(() => null);
+              if (cfg) {
+                voiceMeta = {
+                  speechAvailable: Boolean(cfg.speechAvailable),
+                  onDeviceSpeech: Boolean(cfg.onDeviceSpeech),
+                  isDictating: Boolean(cfg.isDictating),
+                  isSpeaking: Boolean(cfg.isSpeaking),
+                  speakText: cfg.speakText ? String(cfg.speakText) : "",
+                };
+              }
+            }
             return {
               connected: true,
               isSampleData: true,
               initialDroppedFiles: fixtureState?.droppedFiles || [],
               seenFailedRunIds: fixtureState?.seenFailedRunIds || [],
+              ...voiceMeta,
             };
           }
           if (hasShellBridge()) {
@@ -2052,6 +2079,11 @@
             transcripts: parsed.transcripts && typeof parsed.transcripts === "object" ? parsed.transcripts : {},
             droppedFiles: Array.isArray(parsed.droppedFiles) ? parsed.droppedFiles : [],
             seenFailedRunIds: Array.isArray(parsed.seenFailedRunIds) ? parsed.seenFailedRunIds : [],
+            speechAvailable: typeof parsed.speechAvailable === "boolean" ? parsed.speechAvailable : undefined,
+            onDeviceSpeech: typeof parsed.onDeviceSpeech === "boolean" ? parsed.onDeviceSpeech : undefined,
+            isDictating: Boolean(parsed.isDictating),
+            isSpeaking: Boolean(parsed.isSpeaking),
+            speakText: parsed.speakText ? String(parsed.speakText) : "",
           };
         }
 
@@ -2492,11 +2524,22 @@
           return h >>> 0;
         }
 
-        function extractEventAgentName(events, parentRouteEvent, fallbackIndex) {
+        function extractEventAgentName(runObj, events, parentRouteEvent, fallbackIndex) {
+          if (runObj?.agent_name) return String(runObj.agent_name).trim();
+          if (runObj?.agent) return String(runObj.agent).trim();
           const list = Array.isArray(events) ? events : [];
           for (let i = list.length - 1; i >= 0; i--) {
             const ev = list[i];
-            if ((ev?.kind === "route" || ev?.kind === "act" || (ev?.kind === "msg" && ev.role === "agent")) && ev.agent) {
+            if (
+              (ev?.kind === "route" ||
+                ev?.kind === "act" ||
+                ev?.kind === "decide" ||
+                ev?.kind === "verify" ||
+                ev?.kind === "result" ||
+                ev?.kind === "help" ||
+                (ev?.kind === "msg" && ev.role === "agent")) &&
+              ev.agent
+            ) {
               return String(ev.agent).trim();
             }
           }
@@ -2525,7 +2568,7 @@
               break;
             }
           }
-          const evName = extractEventAgentName(list, parentRouteEvent, fallbackIndex);
+          const evName = extractEventAgentName(runObj, list, parentRouteEvent, fallbackIndex);
           const allRows = [];
           if (transcriptsById && runObj?.id && Array.isArray(transcriptsById[runObj.id])) {
             allRows.push(...transcriptsById[runObj.id]);
@@ -2559,7 +2602,8 @@
           events,
           parentRouteEvent,
           transcriptsById,
-          primaryAgentPref
+          primaryAgentPref,
+          groupAgentCount
         ) {
           const recovered = extractEventOrTranscriptAgent(
             runObj,
@@ -2583,7 +2627,7 @@
                 ink: recovered.ink,
               }
             : directRecord;
-          const fallbackName = recovered.name || actorLabelForRole(runObj?.role);
+          const fallbackName = recovered.name || actorLabelForRole(runObj?.role, fallbackIndex, groupAgentCount);
           const resolvedBackendName = String(record?.name || fallbackName).trim();
           const isOrchestrator = runObj?.role === "orchestrator" || resolvedBackendName === "ComputerAnything";
           const displayName =
@@ -2761,7 +2805,7 @@
         function summarizeDecidePlain(ev) {
           if (ev?.thought) return String(ev.thought).trim();
           if (ev?.action === "done") return "checking if done";
-          return "deciding...";
+          return "choosing next step";
         }
 
         function extractRunApp(runObj, events, parentRouteEvent) {
@@ -2816,11 +2860,15 @@
           return s.charAt(0).toUpperCase() + s.slice(1);
         }
 
-        function actorLabelForRole(role) {
+        function actorLabelForRole(role, fallbackIndex, totalCount) {
           if (role === "qa") return "QA agent";
           if (role === "dev") return "Dev agent";
-          if (role === "cu") return "Computer use agent";
+          if (role === "cu") {
+            if (totalCount > 1 && fallbackIndex != null) return `Agent ${fallbackIndex + 1}`;
+            return "Computer use agent";
+          }
           if (role === "marketing") return "Marketing agent";
+          if (totalCount > 1 && fallbackIndex != null) return `Agent ${fallbackIndex + 1}`;
           return "Agent";
         }
 
@@ -3456,10 +3504,11 @@
           rememberedMap,
           parentRouteEvent,
           transcriptsById,
-          primaryAgentPref
+          primaryAgentPref,
+          groupAgentCount
         ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
-          const actorLabel = actorLabelForRole(childRun.role);
+          const actorLabel = actorLabelForRole(childRun.role, fallbackIndex, groupAgentCount);
           const agentIdentity = resolveAgentIdentity(
             childRun,
             agentsMap,
@@ -3468,7 +3517,8 @@
             events,
             parentRouteEvent,
             transcriptsById,
-            primaryAgentPref
+            primaryAgentPref,
+            groupAgentCount
           );
           const app = extractRunApp(childRun, events, parentRouteEvent);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
@@ -3572,33 +3622,25 @@
           };
         }
 
-        function buildLiveStepForRun(parent, runsForStep, detailsById, stepById) {
-          let best = null;
-          for (let rIdx = 0; rIdx < runsForStep.length; rIdx++) {
-            const r = runsForStep[rIdx];
-            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
-            let latestIdx = -1;
-            for (let i = evs.length - 1; i >= 0; i--) {
-              if (evs[i]?.kind === "act" || evs[i]?.kind === "decide") {
-                latestIdx = i;
-                break;
-              }
-            }
-            if (latestIdx === -1) continue;
-            const latestEv = evs[latestIdx];
-            const tVal = Number(latestEv.t) || 0;
-            const isRunActive =
-              r.state === "acting" ||
-              r.state === "planning" ||
-              r.state === "queued" ||
-              r.state === "awaiting_human";
-            if (!best || (isRunActive && !best.isRunActive) || (isRunActive === best.isRunActive && tVal >= best.tVal)) {
-              best = { r, evs, latestIdx, latestEv, tVal, isRunActive };
+        function buildLiveStepForSingleRun(parent, r, detailsById, stepById) {
+          if (!r) return null;
+          const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+          let latestIdx = -1;
+          for (let i = evs.length - 1; i >= 0; i--) {
+            if (evs[i]?.kind === "act" || evs[i]?.kind === "decide") {
+              latestIdx = i;
+              break;
             }
           }
-          if (!best) return null;
+          if (latestIdx === -1) return null;
+          const latestEv = evs[latestIdx];
+          const tVal = Number(latestEv.t) || 0;
+          const isRunActive =
+            r.state === "acting" ||
+            r.state === "planning" ||
+            r.state === "queued" ||
+            r.state === "awaiting_human";
 
-          const { r, evs, latestIdx, latestEv } = best;
           const stepInfo = stepById.get(r.id);
           const agentName = stepInfo?.agentIdentity?.name || actorLabelForRole(r.role);
           const agentColor = stepInfo?.agentIdentity?.color || NEUTRAL_AGENT_COLOR;
@@ -3645,15 +3687,33 @@
           }
 
           const prefix = app ? `${agentName} in ${app}` : agentName;
+          const localText = app ? `In ${app}: ${phrase}` : sentenceCase(phrase);
           return {
             key: `${parent.id}:${r.id}`,
+            runId: r.id,
             fingerprint: `${r.id}:${evs.length}:${latestEv.t}:${latestEv.kind}:${latestEv.action || ""}:${latestEv.thought || ""}`,
             agentName,
             agentColor,
             agentEdge,
             app,
+            phrase,
+            localText,
             text: `${prefix}: ${phrase}`,
+            tVal,
+            isRunActive,
           };
+        }
+
+        function buildLiveStepForRun(parent, runsForStep, detailsById, stepById) {
+          let best = null;
+          for (let rIdx = 0; rIdx < runsForStep.length; rIdx++) {
+            const entry = buildLiveStepForSingleRun(parent, runsForStep[rIdx], detailsById, stepById);
+            if (!entry) continue;
+            if (!best || (entry.isRunActive && !best.isRunActive) || (entry.isRunActive === best.isRunActive && entry.tVal >= best.tVal)) {
+              best = entry;
+            }
+          }
+          return best;
         }
 
         function buildDigestForRun(parent, rawChildren, detailsById, stepById, costData) {
@@ -3902,7 +3962,8 @@
             const hasMockVerify = hasMockVerifyEvidence(groupRuns, detailsById);
             const isMockRun = isMockRunGroup(groupRuns, detailsById, costsById[parent.id], isSampleContext);
 
-            const steps = (rawChildren.length ? rawChildren : [parent]).map((child, idx) => {
+            const stepRuns = rawChildren.length ? rawChildren : [parent];
+            const steps = stepRuns.map((child, idx) => {
               const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
               return mapStep(
                 child,
@@ -3914,7 +3975,8 @@
                 rememberedMap,
                 parentRouteEvent,
                 transcriptsById,
-                primaryAgentPref
+                primaryAgentPref,
+                stepRuns.length
               );
             });
             const stepById = new Map(steps.map((s) => [s.id, s]));
@@ -4032,9 +4094,25 @@
                 ? "Couldn't finish"
                 : stateSymbolWord || stateFact || "Couldn't finish";
             const failureLineText = /[.!?]$/.test(rawFailureMsg) ? rawFailureMsg : `${rawFailureMsg}.`;
+            const liveSteps = [];
+            if (!isFinished) {
+              for (const r of stepRuns) {
+                const entry = buildLiveStepForSingleRun(parent, r, detailsById, stepById);
+                if (entry && entry.isRunActive) {
+                  const st = stepById.get(r.id);
+                  if (st) st.liveStep = entry;
+                  liveSteps.push(entry);
+                }
+              }
+            }
             const liveStep = !isFinished
-              ? buildLiveStepForRun(parent, rawChildren.length ? rawChildren : [parent], detailsById, stepById)
+              ? buildLiveStepForRun(parent, stepRuns, detailsById, stepById)
               : null;
+            if (liveStep && !liveSteps.length) {
+              const st = stepById.get(liveStep.runId);
+              if (st) st.liveStep = liveStep;
+              liveSteps.push(liveStep);
+            }
             const digest = buildDigestForRun(parent, rawChildren, detailsById, stepById, costsById[parent.id], state);
             const permissionIssue = detectPermissionIssue(parent, groupRuns, detailsById, state);
             const producedOutputs = extractProducedOutputs(parent, groupRuns, detailsById);
@@ -4087,6 +4165,7 @@
               evidenceText,
               speakText,
               liveStep,
+              liveSteps,
               digest,
               steps,
               pendingHelp,
@@ -5697,10 +5776,15 @@
           }
         }
 
-        if (activeRun.liveStep) {
-          const liveEl = timelineScroll.querySelector(`[data-live-step-key="${CSS.escape(activeRun.liveStep.key)}"]`);
+        const liveList = Array.isArray(activeRun.liveSteps) && activeRun.liveSteps.length
+          ? activeRun.liveSteps
+          : activeRun.liveStep
+          ? [activeRun.liveStep]
+          : [];
+        for (const item of liveList) {
+          const liveEl = timelineScroll.querySelector(`[data-live-step-key="${CSS.escape(item.key)}"]`);
           if (liveEl) {
-            liveEl.classList.toggle("is-faded", isLiveStepFaded(activeRun.liveStep));
+            liveEl.classList.toggle("is-faded", isLiveStepFaded(item));
           }
         }
 
@@ -5742,6 +5826,13 @@
           .map((t) => `${t.id}:${t.role}:${t.who}:${t.text}`)
           .join("|");
 
+        const liveStepsKey =
+          Array.isArray(activeRun.liveSteps) && activeRun.liveSteps.length
+            ? activeRun.liveSteps.map((l) => l.fingerprint).join("|")
+            : activeRun.liveStep
+            ? activeRun.liveStep.fingerprint
+            : "";
+
         return [
           "chat",
           vm.connectionStatus,
@@ -5765,7 +5856,7 @@
           activeRun.evidenceText,
           activeRun.elapsedText,
           activeRun.digest.costText,
-          activeRun.liveStep ? activeRun.liveStep.fingerprint : "",
+          liveStepsKey,
           helpKey,
           historyKey,
           memoryKey,
@@ -6126,13 +6217,38 @@
           `);
         }
 
+        const stepById = new Map();
         const stepIdentityByName = new Map();
         for (const s of activeRun.steps) {
+          stepById.set(s.id, s);
           if (s.agentIdentity?.name && !stepIdentityByName.has(s.agentIdentity.name)) {
             stepIdentityByName.set(s.agentIdentity.name, s);
           }
         }
+        const renderLiveStepHtml = (liveItem) => {
+          if (!liveItem) return "";
+          const labelText = liveItem.localText || liveItem.text;
+          return `
+            <div
+              class="live-step-line ${isLiveStepFaded(liveItem) ? "is-faded" : ""}"
+              data-live-step-key="${escapeHtml(liveItem.key)}"
+            >
+              <span
+                class="agent-dot"
+                style="--dot-bg: ${escapeHtml(liveItem.agentColor)}; --dot-edge: ${escapeHtml(liveItem.agentEdge)};"
+              ></span>
+              <span class="live-step-text" title="${escapeHtml(liveItem.text || labelText)}">${escapeHtml(labelText)}</span>
+            </div>
+          `;
+        };
+        const lastRowIdxByStepId = new Map();
+        rows.forEach((row, idx) => {
+          if (row.role === "user" || /^Finished\.?$/i.test(String(row.text || "").trim())) return;
+          const match = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
+          if (match) lastRowIdxByStepId.set(match.id, idx);
+        });
         const attachedWorkStepIds = new Set();
+        const attachedLiveStepIds = new Set();
         const primaryIdentity = getPrimaryAgentRowIdentity();
 
         let renderedAgentBubble = false;
@@ -6149,7 +6265,7 @@
             return;
           }
           renderedAgentBubble = true;
-          const matchingStep = stepIdentityByName.get(row.who) || null;
+          const matchingStep = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
           const chipId = `tr-${activeRun.id}-${idx}`;
           const chipIdentity = matchingStep
             ? matchingStep.agentIdentity
@@ -6168,18 +6284,32 @@
             attachedWorkStepIds.add(matchingStep.id);
             workHtml = renderWorkDividerHtml(activeRun.id, matchingStep);
           }
+          let stepLiveHtml = "";
+          if (
+            matchingStep &&
+            matchingStep.liveStep &&
+            !attachedLiveStepIds.has(matchingStep.id) &&
+            lastRowIdxByStepId.get(matchingStep.id) === idx
+          ) {
+            attachedLiveStepIds.add(matchingStep.id);
+            stepLiveHtml = renderLiveStepHtml(matchingStep.liveStep);
+          }
           messageNodes.push(`
             <div class="chat-msg-row is-agent">
               <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}</div>
               <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
               ${workHtml}
+              ${stepLiveHtml}
             </div>
           `);
         });
 
         for (const step of activeRun.steps) {
-          if (attachedWorkStepIds.has(step.id) && renderedAgentBubble) continue;
-          const workHtml = renderWorkDividerHtml(activeRun.id, step);
+          const needsWork = !attachedWorkStepIds.has(step.id);
+          const needsLive = Boolean(step.liveStep && !attachedLiveStepIds.has(step.id));
+          if (!needsWork && !needsLive && renderedAgentBubble) continue;
+          const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step) : "";
+          const stepLiveHtml = needsLive ? renderLiveStepHtml(step.liveStep) : "";
           let greetingText = "";
           if (!renderedAgentBubble) {
             if (step.goal && activeRun.steps.length > 1) {
@@ -6196,31 +6326,28 @@
               greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
             }
           }
-          if (greetingText || workHtml) {
+          if (greetingText || workHtml || stepLiveHtml) {
             attachedWorkStepIds.add(step.id);
+            if (stepLiveHtml) attachedLiveStepIds.add(step.id);
             messageNodes.push(`
               <div class="chat-msg-row is-agent">
-                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div><div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
+                ${greetingText || stepLiveHtml ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div>` : ""}
+                ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
                 ${workHtml}
+                ${stepLiveHtml}
               </div>
             `);
           }
         }
 
-        const liveStepHtml = activeRun.liveStep
-          ? `
-            <div
-              class="live-step-line ${isLiveStepFaded(activeRun.liveStep) ? "is-faded" : ""}"
-              data-live-step-key="${escapeHtml(activeRun.liveStep.key)}"
-            >
-              <span
-                class="agent-dot"
-                style="--dot-bg: ${escapeHtml(activeRun.liveStep.agentColor)}; --dot-edge: ${escapeHtml(activeRun.liveStep.agentEdge)};"
-              ></span>
-              <span class="live-step-text" title="${escapeHtml(activeRun.liveStep.text)}">${escapeHtml(activeRun.liveStep.text)}</span>
+        if (activeRun.liveStep && !attachedLiveStepIds.has(activeRun.liveStep.runId)) {
+          messageNodes.push(`
+            <div class="chat-msg-row is-agent">
+              <div class="chat-msg-head">${renderAgentChipHtml(headerAgent, `live-${activeRun.id}`)}</div>
+              ${renderLiveStepHtml(activeRun.liveStep)}
             </div>
-          `
-          : "";
+          `);
+        }
 
         const approvalHistoryHtml = (activeRun.approvalHistory || [])
           .map(
@@ -6418,7 +6545,6 @@
         blocks.push(`
           <div class="chat-thread">
             ${messageNodes.join("")}
-            ${liveStepHtml}
             ${approvalHistoryHtml}
             ${helpHtml}
             ${stopNoticeHtml}
