@@ -122,35 +122,35 @@ def open_app(agent, name, method="auto", lane=None, timeout=30):
             was_running = code == 0 and out.strip().lower() == "true"
         except (subprocess.TimeoutExpired, OSError):
             was_running = False
+        slice_s = min(8, timeout / 3)
         subprocess.run(["open", "-g", path], check=False, timeout=30)  # -g: launch without coming to the front
         used = "spotlight" if method == "spotlight" else "finder"
-        if not was_running:
-            win, waited = wait_ready(app, timeout)
-        else:
-            slice_s = min(8, timeout / 3)
+        try:
+            win, waited = wait_ready(app, slice_s)
+        except TimeoutError:
             try:
-                win, waited = wait_ready(app, slice_s)
+                _osa(["tell application (item 1 of argv) to reopen"], app, timeout=max(2, deadline - time.time()))
+            except subprocess.TimeoutExpired:
+                pass
+            used = "reopen"
+            second_wait = max(0.5, deadline - time.time()) if not was_running else min(slice_s, max(0.5, deadline - time.time()))
+            try:
+                win, waited = wait_ready(app, second_wait)
             except TimeoutError:
+                if not was_running:
+                    raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout)) from None
                 try:
-                    _osa(["tell application (item 1 of argv) to reopen"], app)  # running app with zero windows
+                    _osa(["tell application (item 1 of argv) to quit"], app, timeout=max(2, deadline - time.time()))
                 except subprocess.TimeoutExpired:
                     pass
-                used = "reopen"
+                if deadline - time.time() > 1:
+                    time.sleep(0.5)
+                subprocess.run(["open", "-g", path], check=False, timeout=30)
+                used = "relaunch"
                 try:
-                    win, waited = wait_ready(app, min(slice_s, max(0.5, deadline - time.time())))
+                    win, waited = wait_ready(app, max(0.5, deadline - time.time()))
                 except TimeoutError:
-                    try:
-                        _osa(["tell application (item 1 of argv) to quit"], app)
-                    except subprocess.TimeoutExpired:
-                        pass
-                    if deadline - time.time() > 1:
-                        time.sleep(0.5)
-                    subprocess.run(["open", "-g", path], check=False, timeout=30)
-                    used = "relaunch"
-                    try:
-                        win, waited = wait_ready(app, max(0.5, deadline - time.time()))
-                    except TimeoutError:
-                        raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout)) from None
+                    raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout)) from None
     if lane:
         place(win["pid"], lane)  # moving a window does not activate its app
         win = next(iter(windows(app)), win)
@@ -191,7 +191,9 @@ def selftest():
         seen.append(("osa", list(lines), args))
         if any("is running" in ln for ln in lines):
             return 0, "true" if state["running"] else "false"
-        if any("reopen" in ln for ln in lines):
+        if state.get("reopen_opens") and any("reopen" in ln for ln in lines):
+            state["win"] = True
+        if state.get("quit_opens") and any("quit" in ln for ln in lines):
             state["win"] = True
         return 0, ""
 
@@ -201,27 +203,41 @@ def selftest():
 
     wait_ready, _osa, subprocess.run = fake_wait, fake_osa, fake_run
     try:
+        state["reopen_opens"] = True
         res = open_app(None, "Calculator")
         assert res["method"] == "reopen", res
         assert not any("activate" in ln.lower() for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
 
-        # Cold launch (not running): gets the whole timeout without reopen or quit
-        state["win"], state["running"] = False, False
+        # Running with zero windows: relaunch case reaches "relaunch"
+        state["win"], state["running"], state["reopen_opens"], state["quit_opens"] = False, True, False, True
+        seen.clear()
+        res = open_app(None, "Calculator")
+        assert res["method"] == "relaunch", res
+
+        # Case A (slow cold launch): not running, waits >= 10s after reopen, never quits
+        state["win"], state["running"], state["reopen_opens"], state["quit_opens"] = False, False, False, False
         seen.clear()
 
-        def cold_wait(app, timeout=30):
-            if timeout >= 20:
+        def slow_cold_wait(app, timeout=30):
+            if timeout >= 10:
                 return {"id": 1, "pid": 123}, 0.1
             raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout))
 
-        wait_ready = cold_wait
+        wait_ready = slow_cold_wait
         res = open_app(None, "Calculator")
-        assert res["method"] == "finder", res
-        assert not any("reopen" in ln or "quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+        assert res["method"] in ("finder", "reopen"), res
+        assert not any("quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+
+        # Case B (TextEdit-like cold launch): not running, window appears only after reopen, never quits
+        wait_ready = fake_wait
+        state["win"], state["running"], state["reopen_opens"] = False, False, True
+        seen.clear()
+        res = open_app(None, "Calculator")
+        assert res["method"] == "reopen", res
+        assert not any("quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
 
         # Running with zero windows, _osa TimeoutExpired on reopen/quit is ignored
-        wait_ready = fake_wait
-        state["win"], state["running"] = False, True
+        state["win"], state["running"], state["reopen_opens"] = False, True, False
 
         def timeout_reopen_osa(lines, *args, **kwargs):
             if any("is running" in ln for ln in lines):
