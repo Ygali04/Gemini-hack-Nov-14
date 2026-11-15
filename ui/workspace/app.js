@@ -752,6 +752,38 @@
   };
 
   const PRIMARY_AGENT_STORAGE_KEY = "ca.primaryAgent";
+  const ONBOARDING_SEEN_STORAGE_KEY = "ca.onboardingSeen";
+  let autoOnboardingChecked = false;
+
+  function hasSeenOnboarding() {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(ONBOARDING_SEEN_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function markOnboardingSeen() {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(ONBOARDING_SEEN_STORAGE_KEY, "1");
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function hasSavedPrimaryAgent() {
+    try {
+      if (typeof localStorage === "undefined") return false;
+      const raw = localStorage.getItem(PRIMARY_AGENT_STORAGE_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return Boolean(parsed && typeof parsed === "object" && String(parsed.alias || parsed.name || "").trim());
+    } catch {
+      return false;
+    }
+  }
 
   function getPrimaryAgentSwatch() {
     const idx = Math.max(0, Number(OnboardingState.swatchIndex) || 0) % AGENT_SWATCHES.length;
@@ -770,8 +802,13 @@
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
-        if (typeof parsed.alias === "string") {
-          OnboardingState.agentName = parsed.alias;
+        const savedAlias = typeof parsed.alias === "string"
+          ? parsed.alias
+          : typeof parsed.name === "string"
+            ? parsed.name
+            : null;
+        if (savedAlias !== null) {
+          OnboardingState.agentName = savedAlias;
         }
         if (typeof parsed.swatch === "string") {
           const foundIdx = AGENT_SWATCHES.findIndex((s) => s.key === parsed.swatch);
@@ -1642,7 +1679,11 @@
         if (transcriptRows.length) {
           for (const tr of transcriptRows) {
             const rawAgent = tr.agent || tr.role || "Agent";
-            const isOrchestratorRow = rawAgent === "ComputerAnything" || tr.role === "orchestrator";
+            const isOrchestratorRow =
+              rawAgent === "ComputerAnything" ||
+              rawAgent === "Mercury" ||
+              rawAgent === "Primary orchestrator" ||
+              tr.role === "orchestrator";
             combinedEvents.push({
               agentName: isOrchestratorRow ? getPrimaryAgentDisplayName(rawAgent) : rawAgent,
               agentPalette: isOrchestratorRow ? getPrimaryAgentSwatch() : null,
@@ -1751,10 +1792,10 @@
           const evs = Array.isArray(detail?.events) ? detail.events : [];
           const actEvents = evs.filter((ev) => ev.kind === "act");
           const runActions = actionsByRun.get(r.id) || [];
-          const agentName =
-            rawAgents?.[r.id]?.name ||
-            r.role ||
-            "Agent";
+          const isPrimaryRun = !r.parent || r.role === "orchestrator";
+          const agentName = isPrimaryRun
+            ? getPrimaryAgentDisplayName(rawAgents?.[r.id]?.name || r.agent_name || "Primary orchestrator")
+            : (rawAgents?.[r.id]?.name || r.role || "Agent");
 
           let steps = [];
           if (actEvents.length) {
@@ -2101,7 +2142,9 @@
   /* ============================================================================
      4. WORKSPACE STATE & DOM REFERENCES
      ============================================================================ */
-  let currentView = normalizeViewName(params.get("view") || window.location.hash.replace(/^#/, "") || "graph");
+  const initialViewParam = params.get("view") || window.location.hash.replace(/^#/, "");
+  const hasExplicitInitialView = Boolean(initialViewParam && initialViewParam.trim());
+  let currentView = normalizeViewName(initialViewParam || "graph");
   let connectionStatus = "loading";
   let connectionError = "";
   let isSampleData = Boolean(activeFixtureName);
@@ -2297,6 +2340,7 @@
     { id: "artifacts", label: "Artifacts and marketing", desc: "Files, patches and briefs the agents made", key: "5" },
     { id: "memory", label: "Memory", desc: "What the agents remember about you, with Forget", key: "6" },
     { id: "settings", label: "Settings", desc: "Your agent's name and color, voice, model, approvals, app permissions, daily cap", key: "7" },
+    { id: "onboarding", label: "First-run setup", desc: "Set your name, agent identity, voice, and permissions", key: "8" },
   ];
 
   let viewMenuOpen = false;
@@ -2533,9 +2577,11 @@
         </div>
       </div>`
       : "";
-    const ctaHtml = ctaLabel
+    const effectiveCtaLabel = ctaLabel || (hasShellBridge() ? "Open the notch" : "");
+    const effectiveCtaAction = ctaLabel ? ctaAction : "open-notch";
+    const ctaHtml = effectiveCtaLabel
       ? `<div class="filter-group">
-          <button type="button" class="btn btn-primary" data-action="${escapeHtml(ctaAction)}">${escapeHtml(ctaLabel)}</button>
+          <button type="button" class="btn btn-primary" data-action="${escapeHtml(effectiveCtaAction)}">${escapeHtml(effectiveCtaLabel)}</button>
         </div>`
       : "";
     return `
@@ -6515,6 +6561,17 @@
         OnboardingState.voiceId = nextProfile.voice_id;
       }
       OnboardingState.profileLoaded = true;
+      if (!autoOnboardingChecked && !hasExplicitInitialView && !activeFixtureName) {
+        autoOnboardingChecked = true;
+        const hasSavedProfileName = Boolean(String(p.call_me || "").trim());
+        if (!hasSeenOnboarding() && !hasSavedProfileName && !hasSavedPrimaryAgent()) {
+          markOnboardingSeen();
+          OnboardingState.step = 1;
+          setView("onboarding");
+        } else {
+          markOnboardingSeen();
+        }
+      }
     }
 
     if (!stopRouteProbed) {
@@ -6918,9 +6975,21 @@
           document.getElementById("view-menu-btn")?.focus();
           break;
 
-        case "switch-view":
-          setView(actionEl.dataset.targetView || "graph");
+        case "switch-view": {
+          const targetView = actionEl.dataset.targetView || "graph";
+          if (targetView === "onboarding") {
+            OnboardingState.step = 1;
+          }
+          setView(targetView);
           break;
+        }
+
+        case "open-notch": {
+          if (hasShellBridge()) {
+            callShell("openNotch").catch(() => {});
+          }
+          break;
+        }
 
         case "connect-backend":
           await handleConnectSubmit();
@@ -7417,6 +7486,18 @@
       if (hashView) {
         setView(hashView);
       }
+    });
+
+    window.addEventListener("storage", (event) => {
+      if (!event.key || event.key === PRIMARY_AGENT_STORAGE_KEY) {
+        loadPrimaryAgentChoice();
+        renderNow();
+      }
+    });
+
+    window.addEventListener("focus", () => {
+      loadPrimaryAgentChoice();
+      renderNow();
     });
 
     /* Keyboard accessibility:
