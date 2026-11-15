@@ -783,6 +783,26 @@ function runChecks() {
       "a8-broken-error: 402/credit error must use credit guidance"
     );
 
+    const convsBroken = WorkspaceAdapter.buildAgentConversations(vmBroken, {
+      primaryThread: "r-a8-broken-1",
+    });
+    const brokenConv = convsBroken.byId.get("__primary__");
+    assert.equal(
+      brokenConv.lastLinePreview,
+      "This task stopped because something went wrong on our side. Nothing else was done. Send it again to retry.",
+      "a8-broken-error: row preview must match A8 error sentence"
+    );
+
+    const convsCredit = WorkspaceAdapter.buildAgentConversations(vmCredit, {
+      primaryThread: "r-credit-1",
+    });
+    const creditConv = convsCredit.byId.get("__primary__");
+    assert.equal(
+      creditConv.lastLinePreview,
+      "The model account is out of credit. Add credit, then send this again.",
+      "a8-broken-error: row preview must match A8 credit sentence"
+    );
+
     // Chat DOM rendering: raw text absent until Details is opened
     const indexSrc = fs.readFileSync(INDEX_HTML_PATH, "utf8");
     const renderFnSrc = extractStatement(indexSrc, /\bfunction renderAgentTaskHtml\s*\(/, "renderAgentTaskHtml");
@@ -795,6 +815,7 @@ function runChecks() {
         .replace(/"/g, "&quot;");
     const renderCtx = {
       escapeHtml,
+      WorkspaceAdapter,
       openWorkKeys: new Set(),
       openResultDetailIds: new Set(),
       openErrorDetailIds,
@@ -881,9 +902,14 @@ function runChecks() {
     assert.equal(primaryConv.latestTask.goal, "compute 4 + 4 in Calculator", "a10-followup: newest task drives header prompt");
     assert.equal(primaryConv.listClockText, followTask.listClockText, "a10-followup: row clock must come from newest task");
     assert.notEqual(followTask.listClockText, firstTask.listClockText, "a10-followup: follow-up clock differs from first task");
+    assert.equal(
+      primaryConv.lastLinePreview,
+      "Finished · sample run, not verified",
+      `a10-followup: sample-run row preview must match compact result line, got "${primaryConv.lastLinePreview}"`
+    );
     assert.ok(
-      primaryConv.lastLinePreview.includes("Ava") || primaryConv.lastLinePreview === "mock",
-      `a10-followup: row preview must come from newest task, got "${primaryConv.lastLinePreview}"`
+      !/\bmock\b/i.test(primaryConv.lastLinePreview),
+      `a10-followup: word "mock" must never appear in row preview, got "${primaryConv.lastLinePreview}"`
     );
 
     // Render both tasks + Work rows + compact result lines + live follow-up state
@@ -898,6 +924,7 @@ function runChecks() {
         .replace(/"/g, "&quot;");
     const renderCtx = {
       escapeHtml,
+      WorkspaceAdapter,
       openWorkKeys: new Set(),
       openResultDetailIds: new Set(),
       openErrorDetailIds: new Set(),
@@ -907,6 +934,7 @@ function runChecks() {
       pendingStopIds: new Set(),
       stopRouteSupported: true,
       ttsSpeaking: false,
+      WorkspaceAdapter,
       getPrimaryAgentRowIdentity: () => ({ name: "ComputerAnything", color: "#B5D0EB", rawEdge: "#D6E9FF", palette: { body: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" } }),
       renderAgentChipHtml: (id) => `<span class="chip">${escapeHtml(id?.name || "Agent")}</span>`,
       getVisibleMemoriesForRun: () => [],
@@ -974,7 +1002,12 @@ function runChecks() {
     assert.ok(htmlTask2.includes("work-divider-wrap") && htmlTask2.includes("Work · Ava · 1 step"), "a10-followup: task 2 must render Ava Work row");
     assert.equal((htmlTask2.match(/chat-result-line/g) || []).length, 1, "a10-followup: task 2 must render 1 compact result line");
     assert.ok(htmlTask2.includes("$0.0014") && htmlTask2.includes("copy-result"), "a10-followup: task 2 result line must include cost and copy control");
-    assert.equal(convWork.lastLinePreview, "Calculated 8", "a10-followup (work): newest task result must drive row preview");
+    assert.equal(convWork.lastLinePreview, "Calculator displays 8", "a10-followup (work): newest task result must drive row preview");
+    assert.equal(
+      WorkspaceAdapter.buildTaskCompactLine(convWork.tasks[1]),
+      convWork.lastLinePreview,
+      "a10-followup (work): row preview and compact result line must come from the same builder"
+    );
 
     // While follow-up is running: collapsed notch liveAgents, per-agent Stop, and live status track follow-up
     const liveRuns = JSON.parse(JSON.stringify(workRuns)).map((r) =>
@@ -1016,6 +1049,139 @@ function runChecks() {
       convRestart.tasks[1].transcriptRows.some((r) => r.text.includes("Ava")),
       "a10-followup (restart): follow-up must retain its transcript rows"
     );
+  }
+
+  // =========================================================================
+  // 10. A11: Unified row preview / compact result line + new-agent form input
+  // =========================================================================
+  {
+    const indexSrc = fs.readFileSync(INDEX_HTML_PATH, "utf8");
+    const renderWorkFnSrc = extractStatement(indexSrc, /\bfunction renderWorkDividerHtml\s*\(/, "renderWorkDividerHtml");
+    const renderTaskFnSrc = extractStatement(indexSrc, /\bfunction renderAgentTaskHtml\s*\(/, "renderAgentTaskHtml");
+    const escapeHtml = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const renderCtx = {
+      escapeHtml,
+      WorkspaceAdapter,
+      openWorkKeys: new Set(),
+      openResultDetailIds: new Set(),
+      openErrorDetailIds: new Set(),
+      openOutputPreviewIds: new Set(),
+      copiedItemIds: new Set(),
+      stopNoticesByRunId: new Map(),
+      pendingStopIds: new Set(),
+      stopRouteSupported: true,
+      ttsSpeaking: false,
+      WorkspaceAdapter,
+      getPrimaryAgentRowIdentity: () => ({ name: "ComputerAnything", color: "#B5D0EB", rawEdge: "#D6E9FF", palette: { body: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" } }),
+      renderAgentChipHtml: (id) => `<span class="chip">${escapeHtml(id?.name || "Agent")}</span>`,
+      getVisibleMemoriesForRun: () => [],
+      pendingUndoMemoryIds: new Set(),
+    };
+    vm.runInNewContext(
+      `${renderWorkFnSrc}\n${renderTaskFnSrc}\nthis.renderWorkDividerHtml = renderWorkDividerHtml;\nthis.renderAgentTaskHtml = renderAgentTaskHtml;`,
+      renderCtx
+    );
+
+    // Sample run row (mock-finished.json) -> "Finished · sample run, not verified" and never "mock"
+    const fxMock = loadFixtureNormalized("mock-finished.json", nowSec);
+    const vmMock = WorkspaceAdapter.mapRuns(fxMock.runs, fxMock.details, fxMock.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fxMock.agents,
+      nowSec,
+    });
+    const convsMock = WorkspaceAdapter.buildAgentConversations(vmMock, {
+      createdAgents: [{ id: "nova", name: "Nova", swatch: "rose", thread: "r-mock-calc-1", threads: ["r-mock-calc-1"] }],
+    });
+    const novaConv = convsMock.byId.get("nova");
+    assert.ok(novaConv, "a11: expected Nova conversation for sample run");
+    assert.equal(novaConv.lastLinePreview, "Finished · sample run, not verified", "a11: sample run row must match compact result line");
+    assert.ok(!/\bmock\b/i.test(novaConv.lastLinePreview), "a11: word 'mock' must never appear in sample-run row");
+    const htmlMock = renderCtx.renderAgentTaskHtml(novaConv.tasks[0], novaConv, vmMock, true);
+    assert.ok(htmlMock.includes("Finished · sample run, not verified"), "a11: sample run conversation must render same compact phrase");
+
+    // Stopped by person (cancelled-chat.json) -> "You said no."
+    const fxCancelled = loadFixtureNormalized("cancelled-chat.json", nowSec);
+    const vmCancelled = WorkspaceAdapter.mapRuns(fxCancelled.runs, fxCancelled.details, fxCancelled.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fxCancelled.agents,
+      transcriptsById: fxCancelled.transcripts,
+      nowSec,
+    });
+    const convCancelled = WorkspaceAdapter.buildAgentConversations(vmCancelled, {
+      primaryThread: "r1763149100-1",
+    }).byId.get("__primary__");
+    assert.equal(convCancelled.lastLinePreview, "You said no.", "a11: stopped-by-person row must match failure line");
+    const htmlCancelled = renderCtx.renderAgentTaskHtml(convCancelled.tasks[0], convCancelled, vmCancelled, false);
+    assert.ok(htmlCancelled.includes("You said no."), "a11: stopped-by-person conversation must render same phrase");
+
+    // Still working -> "● Working"
+    const fxWorking = loadFixtureNormalized("working-live.json", nowSec);
+    const vmWorking = WorkspaceAdapter.mapRuns(fxWorking.runs, fxWorking.details, fxWorking.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fxWorking.agents,
+      nowSec,
+    });
+    const convWorking = WorkspaceAdapter.buildAgentConversations(vmWorking, {
+      primaryThread: "r1763140600-1",
+    }).byId.get("__primary__");
+    assert.equal(convWorking.lastLinePreview, "● Working", "a11: still-working row must show '● Working'");
+
+    // Waiting for person -> pending help question
+    const fxWait = loadFixtureNormalized("awaiting-approval.json", nowSec);
+    const vmWait = WorkspaceAdapter.mapRuns(fxWait.runs, fxWait.details, fxWait.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fxWait.agents,
+      nowSec,
+    });
+    const convWait = WorkspaceAdapter.buildAgentConversations(vmWait, {
+      primaryThread: fxWait.runs.find((r) => !r.parent).id,
+    }).byId.get("__primary__");
+    assert.ok(
+      convWait.lastLinePreview && convWait.lastLinePreview !== "No tasks yet" && !/\bmock\b/i.test(convWait.lastLinePreview),
+      `a11: waiting row must show waiting prompt, got "${convWait.lastLinePreview}"`
+    );
+    assert.equal(
+      convWait.lastLinePreview,
+      WorkspaceAdapter.buildTaskCompactLine(convWait.latestTask, { waitingTask: convWait.tasks[0] }),
+      "a11: waiting row must use shared compact builder"
+    );
+
+    // Requirement 2: New-agent form name field framing, focus, Enter/Esc, 5 colors
+    const nameCssBlock = indexSrc.match(/\.agent-name-input\s*\{[^}]+\}/)?.[0] || "";
+    const nameFocusBlock = indexSrc.match(/\.agent-name-input:focus[\s\S]*?\{[^}]+\}/)?.[0] || "";
+    assert.ok(nameCssBlock.includes("border:"), "a11: .agent-name-input must define a visible border");
+    assert.ok(nameCssBlock.includes("border-radius:"), "a11: .agent-name-input must define border-radius");
+    assert.ok(nameCssBlock.includes("padding:"), "a11: .agent-name-input must define padding");
+    assert.ok(nameCssBlock.includes("background: #121418"), "a11: .agent-name-input must match chat input bar background");
+    assert.ok(nameFocusBlock.includes("box-shadow:") && nameFocusBlock.includes("var(--focus-ring)"), "a11: .agent-name-input must show visible focus ring");
+
+    const swatchSelectedCss = indexSrc.match(/\.agent-swatch-btn\[aria-checked="true"\]\s*\{[^}]+\}/)?.[0] || "";
+    assert.ok(swatchSelectedCss.includes("box-shadow:"), "a11: selected color swatch must keep a visible selected ring");
+
+    const renderFormFnSrc = extractStatement(indexSrc, /\bfunction renderAgentFormHtml\s*\(/, "renderAgentFormHtml");
+    const formCtx = {
+      escapeHtml,
+      WorkspaceAdapter,
+      PRIMARY_AGENT_SWATCHES: WorkspaceAdapter.DEFAULT_AGENT_SWATCHES,
+      agentFormState: { mode: "create", agentId: "", name: "", swatch: "lagoon", returnView: "list", error: "" },
+    };
+    vm.runInNewContext(`${renderFormFnSrc}\nthis.renderAgentFormHtml = renderAgentFormHtml;`, formCtx);
+    const formHtml = formCtx.renderAgentFormHtml();
+    assert.ok(formHtml.includes('id="agent-name-input"'), "a11: form must render #agent-name-input");
+    assert.ok(formHtml.includes('class="agent-name-input"'), "a11: #agent-name-input must use framed .agent-name-input class");
+    assert.ok(formHtml.includes('placeholder="Agent name"'), "a11: #agent-name-input must keep 'Agent name' placeholder");
+    assert.equal((formHtml.match(/class="agent-swatch-btn"/g) || []).length, 5, "a11: form must keep 5 color swatches");
+    assert.ok(!formHtml.includes("<label"), "a11: no new visible label text on screen");
+    assert.ok(indexSrc.includes('if (e.target && e.target.id === "agent-name-input" && agentFormState)'), "a11: Enter handler on #agent-name-input must submit form");
   }
 }
 
