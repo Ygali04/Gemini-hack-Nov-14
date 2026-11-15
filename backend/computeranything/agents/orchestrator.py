@@ -179,6 +179,11 @@ def _pipeline(parent, prompt, attachments, history=()):
         parent.emit("error", error="%s: %s" % (type(e).__name__, e))
         parent.result = {"ok": False, "summary": "orchestrator error: %s" % e}
         runs.say(parent, "assistant", "error", "Something broke: %s" % e)
+        for c in list(runs.RUNS.values()):
+            if c.parent == parent.id and c.state not in ("done", "failed"):
+                _finish(c, False, "Stopped: the task hit an error")
+        if not children:
+            children = [c for c in list(runs.RUNS.values()) if c.parent == parent.id]
         try:
             parent.result["digest"] = runs.digest(parent, children)
         except Exception:  # noqa: BLE001
@@ -729,6 +734,25 @@ def selftest():
     assert p4.agent_name == "Mercury", p4
     assert store.transcript(p4.id)[0]["agent"] == "Mercury", store.transcript(p4.id)[0]
     assert profile.save({"agent_name": ""})["agent_name"] == ""
+
+    # 7. crashed role function marks started children failed too
+    real_cu = globals()["cu"]
+
+    def crash_cu(parent, goal, app=None, subtasks=None, names=()):
+        c = spawn(parent, goal, "cu", "Leo", "working")
+        c.set("acting")
+        raise RuntimeError("HTTP 402")
+
+    globals()["cu"] = crash_cu
+    try:
+        llm.mock(json.dumps({"role": "cu", "app": "TextEdit", "goal": "fail"}))
+        p5 = submit("fail")
+        p5.thread.join(10)
+        c5 = next(r for r in runs.RUNS.values() if r.parent == p5.id)
+        assert p5.state == "failed" and c5.state == "failed", (p5.state, c5.state)
+        assert c5.result and not c5.result["ok"], c5.result
+    finally:
+        globals()["cu"] = real_cu
     print("orchestrator selftest OK")
 
 
