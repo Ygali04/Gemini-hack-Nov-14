@@ -257,6 +257,12 @@ async function main() {
       }, 6000, 120, "workspace sheet ready");
       await sleep(300);
 
+      const wsBounds = await send({ cmd: "bounds" });
+      console.log("workspaceBounds:", JSON.stringify(wsBounds.workspace));
+      if (!wsBounds.ok || !wsBounds.workspace || wsBounds.workspace.width < 560 || wsBounds.workspace.title !== "") {
+        throw new Error(`Invalid workspace panel bounds/title: ${JSON.stringify(wsBounds.workspace)}`);
+      }
+
       const wsTextRes = await send({ cmd: "eval", target: "workspace", js: "document.body.innerText" });
       console.log("workspaceText:", JSON.stringify(wsTextRes));
       if (!wsTextRes.ok || !String(wsTextRes.result || "").trim()) {
