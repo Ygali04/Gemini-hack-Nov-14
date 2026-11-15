@@ -1694,11 +1694,15 @@
     .notes { display: flex; flex-direction: column; gap: 8px; padding: 2px; width: 100%; overflow-x: clip; }
     .note { background: var(--bg-raised); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px;
             display: flex; flex-direction: column; gap: 6px; }
-    .note.is-money { border: 1px solid rgba(245, 166, 35, 0.65); }
+    .note.is-money { border: 1px solid rgba(240, 179, 90, 0.72);
+            background: linear-gradient(180deg, rgba(240, 179, 90, 0.09), transparent 65%), var(--bg-raised); }
+    .note-warning { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--state-warning); overflow-wrap: anywhere; }
     .note-q { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin-top: 2px; overflow-wrap: anywhere; }
+    .note.is-expired .note-q { color: var(--text-secondary); }
     .note-d { font-size: 12px; line-height: 17px; color: var(--text-secondary); overflow-wrap: anywhere; }
     .note-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
     .note-timer { color: var(--state-warning); font-variant-numeric: tabular-nums; flex: 1; font-size: 12px; line-height: 16px; }
+    .note.is-expired .note-timer { color: var(--text-muted); }
     .note-actions { display: flex; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
 
     /* ---------------- ON-DEVICE VOICE (STT mic + AVSpeechSynthesizer) ---------------- */
@@ -2260,18 +2264,24 @@
             item.answer = choice;
             const targetRun = fixtureState.runs.find((r) => r.id === item.run);
             const targetDetail = fixtureState.details[item.run];
-            const isApprove = choice === item.options[0];
+            const isApprove = !/^(no|deny|denied|decline|declined|reject|rejected|cancel|cancelled|canceled)$/i.test(
+              String(choice || "").trim()
+            );
+            const denySummary = /^cancel/i.test(String(choice || "").trim())
+              ? "Stopped: cancelled by you"
+              : "Stopped: denied by user";
             if (targetRun) {
               targetRun.state = isApprove ? "done" : "failed";
               targetRun.result = {
                 ok: isApprove,
-                summary: isApprove ? "Completed after approval" : "Stopped: denied by user",
+                summary: isApprove ? "Completed after approval" : denySummary,
               };
             }
             if (targetDetail) {
               targetDetail.state = targetRun ? targetRun.state : "done";
               targetDetail.events.push({
                 t: (targetDetail.elapsed || 9) + 1,
+                ts: Math.floor(Date.now() / 1000),
                 kind: "help_answer",
                 id: hid,
                 answer: choice,
@@ -2286,7 +2296,7 @@
               parent.state = isApprove ? "done" : "failed";
               parent.result = {
                 ok: isApprove,
-                summary: isApprove ? "Completed after approval" : "Stopped: denied by user",
+                summary: isApprove ? "Completed after approval" : denySummary,
               };
             }
             return { ok: true };
@@ -2417,6 +2427,50 @@
           sign_in: "This changes sign-in or security settings",
           money: "This spends money",
         };
+
+        function getApprovalKindWarning(kind) {
+          const normalized = String(kind || "").trim().toLowerCase().replace(/-/g, "_");
+          return APPROVAL_KIND_WARNINGS[normalized] || "";
+        }
+
+        function isMoneyOrSendApproval(h) {
+          const kind = String(h?.kind || h?.help_kind || "").trim().toLowerCase();
+          if (kind === "money" || kind === "send") return true;
+          const text = `${h?.question || ""} ${h?.detail || ""}`;
+          return /(?:^|[^A-Za-z0-9_])\$\d|\b(pay|pays|paying|payment|purchase|buy|checkout|place\s+order|submit\s+order|send|sends|sending|email|transfer|wire)\b/i.test(
+            text
+          );
+        }
+
+        function formatApprovalQuestionPlain(rawQuestion) {
+          let s = String(rawQuestion || "").trim();
+          if (!s) return "Approval needed";
+          s = s
+            .replace(/\s*\(\s*matched\s+["'][^"']*["']\s*\)\s*/gi, " ")
+            .replace(/^allow\s+double_click\s+(?:on\s+)?/i, "Double-click ")
+            .replace(/^allow\s+right_click\s+(?:on\s+)?/i, "Right-click ")
+            .replace(/^allow\s+click\s+(?:on\s+)?/i, "Click ")
+            .replace(/^allow\s+set_value\s+(?:in|into|on|of)?\s*/i, "Enter text in ")
+            .replace(/^allow\s+type\s+(?:text\s+)?(?:in|into|on)?\s*/i, "Type in ")
+            .replace(/^allow\s+press\s+(?:key\s+)?/i, "Press ")
+            .replace(/^allow\s+scroll\s+/i, "Scroll ")
+            .replace(/^allow\s+open_app\s+/i, "Open ")
+            .replace(/^allow\s+run_applescript\b[:\s-]*/i, "Run script ")
+            .replace(/\bdouble_click\b/gi, "double-click")
+            .replace(/\bright_click\b/gi, "right-click")
+            .replace(/\bset_value\b/gi, "enter text")
+            .replace(/\bopen_app\b/gi, "open app")
+            .replace(/\brun_applescript\b/gi, "run script")
+            .replace(
+              /\b(?:AX[A-Z][A-Za-z0-9]*|statictext|textfield|textarea|searchfield|securetextfield|button|link|menuitem|menubaritem|checkbox|radiobutton|popupbutton|combobox|tab|cell|row|treeitem|slider|switch|heading|image|scrollarea|incrementor|colorwell|disclosure):/gi,
+              ""
+            )
+            .replace(/\s+([?.!,])/g, "$1")
+            .replace(/\s{2,}/g, " ")
+            .trim();
+          if (!s) return "Approval needed";
+          return s.charAt(0).toUpperCase() + s.slice(1);
+        }
 
         function matchPrimarySwatch(rawSwatch) {
           const val = String(rawSwatch || "").trim();
@@ -3230,7 +3284,18 @@
         function normalizeTranscriptRows(rawRows) {
           if (!Array.isArray(rawRows)) return [];
           return rawRows
-            .filter((row) => row && row.role !== "step" && row.kind !== "decide" && row.msg_kind !== "thought" && String(row.text || "").trim())
+            .filter(
+              (row) =>
+                row &&
+                row.role !== "step" &&
+                row.kind !== "decide" &&
+                row.kind !== "ask" &&
+                row.kind !== "answer" &&
+                row.msg_kind !== "thought" &&
+                row.msg_kind !== "ask" &&
+                row.msg_kind !== "answer" &&
+                String(row.text || "").trim()
+            )
             .map((row, idx) => {
               const role = row.role === "user" ? "user" : "agent";
               const rawName = role === "user" ? "You" : String(row.agent || row.role || "Agent").trim();
@@ -3443,31 +3508,51 @@
           };
         }
 
-        function buildApprovalHistoryForGroup(groupRuns, detailsById) {
+        function formatApprovalAnswerPrefix(rawAns, timedOut) {
+          if (timedOut) return "Timed out waiting for you";
+          const ans = String(rawAns || "").trim();
+          if (/^(no|deny|denied|decline|declined|reject|rejected|cancel|cancelled|canceled)$/i.test(ans)) {
+            return "You said no";
+          }
+          if (/^(yes|approve|approved|allow|allowed|ok|continue)$/i.test(ans)) {
+            return "You approved";
+          }
+          if (/^(done|completed|finished|confirm|confirmed)$/i.test(ans)) {
+            return "Done";
+          }
+          return ans ? sentenceCase(ans) : "Answered";
+        }
+
+        function buildApprovalHistoryForGroup(groupRuns, detailsById, rawTranscriptRows) {
           const asksById = new Map();
+          const answeredIds = new Set();
           const history = [];
+          const tRows = Array.isArray(rawTranscriptRows) ? rawTranscriptRows : [];
+          for (const row of tRows) {
+            if (!row) continue;
+            if ((row.kind === "ask" || row.msg_kind === "ask") && row.id && row.text) {
+              asksById.set(String(row.id), formatApprovalQuestionPlain(row.text));
+            }
+          }
           for (const r of groupRuns) {
             const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
             for (const ev of evs) {
               if (!ev) continue;
               if (ev.kind === "help" && ev.id) {
-                asksById.set(ev.id, ev.question ? String(ev.question).trim() : "Approval needed");
+                asksById.set(
+                  String(ev.id),
+                  ev.question ? formatApprovalQuestionPlain(ev.question) : "Approval needed"
+                );
               } else if (ev.kind === "help_answer") {
-                const question = (ev.id && asksById.get(ev.id)) || ev.question || "Approval requested";
-                const rawAns = String(ev.answer || "").trim();
-                let prefix = "Answered";
-                if (ev.timed_out) {
-                  prefix = "Timed out waiting for you";
-                } else if (/^(no|deny|denied|decline|declined|reject|rejected|cancel|cancelled|canceled)$/i.test(rawAns)) {
-                  prefix = "You said no";
-                } else if (/^(yes|approve|approved|allow|allowed|ok|continue)$/i.test(rawAns)) {
-                  prefix = "You approved";
-                } else if (rawAns) {
-                  prefix = sentenceCase(rawAns);
-                }
+                const evId = ev.id ? String(ev.id) : "";
+                if (evId) answeredIds.add(evId);
+                const question =
+                  (evId && asksById.get(evId)) ||
+                  (ev.question ? formatApprovalQuestionPlain(ev.question) : "Approval requested");
+                const prefix = formatApprovalAnswerPrefix(ev.answer, ev.timed_out);
                 const clockText = formatShortClock(ev.ts || ev.t);
                 history.push({
-                  id: String(ev.id || `ans-${history.length}`),
+                  id: evId || `ans-${history.length}`,
                   question,
                   choiceText: prefix,
                   clockText,
@@ -3475,6 +3560,29 @@
                 });
               }
             }
+          }
+          const unmatchedEventMatches = history.map((h) => ({ id: h.id, choiceText: h.choiceText }));
+          for (const row of tRows) {
+            if (!row || (row.kind !== "answer" && row.msg_kind !== "answer")) continue;
+            const rowId = row.help_id ? String(row.help_id) : "";
+            if (rowId && answeredIds.has(rowId)) continue;
+            const prefix = formatApprovalAnswerPrefix(row.text || row.answer, row.timed_out);
+            const matchIdx = unmatchedEventMatches.findIndex((m) => m.choiceText === prefix);
+            if (matchIdx !== -1) {
+              unmatchedEventMatches.splice(matchIdx, 1);
+              continue;
+            }
+            const question =
+              (rowId && asksById.get(rowId)) ||
+              (row.question ? formatApprovalQuestionPlain(row.question) : "Approval requested");
+            const clockText = formatShortClock(row.ts || row.t);
+            history.push({
+              id: rowId || String(row.id || `ans-${history.length}`),
+              question,
+              choiceText: prefix,
+              clockText,
+              lineText: `${prefix}: ${question}${clockText ? ` · ${clockText}` : ""}`,
+            });
           }
           return history;
         }
@@ -3861,6 +3969,7 @@
 
           /* Live cursor agents for collapsed notch pill dots */
           const liveAgents = [];
+          const addedAgentIds = new Set();
           for (const [agentId, entry] of Object.entries(agentsMap)) {
             if (!entry || typeof entry !== "object") continue;
             const runObj = byId.get(agentId);
@@ -3873,12 +3982,48 @@
               isOrchAgent && primaryAgentPref && primaryAgentPref.alias
                 ? primaryAgentPref.alias
                 : entryName;
+            addedAgentIds.add(agentId);
             liveAgents.push({
               id: agentId,
               name: displayName,
               color: normalizeHex(customSwatch ? customSwatch.color : entry.color || entry.body, NEUTRAL_AGENT_COLOR),
               edge: normalizeHex(customSwatch ? customSwatch.edge : entry.edge, "#E0E3E6"),
               ink: normalizeHex(customSwatch ? customSwatch.ink : entry.ink, "#323B43"),
+            });
+          }
+          for (const parent of parents) {
+            const rawChildren = [...(childrenByParent.get(parent.id) || [])].reverse();
+            const parentEvs = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
+            const parentRoute = [...parentEvs].reverse().find((e) => e?.kind === "route") || null;
+            const candidates = rawChildren.length ? rawChildren : [parent];
+            candidates.forEach((child, idx) => {
+              if (!child || addedAgentIds.has(child.id)) return;
+              const isRunningState =
+                child.state === "queued" ||
+                child.state === "planning" ||
+                child.state === "acting" ||
+                child.state === "awaiting_human";
+              if (!isRunningState) return;
+              const evs = Array.isArray(detailsById[child.id]?.events) ? detailsById[child.id].events : [];
+              const identity = resolveAgentIdentity(
+                child,
+                agentsMap,
+                idx,
+                rememberedMap,
+                evs,
+                parentRoute,
+                transcriptsById,
+                primaryAgentPref,
+                candidates.length
+              );
+              addedAgentIds.add(child.id);
+              liveAgents.push({
+                id: child.id,
+                name: identity.name,
+                color: normalizeHex(identity.color, NEUTRAL_AGENT_COLOR),
+                edge: normalizeHex(identity.palette?.edge, "#E0E3E6"),
+                ink: normalizeHex(identity.palette?.ink, "#323B43"),
+              });
             });
           }
 
@@ -3926,7 +4071,7 @@
             const pendingHelp = Array.from(helpItemsById.values()).map((h) => {
               const helpEv = helpEventsById.get(h.id);
               const kind = h.kind || helpEv?.help_kind || "";
-              const kindWarning = APPROVAL_KIND_WARNINGS[kind] || "";
+              const kindWarning = getApprovalKindWarning(kind);
               const askedAtSec =
                 h.asked != null
                   ? Number(h.asked)
@@ -3947,7 +4092,7 @@
                 countdownText,
                 isExpired,
                 statusText: isExpired ? "Expired" : "",
-                question: h.question || "Approval needed",
+                question: formatApprovalQuestionPlain(h.question || "Approval needed"),
                 options: Array.isArray(h.options) ? h.options : [],
                 detail: h.detail ? String(h.detail) : "",
                 timeoutNote: isExpired
@@ -4124,7 +4269,7 @@
               outputs: producedOutputs,
             });
             const transcriptRows = normalizeTranscriptRows(meta.transcriptsById?.[parent.id]);
-            const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById);
+            const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById, meta.transcriptsById?.[parent.id]);
             const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
             const lastTranscriptRow = transcriptRows.length ? transcriptRows[transcriptRows.length - 1] : null;
             const lastTsFromTranscript =
@@ -4192,7 +4337,14 @@
           };
         }
 
-        return { mapRuns, deriveStoppedLabel };
+        return {
+          mapRuns,
+          deriveStoppedLabel,
+          getApprovalKindWarning,
+          isMoneyOrSendApproval,
+          formatApprovalQuestionPlain,
+          actorLabelForRole,
+        };
       })();
 
       /* ============================================================================
@@ -5701,25 +5853,20 @@
           return;
         }
 
-        if (ttsSpeaking) {
-          setPillHtml(`
-            <span class="state-text state-working">&#9679; Speaking</span>
-            <span class="pill-sub">&middot; Click to stop</span>
-          `);
-          return;
-        }
-
         const pendingRun = vm.pendingHelpRunId
           ? vm.runs.find((r) => r.id === vm.pendingHelpRunId) || null
           : vm.runs.find((r) => r.pendingHelp.some((h) => !h.isExpired)) || null;
         if (pendingRun) {
           const activeHelp = pendingRun.pendingHelp.find((h) => !h.isExpired);
-          const pillAgents = vm.liveAgents.length
-            ? vm.liveAgents.slice(0, 4)
-            : pendingRun.steps
-                .filter((s) => s.agentIdentity?.hasAgentColor)
-                .map((s) => s.agentIdentity)
-                .slice(0, 4);
+          const fallbackSteps = pendingRun.steps.filter((s) => s.agentIdentity && (s.isWorking || s.stateColorClass === "state-warning"));
+          const stepAgents = (fallbackSteps.length ? fallbackSteps : pendingRun.steps)
+            .filter((s) => s.agentIdentity)
+            .map((s) => ({
+              name: s.agentIdentity.name,
+              color: s.agentIdentity.color,
+              edge: s.agentIdentity.edge || s.agentIdentity.palette?.edge || "rgba(255,255,255,0.25)",
+            }));
+          const pillAgents = vm.liveAgents.length ? vm.liveAgents : stepAgents;
           const dotsHtml = pillAgents.length
             ? `<span class="pill-dots">${pillAgents
                 .map(
@@ -5736,6 +5883,14 @@
           return;
         }
 
+        if (ttsSpeaking) {
+          setPillHtml(`
+            <span class="state-text state-working">&#9679; Speaking</span>
+            <span class="pill-sub">&middot; Click to stop</span>
+          `);
+          return;
+        }
+
         if (pillFailureToast && Date.now() < pillFailureToast.expiresAt && !isFailedRunSeen(pillFailureToast.runId)) {
           setPillHtml(`<span class="pill-idle">${escapeHtml(pillFailureToast.text)}</span>`);
           return;
@@ -5743,7 +5898,6 @@
 
         if (vm.liveAgents.length) {
           const dotsHtml = `<span class="pill-dots" aria-label="${escapeHtml(String(vm.liveAgents.length))} running agent${vm.liveAgents.length === 1 ? "" : "s"}">${vm.liveAgents
-            .slice(0, 5)
             .map(
               (a) =>
                 `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
@@ -7222,6 +7376,10 @@
         syncSizeAndBridge,
         getCurrentState,
         resolvePrimaryAgent: resolvePrimaryAgentDisplay,
+        getApprovalKindWarning: WorkspaceAdapter.getApprovalKindWarning,
+        isMoneyOrSendApproval: WorkspaceAdapter.isMoneyOrSendApproval,
+        formatApprovalQuestionPlain: WorkspaceAdapter.formatApprovalQuestionPlain,
+        actorLabelForRole: WorkspaceAdapter.actorLabelForRole,
       };
 
       window.addEventListener("storage", (e) => {
@@ -7455,7 +7613,8 @@
       }
 
       function getHelpRemainingSec(h) {
-        const nowSec = Math.floor(Date.now() / 1000);
+        if (!h || h.timed_out === true) return 0;
+        const nowSec = Date.now() / 1000;
         const askedSec =
           h?.asked != null
             ? Number(h.asked)
@@ -7467,15 +7626,10 @@
 
       function formatApprovalCardTimer(h) {
         const remaining = getHelpRemainingSec(h);
+        if (remaining <= 0) return "Expired";
         const m = Math.floor(remaining / 60);
         const s = String(remaining % 60).padStart(2, "0");
         return `${m}:${s} left`;
-      }
-
-      function isMoneyOrSendApproval(h) {
-        const kind = String(h?.kind || "").toLowerCase();
-        const text = `${h?.question || ""} ${h?.detail || ""}`;
-        return kind === "money" || kind === "send" || /\b(pay|purchase|buy|send|email|message|transfer|\$\d)\b/i.test(text);
       }
 
       function renderCardChipHtml(name, color) {
@@ -7500,9 +7654,11 @@
         let currentAgentsMap = {};
 
         function renderCard() {
-          const active = currentHelpList.find((h) => h && getHelpRemainingSec(h) > 0) || null;
+          const visibleHelp = currentHelpList.filter((h) => h && h.answer == null);
+          const active = visibleHelp.find((h) => getHelpRemainingSec(h) > 0) || visibleHelp[0] || null;
           if (!active) {
             $("notes").innerHTML = "";
+            lastCardId = "";
             if (lastHeight !== 0) {
               lastHeight = 0;
               ca().Transport.post("resize", { state: "notes", width: 330, height: 0, fresh: false });
@@ -7510,40 +7666,58 @@
             return;
           }
           const resolvePrimary = ca().resolvePrimaryAgent;
+          const actorForRole = ca().actorLabelForRole;
           const runAgent = (active.run && currentAgentsMap[active.run]) || {};
-          const rawName = active.agent || runAgent.name || "";
+          const rawAgentVal = String(active.agent || runAgent.name || "").trim();
+          const roleMappedName = /^(orchestrator|cu|qa|dev|marketing)$/i.test(rawAgentVal)
+            ? (actorForRole ? actorForRole(rawAgentVal.toLowerCase()) : rawAgentVal)
+            : rawAgentVal;
           const rawColor = active.color || runAgent.color || runAgent.body || "";
-          const resolved = rawName
-            ? (resolvePrimary ? resolvePrimary(rawName, rawColor) : { name: rawName, color: rawColor })
+          const resolved = roleMappedName
+            ? (resolvePrimary ? resolvePrimary(roleMappedName, rawColor) : { name: roleMappedName, color: rawColor })
             : { name: "Agent", color: rawColor };
-          const moneyOrSend = isMoneyOrSendApproval(active);
+          const isExpired = getHelpRemainingSec(active) <= 0 || active.timed_out === true;
+          const kindWarning = ca().getApprovalKindWarning ? ca().getApprovalKindWarning(active.kind) : "";
+          const plainQuestion = ca().formatApprovalQuestionPlain
+            ? ca().formatApprovalQuestionPlain(active.question || "Approval needed")
+            : (active.question || "Approval needed");
+          const moneyOrSend = Boolean(ca().isMoneyOrSendApproval && ca().isMoneyOrSendApproval(active));
           const rawDetail = active.detail
             ? (typeof active.detail === "string" ? active.detail.trim() : JSON.stringify(active.detail))
             : "";
-          const detailLine = rawDetail ? `${rawDetail.replace(/[.]+$/, "")}. Silence means no.` : "Silence means no.";
-          const options = Array.isArray(active.options) && active.options.length ? active.options : ["deny", "approve"];
-          const orderedOptions = [...options].sort((a, b) => {
-            const aApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(a)) ? 1 : 0;
-            const bApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(b)) ? 1 : 0;
-            return aApprove - bApprove;
-          });
+          const detailLine = isExpired
+            ? "No answer received within 5m · Declined."
+            : rawDetail
+            ? `${rawDetail.replace(/[.]+$/, "")}. Silence means no.`
+            : "Silence means no.";
+          const options = Array.isArray(active.options)
+            ? active.options.filter((opt) => opt != null && String(opt).trim() !== "")
+            : [];
+          const isPositiveOpt = (opt) => /^(yes|approve|approved|allow|allowed|ok|continue|done|confirm|confirmed|send|pay)$/i.test(String(opt).trim());
+          const isNegativeOpt = (opt) => /^(no|deny|denied|decline|declined|reject|rejected|cancel|cancelled|canceled)$/i.test(String(opt).trim());
+          const optionRank = (opt) => (isNegativeOpt(opt) ? 0 : isPositiveOpt(opt) ? 2 : 1);
+          const orderedOptions = [...options].sort((a, b) => optionRank(a) - optionRank(b));
+          const actionsHtml = !isExpired && orderedOptions.length
+            ? `<span class="note-actions">
+                ${orderedOptions
+                  .map((opt) => {
+                    const cls = isPositiveOpt(opt) ? (moneyOrSend ? "btn btn-money" : "btn btn-primary") : "btn";
+                    const label = String(opt).charAt(0).toUpperCase() + String(opt).slice(1);
+                    return `<button type="button" class="${cls}" data-help="${esc(active.id)}" data-choice="${esc(opt)}">${esc(label)}</button>`;
+                  })
+                  .join("")}
+              </span>`
+            : "";
+          const cardClasses = `note${moneyOrSend ? " is-money" : ""}${isExpired ? " is-expired" : ""}`;
           $("notes").innerHTML = `
-            <div class="note${moneyOrSend ? " is-money" : ""}" data-help-card="${esc(active.id)}">
+            <div class="${cardClasses}" data-help-card="${esc(active.id)}">
               <div>${renderCardChipHtml(resolved.name, resolved.color)}</div>
-              <div class="note-q">${esc(active.question || "Approval needed")}</div>
+              ${kindWarning ? `<div class="note-warning">${esc(kindWarning)}</div>` : ""}
+              <div class="note-q">${esc(plainQuestion)}</div>
               <div class="note-d">${esc(detailLine)}</div>
               <div class="note-row">
                 <span class="note-timer">${esc(formatApprovalCardTimer(active))}</span>
-                <span class="note-actions">
-                  ${orderedOptions
-                    .map((opt) => {
-                      const isApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(opt));
-                      const cls = isApprove ? (moneyOrSend ? "btn btn-money" : "btn btn-primary") : "btn";
-                      const label = String(opt).charAt(0).toUpperCase() + String(opt).slice(1);
-                      return `<button type="button" class="${cls}" data-help="${esc(active.id)}" data-choice="${esc(opt)}">${esc(label)}</button>`;
-                    })
-                    .join("")}
-                </span>
+                ${actionsHtml}
               </div>
             </div>
           `;
@@ -7573,9 +7747,19 @@
 
         document.addEventListener("click", async (e) => {
           const t = e.target.closest("button");
-          if (!t) return;
+          if (!t || t.disabled) return;
           if (t.dataset.help) {
-            await req("POST", `/api/help/${encodeURIComponent(t.dataset.help)}`, { choice: t.dataset.choice }).catch(() => {});
+            const helpId = t.dataset.help;
+            const choice = t.dataset.choice || "";
+            const targetItem = currentHelpList.find((h) => h && String(h.id) === String(helpId));
+            const allowedOptions = Array.isArray(targetItem?.options) ? targetItem.options.map((o) => String(o)) : [];
+            if (!targetItem || (allowedOptions.length && !allowedOptions.includes(choice))) return;
+            document.querySelectorAll(`button[data-help="${CSS.escape ? CSS.escape(helpId) : helpId}"]`).forEach((btn) => {
+              btn.disabled = true;
+            });
+            targetItem.answer = choice;
+            renderCard();
+            await req("POST", `/api/help/${encodeURIComponent(helpId)}`, { choice }).catch(() => {});
             poll();
           }
         });
