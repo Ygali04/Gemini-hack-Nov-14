@@ -124,6 +124,15 @@ def open_app(agent, name, method="auto", lane=None, timeout=30):
             was_running = False
         slice_s = min(8, timeout / 3)
         subprocess.run(["open", "-g", path], check=False, timeout=30)  # -g: launch without coming to the front
+        if was_running:
+            try:
+                _osa(
+                    ['tell application "System Events" to set visible of (first process whose name is (item 1 of argv)) to true'],
+                    app,
+                    timeout=max(2, deadline - time.time()),
+                )
+            except (subprocess.TimeoutExpired, OSError):
+                pass
         used = "spotlight" if method == "spotlight" else "finder"
         try:
             win, waited = wait_ready(app, slice_s)
@@ -191,6 +200,8 @@ def selftest():
         seen.append(("osa", list(lines), args))
         if any("is running" in ln for ln in lines):
             return 0, "true" if state["running"] else "false"
+        if state.get("unhide_opens") and any("set visible" in ln for ln in lines):
+            state["win"] = True
         if state.get("reopen_opens") and any("reopen" in ln for ln in lines):
             state["win"] = True
         if state.get("quit_opens") and any("quit" in ln for ln in lines):
@@ -214,6 +225,15 @@ def selftest():
         res = open_app(None, "Calculator")
         assert res["method"] == "relaunch", res
 
+        # Running and hidden: window exists only after "set visible", never reaches reopen or quit
+        state["win"], state["running"], state["reopen_opens"], state["quit_opens"], state["unhide_opens"] = False, True, False, False, True
+        seen.clear()
+        res = open_app(None, "Calculator")
+        assert res["method"] == "finder", res
+        assert any("set visible" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+        assert not any("reopen" in ln or "quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+        state["unhide_opens"] = False
+
         # Case A (slow cold launch): not running, waits >= 10s after reopen, never quits
         state["win"], state["running"], state["reopen_opens"], state["quit_opens"] = False, False, False, False
         seen.clear()
@@ -227,6 +247,7 @@ def selftest():
         res = open_app(None, "Calculator")
         assert res["method"] in ("finder", "reopen"), res
         assert not any("quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+        assert not any("set visible" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
 
         # Case B (TextEdit-like cold launch): not running, window appears only after reopen, never quits
         wait_ready = fake_wait
@@ -235,6 +256,7 @@ def selftest():
         res = open_app(None, "Calculator")
         assert res["method"] == "reopen", res
         assert not any("quit" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+        assert not any("set visible" in ln for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
 
         # Running with zero windows, _osa TimeoutExpired on reopen/quit is ignored
         state["win"], state["running"], state["reopen_opens"] = False, True, False
