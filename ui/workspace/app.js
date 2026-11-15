@@ -161,6 +161,11 @@
         }
         if (!aliasEchoOnly && typeof renderNow === "function") renderNow();
       }
+      if (msg.type === "setView" && typeof msg.view === "string" && msg.view.trim()) {
+        if (typeof handleShellSetView === "function") {
+          handleShellSetView(msg.view);
+        }
+      }
       window.dispatchEvent(new CustomEvent("shell-event", { detail: msg }));
     };
 
@@ -2373,6 +2378,7 @@
      ============================================================================ */
   const initialViewParam = params.get("view") || window.location.hash.replace(/^#/, "");
   const hasExplicitInitialView = Boolean(initialViewParam && initialViewParam.trim());
+  let hasShellSetView = false;
   let currentView = normalizeViewName(initialViewParam || "graph");
   let connectionStatus = "loading";
   let connectionError = "";
@@ -6509,9 +6515,16 @@
     }
   }
 
+  function handleShellSetView(viewName) {
+    hasShellSetView = true;
+    viewMenuOpen = false;
+    setView(viewName);
+  }
+
   function setView(viewName) {
     const normalized = normalizeViewName(viewName);
     currentView = normalized;
+    viewMenuOpen = false;
     try {
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.set("view", normalized);
@@ -6929,7 +6942,7 @@
         }
       }
       OnboardingState.profileLoaded = true;
-      if (!autoOnboardingChecked && !hasExplicitInitialView && !activeFixtureName) {
+      if (!autoOnboardingChecked && !hasExplicitInitialView && !hasShellSetView && !activeFixtureName) {
         autoOnboardingChecked = true;
         const hasSavedProfileName = Boolean(String(p.call_me || "").trim());
         if (!hasSeenOnboarding() && !hasSavedProfileName && !hasSavedPrimaryAgent()) {
@@ -7924,6 +7937,24 @@
         setView(hashView);
       }
     });
+
+    function syncViewFromLocationSearch() {
+      try {
+        const currentParams = new URLSearchParams(window.location.search);
+        const qView = currentParams.get("view");
+        if (qView && qView.trim()) {
+          const normalized = normalizeViewName(qView);
+          if (normalized !== currentView) {
+            setView(normalized);
+          }
+        }
+      } catch {
+        // Ignore URL parsing errors
+      }
+    }
+
+    window.addEventListener("popstate", syncViewFromLocationSearch);
+    window.addEventListener("pageshow", syncViewFromLocationSearch);
 
     window.addEventListener("storage", (event) => {
       if (!event.key || event.key === PRIMARY_AGENT_STORAGE_KEY) {
