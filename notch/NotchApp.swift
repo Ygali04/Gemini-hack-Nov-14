@@ -251,6 +251,35 @@ final class NotchPanel: NSPanel {
 }
 
 @MainActor
+final class LeftEdgeResizeView: NSView {
+    var onResizeWidth: ((CGFloat) -> Void)?
+    var maxWidthProvider: (() -> CGFloat)?
+    private var dragStartScreenX: CGFloat = 0
+    private var dragStartFrame: NSRect = .zero
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let win = window else { return }
+        dragStartScreenX = NSEvent.mouseLocation.x
+        dragStartFrame = win.frame
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let win = window else { return }
+        let deltaX = NSEvent.mouseLocation.x - dragStartScreenX
+        let maxW = maxWidthProvider?() ?? max(560.0, (win.screen?.visibleFrame.width ?? 1440.0) - 48.0)
+        let newWidth = min(max(dragStartFrame.width - deltaX, 560.0), max(560.0, maxW))
+        let newX = dragStartFrame.maxX - newWidth
+        let updated = NSRect(x: round(newX), y: dragStartFrame.origin.y, width: round(newWidth), height: dragStartFrame.height)
+        win.setFrame(updated, display: true)
+        onResizeWidth?(updated.width)
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScriptMessageHandler,
                          SFSpeechRecognizerDelegate, AVSpeechSynthesizerDelegate {
     private var statusItem: NSStatusItem!
@@ -261,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var workspaceSheetPanel: NotchPanel?
     private var workspaceSheetWebView: ShellWebView?
     private var workspaceSheetSize = NSSize(width: 960, height: 680)
+    private let useCenteredWorkspaceSheet = false
+    private var workspaceRightWidth: CGFloat?
     private var sharedContentController: WKUserContentController!
     private var notesPanel: NotchPanel!
     private var notesWeb: ShellWebView!
@@ -744,9 +775,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
     }
 
+    private func rightEdgeMaxWidth(on targetScreen: NSScreen? = nil) -> CGFloat {
+        let screen = targetScreen ?? notchScreen()
+        let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let screenFrame = screen?.frame ?? vis
+        let notchRightX = panel != nil ? panel.frame.maxX : round(screenFrame.midX + currentSize.width / 2.0)
+        let nonOverlapping = floor(vis.maxX - notchRightX - 8.0)
+        return nonOverlapping >= 560.0 ? nonOverlapping : max(560.0, vis.width - 48.0)
+    }
+
+    private func rightEdgeWorkspaceFrame(on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
+        let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let defaultW = max(560.0, round(vis.width / 3.0))
+        let desiredW = max(560.0, workspaceRightWidth ?? defaultW)
+        let maxW = rightEdgeMaxWidth(on: screen)
+        let clampedW = min(max(desiredW, 560.0), maxW)
+        let x = round(vis.maxX - clampedW)
+        return NSRect(x: x, y: vis.minY, width: clampedW, height: vis.height)
+    }
+
+    private func rightEdgeNotchAnchorFrame(for targetFrame: NSRect, on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
+        let notchRect = panel != nil ? panel.frame : topCenteredFrame(for: currentSize, on: screen)
+        return NSRect(x: notchRect.maxX, y: notchRect.minY, width: 1.0, height: notchRect.height)
+    }
+
     private func foldWorkspaceSheet(instant: Bool = false) {
         guard let sheet = workspaceSheetPanel, sheet.isVisible else { return }
-        let shrinkFrame = topCenteredFrame(for: currentSize)
+        let shrinkFrame = useCenteredWorkspaceSheet
+            ? topCenteredFrame(for: currentSize)
+            : rightEdgeNotchAnchorFrame(for: sheet.frame)
         hideWindowWithMotion(sheet, shrinkTo: shrinkFrame, instant: instant)
         returnFocus()
     }
@@ -760,7 +819,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let viewName = (reqView?.isEmpty == false ? reqView : nil)
         let mode = (body["mode"] as? String ?? "").lowercased()
 
-        if mode == "sheet" {
+        if !useCenteredWorkspaceSheet {
+            let screen = notchScreen()
+            if let sheet = workspaceSheetPanel, sheet.isVisible, senderWebView === webView, viewName == nil {
+                foldWorkspaceSheet(instant: body["instant"] as? Bool ?? false)
+                postToWeb([
+                    "type": "workspaceClosed",
+                    "id": reqId,
+                    "ok": true,
+                    "mode": "right-edge"
+                ], to: senderWebView)
+                return
+            }
+
+            let targetFrame = rightEdgeWorkspaceFrame(on: screen)
+            if workspaceSheetPanel == nil || workspaceSheetWebView == nil {
+                let startFrame = rightEdgeNotchAnchorFrame(for: targetFrame, on: screen)
+                let sheet = floatingPanel(startFrame, level: .statusBar)
+                sheet.title = ""
+                sheet.titleVisibility = .hidden
+                sheet.backgroundColor = NSColor(calibratedRed: 0.07, green: 0.075, blue: 0.085, alpha: 1.0)
+                sheet.onCancel = { [weak self] in self?.foldWorkspaceSheet() }
+
+                let container = NSView(frame: NSRect(origin: .zero, size: startFrame.size))
+                container.autoresizingMask = [.width, .height]
+                container.wantsLayer = true
+                container.layer?.backgroundColor = NSColor(calibratedRed: 0.07, green: 0.075, blue: 0.085, alpha: 1.0).cgColor
+
+                let wv = makeWebView(startFrame.size)
+                wv.frame = container.bounds
+                wv.autoresizingMask = [.width, .height]
+                container.addSubview(wv)
+
+                let resizeStrip = LeftEdgeResizeView(frame: NSRect(x: 0, y: 0, width: 8, height: startFrame.height))
+                resizeStrip.autoresizingMask = [.height]
+                resizeStrip.maxWidthProvider = { [weak self] in self?.rightEdgeMaxWidth() ?? 1200.0 }
+                resizeStrip.onResizeWidth = { [weak self] newWidth in
+                    self?.workspaceRightWidth = newWidth
+                }
+                container.addSubview(resizeStrip)
+
+                sheet.contentView = container
+                workspaceSheetPanel = sheet
+                workspaceSheetWebView = wv
+            }
+
+            if let sheet = workspaceSheetPanel, let wv = workspaceSheetWebView {
+                let wasHidden = !sheet.isVisible
+                loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
+                if wasHidden {
+                    rememberFrontApp()
+                    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                        sheet.setFrame(rightEdgeNotchAnchorFrame(for: targetFrame, on: screen), display: true)
+                    }
+                }
+                NSApp.activate(ignoringOtherApps: true)
+                sheet.makeKeyAndOrderFront(nil)
+                animateWindow(sheet, to: targetFrame, instant: body["instant"] as? Bool ?? false, reveal: wasHidden)
+                if panel.isVisible {
+                    panel.orderFrontRegardless()
+                }
+            }
+
+            postToWeb([
+                "type": "workspaceOpened",
+                "id": reqId,
+                "ok": true,
+                "mode": "right-edge"
+            ], to: senderWebView)
+            return
+        }
+
+        if useCenteredWorkspaceSheet && mode == "sheet" {
             let screen = notchScreen()
             let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
             let reqW = (body["width"] as? NSNumber)?.doubleValue ?? 960.0
@@ -1668,12 +1798,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let targetFrame = topCenteredFrame(for: currentSize, on: screen)
         panel.setFrame(targetFrame, display: true)
         if let sheet = workspaceSheetPanel, sheet.isVisible {
-            let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-            let clamped = NSSize(
-                width: min(workspaceSheetSize.width, max(480.0, vis.width - 48.0)),
-                height: min(workspaceSheetSize.height, max(320.0, vis.height - 16.0))
-            )
-            sheet.setFrame(topCenteredFrame(for: clamped, on: screen), display: true)
+            if useCenteredWorkspaceSheet {
+                let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+                let clamped = NSSize(
+                    width: min(workspaceSheetSize.width, max(480.0, vis.width - 48.0)),
+                    height: min(workspaceSheetSize.height, max(320.0, vis.height - 16.0))
+                )
+                sheet.setFrame(topCenteredFrame(for: clamped, on: screen), display: true)
+            } else {
+                sheet.setFrame(rightEdgeWorkspaceFrame(on: screen), display: true)
+                if panel.isVisible {
+                    panel.orderFrontRegardless()
+                }
+            }
         }
         if notesHeight > 0 && notesPanel.isVisible {
             notesPanel.setFrame(notesFrame(for: notesWidth, height: notesHeight, on: screen), display: true)
