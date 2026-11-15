@@ -21,6 +21,11 @@
  *   Request:  { type: "openSettingsPane", id: string, pane: "accessibility" | "screenRecording" | "microphone" | "speechRecognition" | "automation" }
  *   Response: { type: "settingsPaneOpened", id: string, pane: string, ok: boolean, error: string }
  *   Shell maps each allowed pane name to its System Settings URL itself; unknown names return ok: false with an error and open nothing.
+ *
+ * Page -> shell `openNotch` contract (kept in sync with notch/NotchApp.swift):
+ *   Request:  { type: "openNotch", id?: string, thread?: string }
+ *   Response: { type: "notchOpened", id?: string, ok: boolean }
+ *   Shell shows/activates the notch panel, expands it to open state, and focuses the prompt input (#prompt-input).
  */
 
 import fs from "node:fs";
@@ -32,9 +37,10 @@ const DEFAULT_ROOT = path.resolve(__dirname, "../..");
 
 const PAGE_FILES = ["ui/index.html", "ui/workspace/app.js"];
 const SWIFT_FILE = "notch/NotchApp.swift";
-// Shell-handled message types whose page caller is being wired concurrently;
+// Shell-handled message types whose page caller is being wired concurrently
+// or kept behind a legacy constant in NotchApp.swift (e.g. openChat under A14);
 // still required to be handled in NotchApp.swift.
-const PENDING_PAGE_TYPES = new Set(["openSettingsPane"]);
+const PENDING_PAGE_TYPES = new Set(["openSettingsPane", "openChat", "openNotch"]);
 
 function parseArgs(argv) {
   let root = process.env.BRIDGE_CHECK_ROOT || DEFAULT_ROOT;

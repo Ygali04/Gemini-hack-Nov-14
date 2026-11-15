@@ -10,6 +10,7 @@
  *   CA_URL="http://127.0.0.1:8765/?t=TOKEN" node notch/inspect-check.mjs
  *   node notch/inspect-check.mjs --fixture working-live --open
  *   node notch/inspect-check.mjs --scenario --fixture working-live --view graph file1.txt file2.png
+ *   node notch/inspect-check.mjs --scenario --all-surfaces --out /tmp/ca-surfaces
  */
 
 import { spawn } from "node:child_process";
@@ -24,9 +25,20 @@ const repoRoot = path.resolve(__dirname, "..");
 const defaultBin = path.join(repoRoot, "notch/build/AgentNotch.app/Contents/MacOS/AgentNotch");
 const binPath = process.env.NOTCH_BIN || defaultBin;
 
+const ALL_WORKSPACE_VIEWS = [
+  "graph",
+  "state-machine",
+  "logs",
+  "analytics",
+  "artifacts",
+  "memory",
+  "settings",
+];
+
 function parseArgs(argv) {
   let openPanel = false;
   let scenario = false;
+  let allSurfaces = false;
   let fixture = process.env.CA_FIXTURE || "";
   let url = process.env.CA_URL || "";
   let view = "graph";
@@ -40,6 +52,10 @@ function parseArgs(argv) {
     } else if (arg === "--scenario") {
       scenario = true;
       openPanel = true;
+    } else if (arg === "--all-surfaces") {
+      allSurfaces = true;
+      scenario = true;
+      openPanel = true;
     } else if (arg === "--fixture" && argv[i + 1]) {
       fixture = argv[++i];
       openPanel = true;
@@ -48,13 +64,17 @@ function parseArgs(argv) {
       openPanel = true;
     } else if (arg === "--view" && argv[i + 1]) {
       view = argv[++i];
-    } else if (arg === "--capture-dir" && argv[i + 1]) {
+    } else if ((arg === "--capture-dir" || arg === "--out") && argv[i + 1]) {
       captureDir = argv[++i];
     } else if (arg === "--drop" && argv[i + 1]) {
       dropFiles.push(path.resolve(argv[++i]));
     } else if (!arg.startsWith("-")) {
       dropFiles.push(path.resolve(arg));
     }
+  }
+
+  if (allSurfaces && !fixture.trim() && !url.trim()) {
+    fixture = "workspace-demo";
   }
 
   if (fixture.trim() || url.trim()) {
@@ -64,6 +84,7 @@ function parseArgs(argv) {
   return {
     openPanel,
     scenario,
+    allSurfaces,
     fixture: fixture.trim(),
     url: url.trim(),
     view: view.trim() || "graph",
@@ -112,7 +133,7 @@ function assertValidPng(filePath) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const timeoutMs = opts.scenario ? 25_000 : 15_000;
+  const timeoutMs = opts.allSurfaces ? 55_000 : opts.scenario ? 25_000 : 15_000;
   const env = { ...process.env, CA_INSPECT: "1" };
   if (opts.fixture) env.CA_FIXTURE = opts.fixture;
   if (opts.url) env.CA_URL = opts.url;
@@ -274,16 +295,65 @@ async function main() {
       }
       const panelBytes = assertValidPng(panelPng);
       console.log("panelCapture:", JSON.stringify({ ...capPanelRes, bytes: panelBytes }));
+      if (opts.allSurfaces) {
+        const openNotchPng = path.join(capDir, "notch-open.png");
+        fs.copyFileSync(panelPng, openNotchPng);
+        const openNotchBounds = await send({ cmd: "bounds" });
+        console.log("openNotchFrame:", JSON.stringify(openNotchBounds.panel));
+        console.log("openNotchCapture:", JSON.stringify({ path: openNotchPng, bytes: panelBytes }));
+
+        // Capture collapsed notch pill
+        await send({ cmd: "collapse" });
+        await pollUntil(async () => {
+          const st = await send({
+            cmd: "eval",
+            target: "notch",
+            js: "document.body?.dataset?.state || null",
+          }, 2000);
+          return st.ok && st.result === "collapsed" ? st : false;
+        }, 3000, 80, "notch collapsed");
+        await sleep(120);
+        const collapsedBounds = await send({ cmd: "bounds" });
+        console.log("collapsedNotchFrame:", JSON.stringify(collapsedBounds.panel));
+        const collapsedNotchPng = path.join(capDir, "notch-collapsed.png");
+        const capCollapsedRes = await send({ cmd: "capture", surface: "panel", path: collapsedNotchPng });
+        if (!capCollapsedRes.ok) {
+          throw new Error(`Collapsed notch capture failed: ${JSON.stringify(capCollapsedRes)}`);
+        }
+        const collapsedBytes = assertValidPng(collapsedNotchPng);
+        console.log("collapsedNotchCapture:", JSON.stringify({ ...capCollapsedRes, bytes: collapsedBytes }));
+
+        // Re-open notch so full-screen capture shows the open notch alongside the other surfaces
+        await send({ cmd: "open" });
+        await pollUntil(async () => {
+          const st = await send({
+            cmd: "eval",
+            target: "notch",
+            js: "document.body?.dataset?.state || null",
+          }, 2000);
+          return st.ok && st.result === "expanded" ? st : false;
+        }, 3000, 80, "notch re-expanded");
+        await sleep(100);
+      }
 
       // Check if notes / pending-approval card surface has rendered cards at top right.
+      if (opts.allSurfaces) {
+        await pollUntil(async () => {
+          const b = await send({ cmd: "bounds" });
+          return b.ok && b.notes && b.notes.visible && b.notes.height > 20 ? b.notes : false;
+        }, 4000, 100, "approval card visible at top right").catch(() => null);
+      }
       const notesEval = await send({
         cmd: "eval",
         target: "notes",
-        js: "({ text: (document.body?.innerText || '').trim(), cards: document.querySelectorAll('.note-card, [data-help-id], button').length })",
+        js: "({ text: (document.body?.innerText || '').trim(), cards: document.querySelectorAll('.note, .note-card, [data-help-card], [data-help-id], button').length })",
       }, 2000).catch(() => null);
       const latestBoundsBeforeWs = await send({ cmd: "bounds" });
       if (latestBoundsBeforeWs.ok && latestBoundsBeforeWs.notes && latestBoundsBeforeWs.notes.visible) {
         console.log("notesBounds:", JSON.stringify(latestBoundsBeforeWs.notes));
+        if (opts.allSurfaces) {
+          console.log("approvalCardFrame:", JSON.stringify(latestBoundsBeforeWs.notes));
+        }
         if (notesEval?.ok) {
           console.log("notesText:", JSON.stringify(notesEval.result));
         }
@@ -292,17 +362,23 @@ async function main() {
         if (capNotesRes.ok) {
           const notesBytes = assertValidPng(notesPng);
           console.log("notesCapture:", JSON.stringify({ ...capNotesRes, bytes: notesBytes }));
+          if (opts.allSurfaces) {
+            const approvalPng = path.join(capDir, "approval-card.png");
+            fs.copyFileSync(notesPng, approvalPng);
+            console.log("approvalCardCapture:", JSON.stringify({ path: approvalPng, bytes: notesBytes }));
+          }
         }
       }
 
       const wsStartMs = Date.now();
+      const wsFixture = opts.allSurfaces ? (opts.fixture || "workspace-demo") : opts.fixture;
       const wsOpenPayload = {
         cmd: "openWorkspace",
         mode: "window",
-        view: opts.view,
+        view: opts.allSurfaces ? "graph" : opts.view,
         instant: true,
       };
-      if (opts.fixture) wsOpenPayload.fixture = opts.fixture;
+      if (wsFixture) wsOpenPayload.fixture = wsFixture;
       const wsOpenRes = await send(wsOpenPayload);
       if (!wsOpenRes.ok) {
         throw new Error(`Failed to open workspace window: ${JSON.stringify(wsOpenRes)}`);
@@ -370,8 +446,19 @@ async function main() {
 
       const wsBounds = await send({ cmd: "bounds" });
       console.log("workspaceBounds:", JSON.stringify(wsBounds.workspace));
-      if (!wsBounds.ok || !wsBounds.workspace || wsBounds.workspace.width < 560 || wsBounds.workspace.title !== "") {
-        throw new Error(`Invalid workspace window bounds/title: ${JSON.stringify(wsBounds.workspace)}`);
+      if (
+        !wsBounds.ok ||
+        !wsBounds.workspace ||
+        wsBounds.workspace.width < 560 ||
+        wsBounds.workspace.title !== "" ||
+        wsBounds.workspace.fullSizeContentView !== true ||
+        wsBounds.workspace.titlebarAppearsTransparent !== true ||
+        wsBounds.workspace.titleVisibilityHidden !== true ||
+        wsBounds.workspace.trafficLights?.close?.x !== 16 ||
+        wsBounds.workspace.trafficLights?.close?.y !== 12 ||
+        wsBounds.workspace.trafficLights?.close?.visible !== true
+      ) {
+        throw new Error(`Invalid workspace window bounds/title/trafficLights: ${JSON.stringify(wsBounds.workspace)}`);
       }
 
       const wsTextRes = await send({ cmd: "eval", target: "workspace", js: "document.body.innerText" });
@@ -387,6 +474,52 @@ async function main() {
       }
       const wsBytes = assertValidPng(wsPng);
       console.log("workspaceCapture:", JSON.stringify({ ...capWsRes, bytes: wsBytes }));
+
+      if (opts.allSurfaces) {
+        for (const vName of ALL_WORKSPACE_VIEWS) {
+          await send({
+            cmd: "eval",
+            target: "workspace",
+            js: `(() => {
+              const item = document.querySelector('#view-menu-list [data-view="${vName}"]');
+              if (item) { item.click(); return true; }
+              return false;
+            })()`,
+          }, 2000);
+          await sleep(140);
+          const vBounds = await send({ cmd: "bounds" });
+          console.log(`workspaceFrame[${vName}]:`, JSON.stringify(vBounds.workspace));
+          const vPng = path.join(capDir, `workspace-${vName}.png`);
+          const vCap = await send({ cmd: "capture", surface: "workspace", path: vPng });
+          if (!vCap.ok) {
+            throw new Error(`Workspace view capture failed (${vName}): ${JSON.stringify(vCap)}`);
+          }
+          const vBytes = assertValidPng(vPng);
+          console.log(`workspaceCapture[${vName}]:`, JSON.stringify({ ...vCap, view: vName, bytes: vBytes }));
+        }
+        // Return workspace to graph view so the full-screen capture shows graph + open notch + approval card
+        await send({
+          cmd: "eval",
+          target: "workspace",
+          js: `(() => { document.querySelector('#view-menu-list [data-view="graph"]')?.click(); return true; })()`,
+        }, 2000);
+        await sleep(120);
+        const fullBounds = await send({ cmd: "bounds" });
+        console.log("fullScreenFrames:", JSON.stringify({
+          panel: fullBounds.panel,
+          notes: fullBounds.notes,
+          workspace: fullBounds.workspace,
+        }));
+        const fullScreenPng = path.join(capDir, "full-screen.png");
+        const capScreenRes = await send({ cmd: "capture", surface: "screen", path: fullScreenPng }, 8000);
+        if (!capScreenRes.ok) {
+          throw new Error(`Full-screen capture failed: ${JSON.stringify(capScreenRes)}`);
+        }
+        const screenBytes = assertValidPng(fullScreenPng);
+        const altFullScreenPng = path.join(capDir, "fullscreen.png");
+        fs.copyFileSync(fullScreenPng, altFullScreenPng);
+        console.log("fullScreenCapture:", JSON.stringify({ ...capScreenRes, bytes: screenBytes }));
+      }
     } else {
       let textRes = await send({ cmd: "eval", target: "notch", js: "document.body.innerText" });
       if (textRes.ok && (!textRes.result || String(textRes.result).trim() === "")) {
