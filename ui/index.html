@@ -57,6 +57,7 @@
       font-weight: 400;
       color: var(--text-primary);
       -webkit-font-smoothing: antialiased;
+      -webkit-user-select: text;
       user-select: text;
     }
 
@@ -269,7 +270,25 @@
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
+      -webkit-user-select: none;
       user-select: none;
+    }
+
+    .btn svg,
+    .pill-bar svg,
+    .work-divider-btn svg {
+      pointer-events: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .btn-esc {
+      height: 26px;
+      min-height: 26px;
+      padding: 0 8px;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
     }
 
     .btn:hover:not(:disabled) {
@@ -1160,6 +1179,22 @@
       flex-shrink: 0;
     }
 
+    .agent-chip-btn {
+      font-family: var(--font-sans);
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .agent-chip-btn:hover {
+      filter: brightness(1.06);
+    }
+
+    .agent-chip-btn:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
     .agent-chip.has-glass {
       background: transparent;
       border-color: transparent;
@@ -1568,7 +1603,12 @@
       align-items: center;
       gap: 10px;
       cursor: pointer;
-      user-select: none;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+    .chat-list-row:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: -2px;
     }
     .chat-list-row:hover {
       background: var(--btn-hover);
@@ -1650,22 +1690,33 @@
       color: var(--text-secondary);
       padding: 2px 2px 4px;
     }
-    .starter-section { display: flex; flex-direction: column; gap: 6px; }
-    .starter-list { display: flex; flex-direction: column; gap: 6px; }
-    .starter-btn {
-      width: 100%;
-      height: auto;
-      min-height: 32px;
-      justify-content: flex-start;
-      text-align: left;
-      padding: 7px 10px;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 8px;
-      background: transparent;
-      white-space: normal;
-      color: var(--text-primary);
-      font-size: 13px;
-      line-height: 18px;
+    .panel-view,
+    .timeline-scroll,
+    .timeline-fact,
+    .live-step-text,
+    .stop-notice-line,
+    .memory-notice-text,
+    .help-question,
+    .help-meta,
+    .help-warning,
+    .chat-nav-title,
+    .list-nav-title,
+    .chat-list-mid,
+    .chat-list-name,
+    .chat-list-role,
+    .chat-list-preview,
+    .chat-list-time,
+    .chat-empty-note,
+    .permission-copy,
+    .note-warning,
+    .note-q,
+    .note-d,
+    .digest-row,
+    .step-event-text,
+    .agent-chip:not(button),
+    .agent-chip:not(button) .agent-chip-label {
+      -webkit-user-select: text;
+      user-select: text;
     }
     .permission-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
     .permission-copy { font-size: 12px; line-height: 16px; color: var(--state-warning); flex: 1; min-width: 180px; }
@@ -2856,6 +2907,48 @@
           }
         }
 
+        const ACTION_TEXT_TAG_RE =
+          /^\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|run_applescript)(?::|\s+)([^\]]*)\]?$/i;
+        const TRAILING_ACTION_TAG_RE =
+          /\s*\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|run_applescript):[^\]]+\]?\s*$/i;
+
+        function isAgentActionLine(text, kind, msgKind) {
+          if (kind === "step" || msgKind === "step") return true;
+          const raw = String(text || "").trim();
+          if (!raw) return false;
+          if (ACTION_TEXT_TAG_RE.test(raw)) return true;
+          if (TRAILING_ACTION_TAG_RE.test(raw)) return true;
+          return false;
+        }
+
+        function formatActionTextPlain(rawText, actionHint) {
+          const raw = String(rawText || "").trim();
+          if (actionHint) {
+            return sentenceCase(summarizeActPlain({ action: actionHint }));
+          }
+          if (!raw) return "";
+          const unwrapped = raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1).trim() : raw;
+          const exactMatch = unwrapped.match(ACTION_TEXT_TAG_RE);
+          if (exactMatch) {
+            const verb = exactMatch[1].toLowerCase();
+            let rest = String(exactMatch[2] || "").trim();
+            if (unwrapped.includes(":")) {
+              return sentenceCase(summarizeActPlain({ action: `${verb}:${rest}` }));
+            }
+            rest = stripActionRolePrefix(
+              rest.replace(/^(?:button|link|textfield|textarea|searchfield|menuitem|menubaritem|checkbox|radiobutton|popupbutton|combobox|tab|cell|row)\s+/i, "")
+            );
+            return sentenceCase(summarizeActPlain({ action: `${verb}:${rest}` }));
+          }
+          const stripped = raw.replace(TRAILING_ACTION_TAG_RE, "").trim();
+          if (stripped) return sentenceCase(stripped);
+          const trailingMatch = raw.match(/\[?([a-z_]+:[^\]]+)\]?\s*$/i);
+          if (trailingMatch) {
+            return sentenceCase(summarizeActPlain({ action: trailingMatch[1] }));
+          }
+          return sentenceCase(raw);
+        }
+
         function summarizeDecidePlain(ev) {
           if (ev?.thought) return String(ev.thought).trim();
           if (ev?.action === "done") return "checking if done";
@@ -2992,6 +3085,9 @@
             case "msg": {
               const msgText = String(ev.text || "").trim();
               if (!msgText || ev.msg_kind === "prompt") return "";
+              if (ev.msg_kind === "step" || (ev.role !== "user" && isAgentActionLine(msgText, ev.kind, ev.msg_kind))) {
+                return formatActionTextPlain(msgText, ev.action);
+              }
               return sentenceCase(msgText);
             }
             case "speak":
@@ -3281,21 +3377,37 @@
           return outputs;
         }
 
-        function normalizeTranscriptRows(rawRows) {
+        function normalizeTranscriptRows(rawRows, allowedParentId, rootParentByRunId) {
           if (!Array.isArray(rawRows)) return [];
           return rawRows
-            .filter(
-              (row) =>
-                row &&
-                row.role !== "step" &&
-                row.kind !== "decide" &&
-                row.kind !== "ask" &&
-                row.kind !== "answer" &&
-                row.msg_kind !== "thought" &&
-                row.msg_kind !== "ask" &&
-                row.msg_kind !== "answer" &&
-                String(row.text || "").trim()
-            )
+            .filter((row) => {
+              if (!row) return false;
+              const isUserRow = row.role === "user" || row.kind === "prompt" || row.msg_kind === "prompt";
+              if (
+                allowedParentId &&
+                rootParentByRunId instanceof Map &&
+                row.run &&
+                rootParentByRunId.has(row.run) &&
+                rootParentByRunId.get(row.run) !== allowedParentId
+              ) {
+                return false;
+              }
+              if (
+                row.role === "step" ||
+                row.kind === "decide" ||
+                row.kind === "ask" ||
+                row.kind === "answer" ||
+                row.msg_kind === "thought" ||
+                row.msg_kind === "ask" ||
+                row.msg_kind === "answer"
+              ) {
+                return false;
+              }
+              if (!isUserRow && isAgentActionLine(row.text, row.kind, row.msg_kind)) {
+                return false;
+              }
+              return Boolean(String(row.text || "").trim());
+            })
             .map((row, idx) => {
               const role = row.role === "user" ? "user" : "agent";
               const rawName = role === "user" ? "You" : String(row.agent || row.role || "Agent").trim();
@@ -3338,7 +3450,14 @@
           for (const r of allRunsInGroup) {
             const detail = detailsById[r.id];
             const evs = Array.isArray(detail?.events) ? detail.events : [];
-            const speak = [...evs].reverse().find((e) => e.kind === "speak" && (e.text || e.msg || e.message));
+            const speak = [...evs]
+              .reverse()
+              .find(
+                (e) =>
+                  e.kind === "speak" &&
+                  (e.text || e.msg || e.message) &&
+                  !isAgentActionLine(e.text || e.msg || e.message, e.kind, e.msg_kind)
+              );
             if (speak) {
               const txt = String(speak.text || speak.msg || speak.message).trim();
               if (txt) return txt;
@@ -3350,7 +3469,9 @@
                   (e) =>
                     e.kind === "msg" &&
                     (e.role === "assistant" || e.msg_kind === "result" || e.msg_kind === "plan") &&
-                    e.text
+                    e.msg_kind !== "step" &&
+                    e.text &&
+                    !isAgentActionLine(e.text, e.kind, e.msg_kind)
                 );
               if (msg) {
                 latestMsg = String(msg.text).trim();
@@ -3476,17 +3597,24 @@
           }
         }
 
-        function buildWorkStepsForRun(childRun, detail, appName) {
+        function buildWorkStepsForRun(childRun, detail, appName, groupTranscriptRows, stepRunIdSet, includeUnmatchedTranscriptSteps) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const lines = [];
           let actCount = 0;
           for (const ev of events) {
             if (!ev || ev.kind === "decide" || ev.kind === "state" || ev.kind === "llm") continue;
-            if (ev.kind === "msg" || ev.kind === "speak" || ev.kind === "route") continue;
+            if (ev.kind === "speak" || ev.kind === "route") continue;
+            const isActionMsg =
+              ev.kind === "msg" &&
+              (ev.msg_kind === "step" || (ev.role !== "user" && isAgentActionLine(ev.text, ev.kind, ev.msg_kind)));
+            if (ev.kind === "msg" && !isActionMsg) continue;
             let line = "";
             if (ev.kind === "act") {
               actCount += 1;
               line = ev.action ? sentenceCase(summarizeActPlain(ev)) : "";
+            } else if (isActionMsg) {
+              actCount += 1;
+              line = formatActionTextPlain(ev.text, ev.action);
             } else if (ev.kind === "verify" && ev.achieved) {
               const rawEv = String(ev.evidence || "").trim();
               if (/^mock$/i.test(rawEv)) {
@@ -3501,6 +3629,23 @@
             if (line && line !== "Working" && line !== "Finished" && line !== "Stopped") {
               lines.push(line);
             }
+          }
+          const existingFromEvents = new Set(lines.map((l) => l.toLowerCase()));
+          const tRows = Array.isArray(groupTranscriptRows) ? groupTranscriptRows : [];
+          for (const row of tRows) {
+            if (!row) continue;
+            const isUserRow = row.role === "user" || row.kind === "prompt" || row.msg_kind === "prompt";
+            if (isUserRow) continue;
+            if (!isAgentActionLine(row.text, row.kind, row.msg_kind)) continue;
+            const belongsToChild =
+              row.run === childRun.id ||
+              (includeUnmatchedTranscriptSteps && (!row.run || !(stepRunIdSet instanceof Set) || !stepRunIdSet.has(row.run)));
+            if (!belongsToChild) continue;
+            const plain = formatActionTextPlain(row.text, row.action);
+            if (!plain || plain === "Working" || plain === "Finished" || plain === "Stopped") continue;
+            if (existingFromEvents.has(plain.toLowerCase())) continue;
+            actCount += 1;
+            lines.push(plain);
           }
           return {
             lines,
@@ -3613,7 +3758,10 @@
           parentRouteEvent,
           transcriptsById,
           primaryAgentPref,
-          groupAgentCount
+          groupAgentCount,
+          groupTranscriptRows,
+          stepRunIdSet,
+          includeUnmatchedTranscriptSteps
         ) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
           const actorLabel = actorLabelForRole(childRun.role, fallbackIndex, groupAgentCount);
@@ -3670,6 +3818,7 @@
 
           /* Latest meaningful event in plain words */
           let latestSummary = "";
+          let latestSummaryIsAction = false;
           if (unappliedPatch && (childRun.state === "failed" || childRun.role === "dev")) {
             latestSummary = summarizeEventPlain(unappliedPatch);
           } else {
@@ -3689,6 +3838,12 @@
               }
               if (candidate && candidate !== "Finished" && candidate !== "Stopped" && candidate !== "Working") {
                 latestSummary = candidate;
+                latestSummaryIsAction = Boolean(
+                  ev?.kind === "act" ||
+                    ev?.kind === "graph" ||
+                    ev?.msg_kind === "step" ||
+                    (ev?.kind === "msg" && ev.role !== "user" && isAgentActionLine(ev.text, ev.kind, ev.msg_kind))
+                );
                 break;
               }
             }
@@ -3710,7 +3865,14 @@
           }
 
           const detailLines = formatStepDetails(childRun, events, app);
-          const workData = buildWorkStepsForRun(childRun, detail, app);
+          const workData = buildWorkStepsForRun(
+            childRun,
+            detail,
+            app,
+            groupTranscriptRows,
+            stepRunIdSet,
+            includeUnmatchedTranscriptSteps
+          );
 
           return {
             id: childRun.id,
@@ -3722,6 +3884,7 @@
             stateSymbolWord,
             stateColorClass,
             latestSummary,
+            latestSummaryIsAction,
             detailLines,
             workSteps: workData.lines,
             workStepCount: workData.stepCount,
@@ -3956,6 +4119,17 @@
           const nowSec = meta && meta.nowSec != null ? Number(meta.nowSec) : Date.now() / 1000;
           const primaryAgentPref = readPrimaryAgentPref(meta);
           const byId = new Map(runsList.map((r) => [r.id, r]));
+          const rootParentByRunId = new Map();
+          for (const r of runsList) {
+            if (!r || !r.id) continue;
+            let cur = r;
+            const seen = new Set();
+            while (cur && cur.parent && byId.has(cur.parent) && !seen.has(cur.id)) {
+              seen.add(cur.id);
+              cur = byId.get(cur.parent);
+            }
+            rootParentByRunId.set(r.id, cur ? (cur.parent && !byId.has(cur.parent) ? cur.id : cur.parent || cur.id) : r.id);
+          }
 
           /* Group child runs under parent orchestrator runs */
           const parents = runsList.filter((r) => !r.parent || !byId.has(r.parent));
@@ -4107,7 +4281,17 @@
             const hasMockVerify = hasMockVerifyEvidence(groupRuns, detailsById);
             const isMockRun = isMockRunGroup(groupRuns, detailsById, costsById[parent.id], isSampleContext);
 
+            const rawGroupTranscript = Array.isArray(transcriptsById[parent.id])
+              ? transcriptsById[parent.id].filter((row) => {
+                  if (!row) return false;
+                  if (row.run && rootParentByRunId.has(row.run) && rootParentByRunId.get(row.run) !== parent.id) {
+                    return false;
+                  }
+                  return true;
+                })
+              : [];
             const stepRuns = rawChildren.length ? rawChildren : [parent];
+            const stepRunIdSet = new Set(stepRuns.map((r) => r.id));
             const steps = stepRuns.map((child, idx) => {
               const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
               return mapStep(
@@ -4121,7 +4305,10 @@
                 parentRouteEvent,
                 transcriptsById,
                 primaryAgentPref,
-                stepRuns.length
+                stepRuns.length,
+                rawGroupTranscript,
+                stepRunIdSet,
+                idx === 0
               );
             });
             const stepById = new Map(steps.map((s) => [s.id, s]));
@@ -4268,8 +4455,8 @@
               evidenceText,
               outputs: producedOutputs,
             });
-            const transcriptRows = normalizeTranscriptRows(meta.transcriptsById?.[parent.id]);
-            const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById, meta.transcriptsById?.[parent.id]);
+            const transcriptRows = normalizeTranscriptRows(rawGroupTranscript, parent.id, rootParentByRunId);
+            const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById, rawGroupTranscript);
             const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
             const lastTranscriptRow = transcriptRows.length ? transcriptRows[transcriptRows.length - 1] : null;
             const lastTsFromTranscript =
@@ -4448,11 +4635,6 @@
       let lastScrolledRunKey = "";
       const LAST_THREAD_STORAGE_KEY = "ca.lastThreadId";
       const SEEN_FAILED_STORAGE_KEY = "ca.seenFailedRuns";
-      const STARTER_PROMPTS = [
-        "Compute 23 × 19 in Calculator",
-        "Find the PDF I downloaded today",
-        "Write a launch post for my app",
-      ];
       let hasInitializedFailureBaseline = false;
       let pillFailureToast = null; // { runId, text, expiresAt }
       let pillFailureTimer = null;
@@ -4567,12 +4749,23 @@
         { key: "amber",  name: "Amber",  color: "#F0D9BE", edge: "#FFFCE0", ink: "#865733" },
       ];
 
+      function readPrimaryAgentStorageRaw() {
+        try {
+          if (typeof localStorage === "undefined") return "";
+          return localStorage.getItem("ca.primaryAgent") || "";
+        } catch {
+          return "";
+        }
+      }
+
+      let lastPrimaryAgentRaw = readPrimaryAgentStorageRaw();
+
       function resolvePrimaryAgentDisplay(backendName, backendColor) {
         const cleanName = String(backendName || "").trim();
-        const result = { name: cleanName, color: backendColor || "" };
+        const result = { name: cleanName, color: backendColor || "", edge: "", ink: "" };
         if (cleanName !== "ComputerAnything") return result;
         try {
-          const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ca.primaryAgent") : null;
+          const raw = readPrimaryAgentStorageRaw();
           if (!raw) return result;
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object") return result;
@@ -4584,7 +4777,11 @@
             ? PRIMARY_AGENT_SWATCHES.find((s) => s.key === lower || s.name.toLowerCase() === lower || s.color === upper) || null
             : null;
           if (alias) result.name = alias;
-          if (swatch) result.color = swatch.color;
+          if (swatch) {
+            result.color = swatch.color;
+            result.edge = swatch.edge;
+            result.ink = swatch.ink;
+          }
         } catch {
           // Ignore invalid stored primaryAgent preference
         }
@@ -4652,18 +4849,18 @@
       function syncThreadModeBar() {
         if (!promptInput) return;
         let label = "Ask your agents…";
-        if (viewMode === "list" || isComposingNewChat || !lastViewModel?.runs?.length) {
-          const primary = getPrimaryAgentRowIdentity();
-          if (primary?.name && primary.name !== "ComputerAnything") {
-            label = `Ask ${primary.name}…`;
-          } else if (primary?.name) {
-            label = `Ask ${primary.name}…`;
-          }
-        } else if (lastViewModel?.runs?.length) {
-          const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
-          const firstStepName = activeRun?.steps?.[0]?.agentIdentity?.name;
-          if (firstStepName) {
-            label = `Ask ${firstStepName}…`;
+        if (viewMode === "chat") {
+          if (!lastViewModel?.runs?.length || isComposingNewChat) {
+            const primary = getPrimaryAgentRowIdentity();
+            if (primary?.name) {
+              label = `Ask ${primary.name}…`;
+            }
+          } else {
+            const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
+            const firstStepName = activeRun?.steps?.[0]?.agentIdentity?.name || getPrimaryAgentRowIdentity().name;
+            if (firstStepName) {
+              label = `Ask ${firstStepName}…`;
+            }
           }
         }
         promptInput.placeholder = label;
@@ -5107,6 +5304,18 @@
             e.preventDefault();
             closeLinkInput();
             attachBtn.focus();
+            return;
+          }
+          const fileSearchEl = document.getElementById("file-search-row");
+          if (fileSearchEl && !fileSearchEl.classList.contains("hidden")) {
+            e.preventDefault();
+            fileSearchEl.classList.add("hidden");
+            const fInput = document.getElementById("file-search-input");
+            const fResults = document.getElementById("file-search-results");
+            if (fInput) fInput.value = "";
+            if (fResults) fResults.innerHTML = "";
+            syncSizeAndBridge();
+            promptInput.focus();
             return;
           }
           if (getCurrentState() === "expanded") {
@@ -5713,7 +5922,7 @@
         const explicitThread =
           options.thread !== undefined
             ? options.thread
-            : isComposingNewChat
+            : (viewMode === "list" || isComposingNewChat)
             ? ""
             : selectedRunId;
         const threadTarget =
@@ -5946,16 +6155,17 @@
       }
 
       function buildPanelStructureKey(vm, activeRun) {
-        if (vm.connectionStatus === "loading" && !hasLoadedOnce) return "loading";
-        if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}`;
+        const primaryRaw = readPrimaryAgentStorageRaw();
+        if (vm.connectionStatus === "loading" && !hasLoadedOnce) return `loading:${primaryRaw}`;
+        if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}:${primaryRaw}`;
         const listSummaryKey = vm.runs
           .map((r) => `${r.id}:${r.state}:${r.stateSymbolWord}:${isFailedRunSeen(r.id) ? 1 : 0}:${r.lastLinePreview}:${r.elapsedText}`)
           .join("|");
         if (viewMode === "list") {
-          return `list:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${listSummaryKey}`;
+          return `list:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${listSummaryKey}`;
         }
         if (isComposingNewChat || !activeRun) {
-          return `new:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}`;
+          return `new:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}`;
         }
 
         const helpKey = activeRun.pendingHelp
@@ -5977,7 +6187,7 @@
           .map((o) => `${o.id}:${openOutputPreviewIds.has(`${activeRun.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${activeRun.id}:${o.id}`) ? 1 : 0}`)
           .join("|");
         const transcriptKey = activeRun.transcriptRows
-          .map((t) => `${t.id}:${t.role}:${t.who}:${t.text}`)
+          .map((t) => `${t.id}:${t.role}:${t.who}:${t.color}:${t.text}`)
           .join("|");
 
         const liveStepsKey =
@@ -5989,6 +6199,7 @@
 
         return [
           "chat",
+          primaryRaw,
           vm.connectionStatus,
           vm.isSampleData ? 1 : 0,
           vm.liveAgents.length,
@@ -6018,10 +6229,17 @@
         ].join("::");
       }
 
-      function renderAgentChipHtml(agentIdentity, chipId) {
+      function renderAgentChipHtml(agentIdentity, chipId, buttonOptions) {
         const id = agentIdentity || { name: "Agent", color: "#5c6b7a", hasAgentColor: false, palette: { body: "rgba(92, 107, 122, 0.25)", edge: "#E0E3E6", ink: "#F2F4F8" } };
         const pal = id.palette || { body: "rgba(92, 107, 122, 0.25)", edge: "#E0E3E6", ink: "#F2F4F8" };
-        return `<span class="agent-chip" style="--chip-bg: ${escapeHtml(pal.body)}; --chip-edge: ${escapeHtml(pal.edge)}; --chip-ink: ${escapeHtml(pal.ink)};" data-agent-chip="${escapeHtml(chipId)}" data-agent-has-color="${id.hasAgentColor ? "1" : "0"}" data-agent-name="${escapeHtml(id.name)}" data-agent-color="${escapeHtml(id.color)}" data-agent-edge="${escapeHtml(id.rawEdge || pal.edge)}" data-agent-ink="${escapeHtml(id.rawInk || pal.ink)}"><span class="agent-chip-label">${escapeHtml(id.name)}</span></span>`;
+        const styleAttr = `style="--chip-bg: ${escapeHtml(pal.body)}; --chip-edge: ${escapeHtml(pal.edge)}; --chip-ink: ${escapeHtml(pal.ink)};"`;
+        const dataAttrs = `data-agent-chip="${escapeHtml(chipId)}" data-agent-has-color="${id.hasAgentColor ? "1" : "0"}" data-agent-name="${escapeHtml(id.name)}" data-agent-color="${escapeHtml(id.color)}" data-agent-edge="${escapeHtml(id.rawEdge || pal.edge)}" data-agent-ink="${escapeHtml(id.rawInk || pal.ink)}"`;
+        if (buttonOptions && buttonOptions.action) {
+          const ariaLabel = buttonOptions.ariaLabel || `Agent settings for ${id.name}`;
+          const title = buttonOptions.title || "Agent settings";
+          return `<button type="button" class="agent-chip agent-chip-btn" data-action="${escapeHtml(buttonOptions.action)}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(title)}" ${styleAttr} ${dataAttrs}><span class="agent-chip-label">${escapeHtml(id.name)}</span></button>`;
+        }
+        return `<span class="agent-chip" ${styleAttr} ${dataAttrs}><span class="agent-chip-label">${escapeHtml(id.name)}</span></span>`;
       }
 
       function getPrimaryAgentRowIdentity() {
@@ -6039,12 +6257,9 @@
         };
       }
 
-      function renderAvatarHtml(identity, isPrimaryRow) {
+      function renderAvatarHtml(identity) {
         const name = String(identity?.name || "A").trim();
         const initial = name.charAt(0).toUpperCase() || "A";
-        if (isPrimaryRow) {
-          return `<div class="chat-avatar" style="--av-bg: #2b2f38; --av-ink: var(--text-primary); --av-edge: rgba(255, 255, 255, 0.16);">${escapeHtml(initial)}</div>`;
-        }
         const pal = identity?.palette || { body: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" };
         return `<div class="chat-avatar" style="--av-bg: ${escapeHtml(pal.body)}; --av-ink: ${escapeHtml(pal.ink)}; --av-edge: ${escapeHtml(pal.edge)};">${escapeHtml(initial)}</div>`;
       }
@@ -6068,7 +6283,7 @@
         const primaryLabel = primary.name === "ComputerAnything" ? "Your agent" : primary.name;
         const primaryRoleTag = primary.name === "ComputerAnything" ? "" : `<span class="chat-list-role">&middot; your agent</span>`;
         const primaryRowHtml = `
-          <button type="button" class="chat-list-row" data-action="new-primary-chat">
+          <div role="button" tabindex="0" class="chat-list-row" data-action="new-primary-chat" aria-label="Start new chat with ${escapeHtml(primaryLabel)}">
             ${renderAvatarHtml(primary, true)}
             <div class="chat-list-mid">
               <div class="chat-list-name-row">
@@ -6078,7 +6293,7 @@
               <div class="chat-list-preview">Type here to start a new chat</div>
             </div>
             <div class="chat-list-rt">&nbsp;</div>
-          </button>
+          </div>
         `;
 
         const indexed = vm.runs.map((r, idx) => ({ r, idx }));
@@ -6108,7 +6323,7 @@
             const badge = formatListStateBadge(r);
             const timeText = r.listClockText || (r.elapsedText && r.elapsedText !== "—" ? r.elapsedText : "");
             return `
-              <button type="button" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}">
+              <div role="button" tabindex="0" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}" aria-label="Open chat with ${escapeHtml(displayNames)}">
                 ${renderAvatarHtml(leadIdentity, false)}
                 <div class="chat-list-mid">
                   <div class="chat-list-name-row">
@@ -6120,7 +6335,7 @@
                   ${badge ? `<span class="state-text ${escapeHtml(badge.cls)}">${escapeHtml(badge.text)}</span>` : ""}
                   ${timeText ? `<span class="chat-list-time">${escapeHtml(timeText)}</span>` : ""}
                 </div>
-              </button>
+              </div>
             `;
           })
           .join("");
@@ -6260,6 +6475,18 @@
             <span class="panel-header-right">
               ${workingCount > 0 ? `<span class="state-text state-working">${escapeHtml(String(workingCount))} working</span>` : ""}
               ${stopAllBtnHtml}
+              <button type="button" class="btn btn-icon" data-action="new-primary-chat" aria-label="New chat" title="New chat">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M7 2.5V11.5M2.5 7H11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button type="button" class="btn btn-icon" data-action="open-app-settings" aria-label="App settings" title="App settings">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4"/>
+                  <path d="M8 2.2V3.6M8 12.4V13.8M13.8 8H12.4M3.6 8H2.2M12.1 3.9L11.1 4.9M4.9 11.1L3.9 12.1M12.1 12.1L11.1 11.1M4.9 4.9L3.9 3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button type="button" class="btn btn-esc" data-action="close-notch" aria-label="Close notch" title="Close (Esc)">Esc</button>
             </span>
           `);
           blocks.push(renderChatListHtml(vm));
@@ -6279,13 +6506,11 @@
             } else if (!selectedRunId || !vm.runs.some((r) => r.id === selectedRunId)) {
               selectedRunId = newestId;
             }
-          } else if (newestId !== latestSeenRunId) {
+          } else {
             latestSeenRunId = newestId;
-            selectedRunId = newestId;
-            viewMode = "chat";
-            isComposingNewChat = false;
-            saveLastThreadId(newestId);
-            stopStepReplay();
+            if (!selectedRunId || (!vm.runs.some((r) => r.id === selectedRunId) && !optimisticRuns.length)) {
+              selectedRunId = newestId;
+            }
           }
         }
 
@@ -6300,26 +6525,18 @@
                   <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </button>
-              ${renderAgentChipHtml(primary, "empty-chat-header")}
+              ${renderAgentChipHtml(primary, "empty-chat-header", {
+                action: "open-agent-settings",
+                ariaLabel: `Agent settings for ${primary.name}`,
+                title: "Agent settings",
+              })}
             </div>
-            ${stopAllBtnHtml ? `<span class="panel-header-right">${stopAllBtnHtml}</span>` : ""}
+            <span class="panel-header-right">
+              ${stopAllBtnHtml}
+              <button type="button" class="btn btn-esc" data-action="close-notch" aria-label="Close notch" title="Close (Esc)">Esc</button>
+            </span>
           `);
-          blocks.push(`
-            <div class="starter-section">
-              <div class="starter-list">
-                ${STARTER_PROMPTS.map(
-                  (promptText) => `
-                    <button
-                      type="button"
-                      class="btn starter-btn"
-                      data-action="run-starter"
-                      data-prompt="${escapeHtml(promptText)}"
-                    >${escapeHtml(promptText)}</button>
-                  `
-                ).join("")}
-              </div>
-            </div>
-          `);
+          blocks.push(`<div class="chat-empty-note">Ask your agent anything to start this chat.</div>`);
           timelineScroll.innerHTML = blocks.join("");
           mountAllAgentChips();
           syncSizeAndBridge();
@@ -6350,10 +6567,17 @@
                 <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            ${renderAgentChipHtml(headerAgent, `chathead-${activeRun.id}`)}
+            ${renderAgentChipHtml(headerAgent, `chathead-${activeRun.id}`, {
+              action: "open-agent-settings",
+              ariaLabel: `Agent settings for ${headerAgent.name}`,
+              title: "Agent settings",
+            })}
             <span class="chat-nav-title" title="${escapeHtml(activeRun.goal)}">${escapeHtml(activeRun.goal)}</span>
           </div>
-          ${stopAllBtnHtml ? `<span class="panel-header-right">${stopAllBtnHtml}</span>` : ""}
+          <span class="panel-header-right">
+            ${stopAllBtnHtml}
+            <button type="button" class="btn btn-esc" data-action="close-notch" aria-label="Close notch" title="Close (Esc)">Esc</button>
+          </span>
         `);
 
         const messageNodes = [];
@@ -6438,32 +6662,19 @@
             attachedWorkStepIds.add(matchingStep.id);
             workHtml = renderWorkDividerHtml(activeRun.id, matchingStep);
           }
-          let stepLiveHtml = "";
-          if (
-            matchingStep &&
-            matchingStep.liveStep &&
-            !attachedLiveStepIds.has(matchingStep.id) &&
-            lastRowIdxByStepId.get(matchingStep.id) === idx
-          ) {
-            attachedLiveStepIds.add(matchingStep.id);
-            stepLiveHtml = renderLiveStepHtml(matchingStep.liveStep);
-          }
           messageNodes.push(`
             <div class="chat-msg-row is-agent">
               <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}</div>
               <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
               ${workHtml}
-              ${stepLiveHtml}
             </div>
           `);
         });
 
         for (const step of activeRun.steps) {
           const needsWork = !attachedWorkStepIds.has(step.id);
-          const needsLive = Boolean(step.liveStep && !attachedLiveStepIds.has(step.id));
-          if (!needsWork && !needsLive && renderedAgentBubble) continue;
+          if (!needsWork && renderedAgentBubble) continue;
           const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step) : "";
-          const stepLiveHtml = needsLive ? renderLiveStepHtml(step.liveStep) : "";
           let greetingText = "";
           if (!renderedAgentBubble) {
             if (step.goal && activeRun.steps.length > 1) {
@@ -6472,35 +6683,24 @@
               greetingText = step.app ? `Working in ${step.app}` : "Working on it";
             } else if (activeRun.speakText && !/^Finished\.?$/i.test(activeRun.speakText) && activeRun.steps.length === 1) {
               greetingText = activeRun.speakText;
-            } else if (step.latestSummary && !/^Finished\.?$/i.test(step.latestSummary)) {
+            } else if (step.latestSummary && !step.latestSummaryIsAction && !/^Finished\.?$/i.test(step.latestSummary)) {
               greetingText = step.latestSummary;
             } else if (activeRun.stateFact && activeRun.steps.length === 1) {
               greetingText = activeRun.stateFact;
-            } else {
+            } else if (!workHtml) {
               greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
             }
           }
-          if (greetingText || workHtml || stepLiveHtml) {
+          if (greetingText || workHtml) {
             attachedWorkStepIds.add(step.id);
-            if (stepLiveHtml) attachedLiveStepIds.add(step.id);
             messageNodes.push(`
               <div class="chat-msg-row is-agent">
-                ${greetingText || stepLiveHtml ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div>` : ""}
+                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div>` : ""}
                 ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
                 ${workHtml}
-                ${stepLiveHtml}
               </div>
             `);
           }
-        }
-
-        if (activeRun.liveStep && !attachedLiveStepIds.has(activeRun.liveStep.runId)) {
-          messageNodes.push(`
-            <div class="chat-msg-row is-agent">
-              <div class="chat-msg-head">${renderAgentChipHtml(headerAgent, `live-${activeRun.id}`)}</div>
-              ${renderLiveStepHtml(activeRun.liveStep)}
-            </div>
-          `);
         }
 
         const approvalHistoryHtml = (activeRun.approvalHistory || [])
@@ -6775,6 +6975,28 @@
         const actionBtn = e.target.closest("[data-action]");
         if (actionBtn) {
           const action = actionBtn.dataset.action;
+          if (action === "select-chat" || action === "new-primary-chat") {
+            const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+            if (sel && !sel.isCollapsed && String(sel).trim()) {
+              const anchorInRow = sel.anchorNode && actionBtn.contains(sel.anchorNode);
+              const focusInRow = sel.focusNode && actionBtn.contains(sel.focusNode);
+              if (anchorInRow || focusInRow) {
+                return;
+              }
+            }
+          }
+          if (action === "close-notch") {
+            setState("collapsed", { instant: true });
+            return;
+          }
+          if (action === "open-agent-settings") {
+            Transport.openWorkspace(fixtureParam || "", { view: "agent-settings" });
+            return;
+          }
+          if (action === "open-app-settings") {
+            Transport.openWorkspace(fixtureParam || "", { view: "app-settings" });
+            return;
+          }
           if (action === "open-chat-list") {
             viewMode = "list";
             isComposingNewChat = false;
@@ -6782,6 +7004,7 @@
             return;
           }
           if (action === "new-primary-chat") {
+            selectedRunId = null;
             viewMode = "chat";
             isComposingNewChat = true;
             renderNow();
@@ -6820,22 +7043,6 @@
           if (action === "run-again") {
             const p = actionBtn.dataset.prompt || "";
             if (p) submitTask(p, [], { thread: "" });
-            return;
-          }
-          if (action === "pick-starter") {
-            const p = actionBtn.dataset.prompt || "";
-            if (p) {
-              promptInput.value = p;
-              syncPromptFieldState();
-              promptInput.focus();
-            }
-            return;
-          }
-          if (action === "run-starter") {
-            const p = actionBtn.dataset.prompt || "";
-            if (p) {
-              submitTask(p, [], { thread: "" });
-            }
             return;
           }
           if (action === "reply-run") {
@@ -7074,6 +7281,15 @@
         }
       });
 
+      panelView.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const roleBtn = e.target.closest('[role="button"][data-action]');
+        if (!roleBtn || roleBtn.tagName === "BUTTON") return;
+        e.preventDefault();
+        roleBtn.click();
+      });
+
       /* ---------------- POLLING ---------------- */
       async function pollAll() {
         if (!Transport.isConnected()) {
@@ -7294,6 +7510,7 @@
             }
           }
           processSpokenReplies(nextRuns);
+          lastPrimaryAgentRaw = readPrimaryAgentStorageRaw();
           renderNow();
         } catch (err) {
           if (err.code === "AUTH") {
@@ -7382,8 +7599,17 @@
         actorLabelForRole: WorkspaceAdapter.actorLabelForRole,
       };
 
+      function syncPrimaryAgentPrefFromStorage() {
+        const currentRaw = readPrimaryAgentStorageRaw();
+        if (currentRaw === lastPrimaryAgentRaw) return false;
+        lastPrimaryAgentRaw = currentRaw;
+        renderNow();
+        return true;
+      }
+
       window.addEventListener("storage", (e) => {
         if (!e.key || e.key === "ca.primaryAgent") {
+          lastPrimaryAgentRaw = readPrimaryAgentStorageRaw();
           renderNow();
         }
         if (!e.key || e.key === "ca.focusTarget") {
@@ -7393,12 +7619,33 @@
 
       window.addEventListener("focus", () => {
         applyStoredFocusTarget();
+        if (syncPrimaryAgentPrefFromStorage()) return;
         if (hasLoadedOnce) renderNow();
       });
 
       window.addEventListener("shell-event", (e) => {
         const msg = e.detail || {};
         if (msg.type === "hotkey") setState("expanded", { instant: true });
+        if (msg.type === "primaryAgentUpdated") {
+          const payload = msg.primaryAgent && typeof msg.primaryAgent === "object"
+            ? msg.primaryAgent
+            : { alias: msg.alias, swatch: msg.swatch };
+          try {
+            if (typeof localStorage !== "undefined" && (typeof payload.alias === "string" || typeof payload.swatch === "string")) {
+              const prevRaw = readPrimaryAgentStorageRaw();
+              const prevObj = prevRaw ? JSON.parse(prevRaw) : {};
+              const nextObj = {
+                alias: typeof payload.alias === "string" ? payload.alias : (prevObj.alias || ""),
+                swatch: typeof payload.swatch === "string" ? payload.swatch : (prevObj.swatch || ""),
+              };
+              localStorage.setItem("ca.primaryAgent", JSON.stringify(nextObj));
+            }
+          } catch {
+            // Ignore storage errors when syncing shell-broadcast primary agent pref
+          }
+          lastPrimaryAgentRaw = readPrimaryAgentStorageRaw();
+          renderNow();
+        }
         if (msg.type === "filesDropped" && Array.isArray(msg.files)) {
           if (document.body.dataset.mode === "chat") {
             if (typeof window.__caOnChatFilesDropped === "function") {
@@ -7480,6 +7727,7 @@
         }
         setInterval(pollAll, 1000);
         setInterval(() => {
+          syncPrimaryAgentPrefFromStorage();
           if (!lastViewModel) return;
           const isExpanded = getCurrentState() === "expanded";
           const pendingRun = lastViewModel.pendingHelpRunId
