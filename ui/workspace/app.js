@@ -5141,9 +5141,7 @@
         } · ${a.cursor_scale}x`;
       }
       if (sNum === 4) {
-        const p = OnboardingState.permissions;
-        const count = [p.accessibility, p.screen_recording, p.app_scripting].filter(Boolean).length;
-        return count === 3 ? "✓ All 3 permissions granted" : `${count} of 3 permissions granted`;
+        return "Permissions reviewed (macOS asks when needed)";
       }
       if (sNum === 5) {
         if (OnboardingState.stageDisplay === "primary") return "Primary display";
@@ -5326,61 +5324,50 @@
         </div>
       `;
     } else if (step === 4) {
-      const perms = OnboardingState.permissions;
       const permItems = [
         {
           key: "accessibility",
+          pane: "accessibility",
           label: "Accessibility",
           why: "Needed so agents can click, type, and act inside apps.",
         },
         {
           key: "screen_recording",
+          pane: "screenRecording",
           label: "Screen Recording",
           why: "Needed so agents can read the screen and verify steps.",
         },
         {
           key: "app_scripting",
+          pane: "automation",
           label: "App scripting",
           why: "Needed for app scripting and faster deterministic shortcuts.",
         },
       ];
       const permsHtml = permItems
-        .map((p) => {
-          const granted = Boolean(perms[p.key]);
-          return `
+        .map(
+          (p) => `
             <div class="starter-prompt-row">
               <div>
                 <div class="starter-prompt-text">${escapeHtml(p.label)}</div>
                 <div class="section-subtitle">${escapeHtml(p.why)}</div>
               </div>
               <div class="filter-group">
-                <span class="state-text ${granted ? "state-success" : "state-warning"}">
-                  ${granted ? "✓ Granted" : "◔ Needed"}
-                </span>
-                ${
-                  vm.isSampleData
-                    ? `<button type="button" class="btn" data-action="toggle-sample-perm" data-perm-key="${p.key}">${granted ? "Not now" : "Allow"}</button>`
-                    : ""
-                }
+                <button type="button" class="btn" data-action="open-settings-pane" data-pane="${escapeHtml(p.pane)}">Open System Settings</button>
               </div>
             </div>
-          `;
-        })
+          `
+        )
         .join("");
 
-      const allGranted = perms.accessibility && perms.screen_recording && perms.app_scripting;
       stepBodyHtml = `
         <div class="onboarding-block">
           <h3 class="section-title">Permissions</h3>
           <p class="section-subtitle">
-            All three permissions are required before continuing. Live permission check endpoint is not on the backend yet${vm.isSampleData ? " — use Allow below to test in sample mode" : ""}.
+            macOS asks when an agent first needs each permission. You can also open System Settings now.
           </p>
           <div class="starter-prompts-list">${permsHtml}</div>
-          <div class="filter-group">
-            <span class="state-text ${allGranted ? "state-success" : "state-warning"}">
-              ${allGranted ? "✓ Ready to continue" : "◔ Waiting for all three permissions"}
-            </span>
-          </div>
+          ${HistorySettingsState.paneStatus ? `<p class="section-subtitle">${escapeHtml(HistorySettingsState.paneStatus)}</p>` : ""}
         </div>
       `;
     } else if (step === 5) {
@@ -5541,11 +5528,7 @@
       `;
     }
 
-    const canAdvanceFromPerms =
-      step !== 4 ||
-      (OnboardingState.permissions.accessibility &&
-        OnboardingState.permissions.screen_recording &&
-        OnboardingState.permissions.app_scripting);
+    const canAdvanceFromPerms = true;
 
     const existingAliasInput = document.getElementById("onboarding-agent-name");
     const aliasHadFocus = document.activeElement === existingAliasInput;
@@ -5580,7 +5563,7 @@
           <div class="section-header-row onboarding-footer">
             <div class="filter-group">
               <button type="button" class="btn" data-action="prev-onboarding-step" ${step <= 1 ? "disabled" : ""}>Back</button>
-              ${step !== 4 && step < OnboardingState.totalSteps ? `<button type="button" class="btn" data-action="skip-onboarding-step">Skip</button>` : ""}
+              ${step < OnboardingState.totalSteps ? `<button type="button" class="btn" data-action="skip-onboarding-step">Skip</button>` : ""}
             </div>
             <div class="filter-group">
               ${
@@ -7429,17 +7412,6 @@
         case "goto-onboarding-step": {
           const targetStep = Number(actionEl.dataset.step);
           if (!Number.isNaN(targetStep) && targetStep >= 1 && targetStep <= OnboardingState.totalSteps) {
-            if (
-              OnboardingState.step === 4 &&
-              targetStep > 4 &&
-              !(
-                OnboardingState.permissions.accessibility &&
-                OnboardingState.permissions.screen_recording &&
-                OnboardingState.permissions.app_scripting
-              )
-            ) {
-              break;
-            }
             OnboardingState.step = targetStep;
             renderNow();
           }
@@ -7455,9 +7427,6 @@
 
         case "next-onboarding-step":
         case "skip-onboarding-step":
-          if (action === "skip-onboarding-step" && OnboardingState.step === 4) {
-            break;
-          }
           if (OnboardingState.step < OnboardingState.totalSteps) {
             OnboardingState.step += 1;
             renderNow();
