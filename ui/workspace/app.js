@@ -678,7 +678,7 @@
      ============================================================================ */
   const OnboardingState = {
     step: 1,
-    totalSteps: 9,
+    totalSteps: 8,
     userName: "",
     callMe: "",
     pronounce: "",
@@ -708,8 +708,6 @@
       app_scripting: false,
     },
     stageDisplay: "secondary",
-    blockedApps: ["Banking", "Passwords", "Health"],
-    customBlockedApp: "",
     memoryEnabled: true,
     confirmForgetOnboardingMemory: false,
     memoryStatusNote: "",
@@ -5120,7 +5118,6 @@
       "Before I operate apps, let's check the three macOS permissions I need.",
       "Which display should hold the agent stage while I work?",
       "Sensitive actions always ask first. Here is the approval gate:",
-      "Which apps should stay off-limits?",
       "Should I remember preferences across tasks?",
       "Ready to run your first task? Pick a starter prompt below.",
     ];
@@ -5150,8 +5147,7 @@
         return "Secondary display";
       }
       if (sNum === 6) return "Sensitive categories ask first";
-      if (sNum === 7) return `Blocked: ${OnboardingState.blockedApps.join(", ")}`;
-      if (sNum === 8) return OnboardingState.memoryEnabled ? "Memory allowed" : "Not now";
+      if (sNum === 7) return OnboardingState.memoryEnabled ? "Memory allowed" : "Not now";
       return "Ready for first task";
     }
 
@@ -5444,35 +5440,6 @@
         </div>
       `;
     } else if (step === 7) {
-      const blockedHtml = OnboardingState.blockedApps
-        .map(
-          (app) => `
-            <span class="attachment-token">
-              <span class="attachment-name">${escapeHtml(app)}</span>
-              ${
-                ["Banking", "Passwords", "Health"].includes(app)
-                  ? `<span class="section-subtitle" style="margin-left:4px;">Locked</span>`
-                  : `<button type="button" class="attachment-remove" data-action="remove-blocked-app" data-app="${escapeHtml(app)}" aria-label="Remove ${escapeHtml(app)}">&times;</button>`
-              }
-            </span>
-          `
-        )
-        .join("");
-      stepBodyHtml = `
-        <div class="onboarding-block">
-          <h3 class="section-title">Off-limits apps</h3>
-          <p class="section-subtitle">
-            Banking, passwords, and health apps are blocked by default so agents never open or read them.
-          </p>
-          <div class="attachments-list">${blockedHtml}</div>
-          <div class="filter-bar" style="margin-top:8px;">
-            <label for="onboarding-block-app-input" class="filter-label">Add app to block:</label>
-            <input type="text" id="onboarding-block-app-input" class="inline-text-input" value="${escapeHtml(OnboardingState.customBlockedApp)}" placeholder="e.g. Messages" maxlength="40" />
-            <button type="button" class="btn" data-action="add-blocked-app">Block app</button>
-          </div>
-        </div>
-      `;
-    } else if (step === 8) {
       stepBodyHtml = `
         <div class="onboarding-block">
           <h3 class="section-title">Memory</h3>
@@ -5636,12 +5603,6 @@
     if (pronounceInput) {
       pronounceInput.addEventListener("input", (e) => {
         OnboardingState.pronounce = e.target.value;
-      });
-    }
-    const blockAppInput = document.getElementById("onboarding-block-app-input");
-    if (blockAppInput) {
-      blockAppInput.addEventListener("input", (e) => {
-        OnboardingState.customBlockedApp = e.target.value;
       });
     }
   }
@@ -7494,25 +7455,6 @@
           const disp = actionEl.dataset.display;
           if (disp === "secondary" || disp === "primary" || disp === "ask") {
             OnboardingState.stageDisplay = disp;
-            renderNow();
-          }
-          break;
-        }
-
-        case "add-blocked-app": {
-          const name = (OnboardingState.customBlockedApp || "").trim();
-          if (name && !OnboardingState.blockedApps.includes(name)) {
-            OnboardingState.blockedApps.push(name);
-            OnboardingState.customBlockedApp = "";
-            renderNow();
-          }
-          break;
-        }
-
-        case "remove-blocked-app": {
-          const appName = actionEl.dataset.app;
-          if (appName && !["Banking", "Passwords", "Health"].includes(appName)) {
-            OnboardingState.blockedApps = OnboardingState.blockedApps.filter((a) => a !== appName);
             renderNow();
           }
           break;
