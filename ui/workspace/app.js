@@ -5301,7 +5301,7 @@
 
         <details class="analytics-disclosure">
           <summary class="analytics-disclosure-summary">
-            <span class="analytics-disclosure-summary-left">Reliability per app &amp; memory stats</span>
+            <span class="analytics-disclosure-summary-left">How reliably each app works</span>
             <span class="section-subtitle">${Array.isArray(an?.by_app) ? `${an.by_app.length} apps` : "0 apps"} &middot; ${escapeHtml(gs.screens ?? 0)} screens</span>
           </summary>
           <div class="analytics-disclosure-body">
