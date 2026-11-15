@@ -851,90 +851,6 @@
       min-width: 0;
     }
 
-    .act-replay-section {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding-top: 8px;
-      border-top: 1px solid var(--line-divider);
-    }
-
-    .act-replay-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-height: 28px;
-    }
-
-    .act-replay-list {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      max-height: 200px;
-      overflow-y: auto;
-      scrollbar-color: var(--bg-app) var(--bg-app);
-    }
-
-    .act-replay-list::-webkit-scrollbar {
-      width: 4px;
-      height: 4px;
-    }
-
-    .act-replay-list::-webkit-scrollbar-track {
-      background: var(--bg-app);
-    }
-
-    .act-replay-list::-webkit-scrollbar-thumb {
-      background: var(--bg-app);
-      border-radius: 4px;
-    }
-
-    .act-replay-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 28px;
-      padding: 4px 8px;
-      border-radius: 6px;
-      font-size: 12px;
-      line-height: 16px;
-      color: var(--text-secondary);
-      transition: background-color var(--dur-enter) ease, color var(--dur-enter) ease;
-    }
-
-    .act-replay-row.is-replaying {
-      background: var(--btn-hover);
-      color: var(--text-primary);
-    }
-
-    .act-replay-index {
-      color: var(--text-muted);
-      font-variant-numeric: tabular-nums;
-      min-width: 18px;
-      flex-shrink: 0;
-    }
-
-    .act-replay-agent {
-      font-weight: 600;
-      color: var(--text-primary);
-      flex-shrink: 0;
-    }
-
-    .act-replay-action {
-      min-width: 0;
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .act-replay-meta {
-      color: var(--text-muted);
-      font-variant-numeric: tabular-nums;
-      flex-shrink: 0;
-    }
-
     .run-outcome-row {
       display: flex;
       align-items: center;
@@ -1007,70 +923,6 @@
       min-width: 0;
       flex: 1;
       overflow-wrap: anywhere;
-    }
-
-    /* Pending human help request inline inside timeline */
-    .help-block {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--line-divider);
-    }
-
-    .help-row {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      min-height: 32px;
-      width: 100%;
-    }
-
-    .help-question {
-      font-size: 13px;
-      line-height: 20px;
-      font-weight: 600;
-      color: var(--text-primary);
-      min-width: 0;
-      flex: 1 1 220px;
-      word-break: break-word;
-    }
-
-    .help-actions {
-      display: inline-flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-      max-width: 100%;
-    }
-
-    .help-meta {
-      font-size: 12px;
-      line-height: 16px;
-      color: var(--text-muted);
-      word-break: break-word;
-    }
-
-    .help-warning {
-      font-size: 12px;
-      line-height: 16px;
-      font-weight: 600;
-      color: var(--state-warning);
-      word-break: break-word;
-    }
-
-    .help-countdown {
-      font-size: 12px;
-      line-height: 16px;
-      color: var(--text-secondary);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .help-block.is-expired .help-question {
-      color: var(--text-secondary);
     }
 
     /* Steps list: flat rows collapsed per run behind a keyboard-accessible toggle */
@@ -1838,7 +1690,6 @@
     .output-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
     .output-title { font-size: 12px; line-height: 16px; color: var(--text-primary); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .output-actions { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-    .help-block.is-focused { background: var(--bg-raised); border-radius: 8px; padding: 6px 8px; }
     .side-view { display: flex; flex-direction: column; gap: 12px; }
     .side-head { display: flex; align-items: center; justify-content: space-between; }
     .side-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
@@ -2195,7 +2046,7 @@
         function parseBackendAddress(raw) {
           const trimmed = String(raw || "").trim();
           if (!trimmed) {
-            return { ok: false, error: "Paste the address the backend printed" };
+            return { ok: false, error: "Paste the address ComputerAnything printed" };
           }
           let parsed;
           try {
@@ -2307,7 +2158,7 @@
 
         async function loadFixture(name) {
           const safe = String(name || "").replace(/[^A-Za-z0-9_-]/g, "");
-          if (!safe) throw new Error("Invalid fixture name");
+          if (!safe) throw new Error("Invalid sample name");
           let rawText = "";
           if (hasShellBridge()) {
             const res = await callShell("readFixture", { name: safe });
@@ -6847,7 +6698,7 @@
 
         if (!Transport.isConnected()) {
           connectionStatus = "disconnected";
-          connectionError = "Paste the address the backend printed";
+          connectionError = "Paste the address ComputerAnything printed";
           renderNow();
           return;
         }
@@ -7632,7 +7483,7 @@
             <div class="timeline-block">
               <div class="timeline-row">
                 <span class="state-text state-warning">&oslash; Not connected</span>
-                <span class="timeline-fact">${escapeHtml(vm.connectionError || "Paste the address the backend printed")}</span>
+                <span class="timeline-fact">${escapeHtml(vm.connectionError || "Paste the address ComputerAnything printed")}</span>
               </div>
               <div class="inline-input-row">
                 <input
@@ -7640,7 +7491,7 @@
                   id="connect-url-input"
                   class="inline-text-input"
                   placeholder="http://127.0.0.1:8765/?t=..."
-                  aria-label="Backend address"
+                  aria-label="ComputerAnything address"
                   value="${escapeHtml(prevInput)}"
                 />
                 <button type="button" id="connect-submit-btn" class="btn">Connect</button>
@@ -7821,7 +7672,7 @@
         const res = await Transport.setConnection(input.value);
         if (!res.ok) {
           connectionStatus = "disconnected";
-          connectionError = res.error || "Paste the address the backend printed";
+          connectionError = res.error || "Paste the address ComputerAnything printed";
           renderNow();
           return;
         }
@@ -8738,7 +8589,7 @@
             costsById = {};
             resetCapabilityState();
             connectionStatus = "disconnected";
-            connectionError = "Paste the address the backend printed";
+            connectionError = "Paste the address ComputerAnything printed";
           } else {
             connectionStatus = hasLoadedOnce ? "stale" : "disconnected";
           }
@@ -9079,7 +8930,7 @@
       window.__caBootView = function (mode, state) {
         if (!state || !state.connected) {
           document.body.insertAdjacentHTML("beforeend",
-            `<div class="note"><span class="state-text state-warning">Not connected to the backend</span></div>`);
+            `<div class="note"><span class="state-text state-warning">Not connected to the agents on this Mac</span></div>`);
           return;
         }
         (mode === "chat" ? bootChat : bootNotes)(state);
