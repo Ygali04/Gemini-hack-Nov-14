@@ -301,6 +301,7 @@
           voice_id: String(parsed.profile?.voice_id || ""),
           model: String(parsed.profile?.model || ""),
           decide_model: String(parsed.profile?.decide_model || ""),
+          agent_name: String(parsed.profile?.agent_name || ""),
         },
         supportsStop: parsed.supportsStop !== false,
         memory: Array.isArray(parsed.memory) ? parsed.memory : null,
@@ -458,11 +459,12 @@
           voice_id: String(p.voice_id || ""),
           model: String(p.model || ""),
           decide_model: String(p.decide_model || ""),
+          agent_name: String(p.agent_name || ""),
         };
       }
       if (method === "POST" && cleanPath === "/api/profile") {
         const updates = options.jsonBody || {};
-        const allowedKeys = ["call_me", "voice_id", "model", "decide_model"];
+        const allowedKeys = ["call_me", "voice_id", "model", "decide_model", "agent_name"];
         const badKeys = Object.keys(updates).filter((k) => !allowedKeys.includes(k));
         if (badKeys.length) {
           throw Object.assign(new Error(`unknown setting(s): ${badKeys.join(", ")}`), { status: 400, code: "HTTP" });
@@ -482,6 +484,7 @@
           voice_id: String(nextProfile.voice_id || ""),
           model: String(nextProfile.model || ""),
           decide_model: String(nextProfile.decide_model || ""),
+          agent_name: String(nextProfile.agent_name || ""),
         };
         return JSON.parse(JSON.stringify(fixtureState.profile));
       }
@@ -944,7 +947,28 @@
     }
   }
 
-  function savePrimaryAgentChoice() {
+  let appliedInitialProfileAgentName = false;
+  let lastSyncedProfileAgentName = null;
+
+  function syncAgentNameToProfile(rawName) {
+    const clean = String(rawName || "").trim();
+    if (!Transport.isConnected()) return;
+    if (lastSyncedProfileAgentName === clean) return;
+    lastSyncedProfileAgentName = clean;
+    Transport.request("POST", "/api/profile", { jsonBody: { agent_name: clean } })
+      .then((saved) => {
+        const savedName = String(saved?.agent_name ?? clean);
+        if (typeof HistorySettingsState !== "undefined" && HistorySettingsState?.profile) {
+          HistorySettingsState.profile.agent_name = savedName;
+          HistorySettingsState.profileDraft.agent_name = savedName;
+        }
+      })
+      .catch(() => {
+        // Ignore profile sync errors quietly
+      });
+  }
+
+  function savePrimaryAgentChoice(options = {}) {
     const sw = getPrimaryAgentSwatch();
     const alias = String(OnboardingState.agentName || "").trim();
     try {
@@ -961,6 +985,9 @@
       // Ignore storage errors
     }
     Transport.postPrimaryAgentUpdated(alias || null, sw.key);
+    if (options.syncProfile) {
+      syncAgentNameToProfile(alias);
+    }
   }
 
   loadPrimaryAgentChoice();
@@ -2522,12 +2549,14 @@
       voice_id: "",
       model: "",
       decide_model: "",
+      agent_name: "",
     },
     profileDraft: {
       call_me: "",
       voice_id: "",
       model: "",
       decide_model: "",
+      agent_name: "",
     },
     profileLoaded: false,
     profileDirty: false,
@@ -5687,12 +5716,12 @@
     if (nextAliasInput) {
       nextAliasInput.addEventListener("input", (e) => {
         OnboardingState.agentName = e.target.value;
-        savePrimaryAgentChoice();
+        savePrimaryAgentChoice({ syncProfile: true });
         renderOnboardingView(getViewModel());
       });
       attachImeSafeEnter(nextAliasInput, () => {
         OnboardingState.agentName = nextAliasInput.value.trim();
-        savePrimaryAgentChoice();
+        savePrimaryAgentChoice({ syncProfile: true });
         renderNow();
       });
       if (aliasHadFocus) {
@@ -6048,7 +6077,7 @@
     if (agentNameInput) {
       agentNameInput.addEventListener("input", (e) => {
         OnboardingState.agentName = e.target.value;
-        savePrimaryAgentChoice();
+        savePrimaryAgentChoice({ syncProfile: true });
         HistorySettingsState.savedRow = "agent_name";
         renderNow();
       });
@@ -6701,6 +6730,7 @@
         voice_id: String(saved?.voice_id ?? fullPayload.voice_id),
         model: String(saved?.model ?? fullPayload.model),
         decide_model: String(saved?.decide_model ?? fullPayload.decide_model),
+        agent_name: String(saved?.agent_name ?? HistorySettingsState.profile.agent_name ?? ""),
       };
       HistorySettingsState.profile = next;
       HistorySettingsState.profileDraft = { ...next };
@@ -6875,6 +6905,7 @@
         voice_id: String(p.voice_id || ""),
         model: String(p.model || ""),
         decide_model: String(p.decide_model || ""),
+        agent_name: String(p.agent_name || ""),
       };
       HistorySettingsState.profile = nextProfile;
       HistorySettingsState.profileLoaded = true;
@@ -6887,6 +6918,15 @@
       }
       if (nextProfile.voice_id && !OnboardingState.voiceDirty) {
         OnboardingState.voiceId = nextProfile.voice_id;
+      }
+      const remoteAgentName = nextProfile.agent_name.trim();
+      if (!appliedInitialProfileAgentName && activeId !== "settings-agent-name" && activeId !== "onboarding-agent-name") {
+        appliedInitialProfileAgentName = true;
+        lastSyncedProfileAgentName = remoteAgentName;
+        if (remoteAgentName) {
+          OnboardingState.agentName = remoteAgentName;
+          savePrimaryAgentChoice();
+        }
       }
       OnboardingState.profileLoaded = true;
       if (!autoOnboardingChecked && !hasExplicitInitialView && !activeFixtureName) {
@@ -7483,8 +7523,12 @@
           }
           try {
             await Transport.request("POST", "/api/profile", {
-              jsonBody: { call_me: OnboardingState.callMe },
+              jsonBody: {
+                call_me: OnboardingState.callMe,
+                agent_name: String(OnboardingState.agentName || "").trim(),
+              },
             });
+            lastSyncedProfileAgentName = String(OnboardingState.agentName || "").trim();
             OnboardingState.profileSaveStatus = "✓ Saved";
             OnboardingState.profileLoaded = true;
           } catch (err) {
