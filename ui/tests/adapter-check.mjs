@@ -834,6 +834,189 @@ function runChecks() {
       "a8-broken-error: raw error text must appear once Details is opened"
     );
   }
+
+  // =========================================================================
+  // 9. A10: Follow-up task in an agent conversation (root -> followup orchestrator -> agent)
+  // =========================================================================
+  {
+    const fx = loadFixtureNormalized("a10-followup.json", nowSec);
+    const vmFollow = WorkspaceAdapter.mapRuns(fx.runs, fx.details, fx.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fx.agents,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+    const convs = WorkspaceAdapter.buildAgentConversations(vmFollow, {
+      primaryThread: "r1794717957-5-9b96",
+    });
+    const primaryConv = convs.byId.get("__primary__");
+    assert.ok(primaryConv, "a10-followup: expected primary conversation");
+    assert.equal(primaryConv.tasks.length, 2, "a10-followup: conversation must have 2 tasks (first + follow-up)");
+
+    const firstTask = primaryConv.tasks[0];
+    const followTask = primaryConv.tasks[1];
+    assert.equal(firstTask.id, "r1794717957-5-9b96", "a10-followup: first task must be root run");
+    assert.equal(followTask.id, "r1794718608-7-a38f", "a10-followup: second task must be follow-up orchestrator run");
+
+    assert.equal(firstTask.steps.length, 1, "a10-followup: first task must have 1 child agent step");
+    assert.equal(firstTask.steps[0].agentIdentity.name, "Mia", "a10-followup: first task agent must be Mia");
+    assert.equal(followTask.steps.length, 1, "a10-followup: follow-up task must have 1 child agent step");
+    assert.equal(followTask.steps[0].agentIdentity.name, "Ava", "a10-followup: follow-up task agent must be Ava");
+    assert.equal(followTask.steps[0].agentIdentity.color, "#B5D0EB", "a10-followup: follow-up agent Ava color must come from transcript");
+
+    assert.ok(
+      firstTask.transcriptRows.some((r) => r.text.includes("Mia")) &&
+        !firstTask.transcriptRows.some((r) => r.text.includes("Ava") || r.text.includes("4 + 4")),
+      "a10-followup: first task transcript must stay scoped to first task"
+    );
+    assert.ok(
+      followTask.transcriptRows.some((r) => r.text.includes("Ava")) &&
+        followTask.transcriptRows.some((r) => r.text.includes("4 + 4")) &&
+        !followTask.transcriptRows.some((r) => r.text.includes("Mia") || r.text.includes("6 + 9")),
+      "a10-followup: follow-up task transcript must stay scoped to follow-up task"
+    );
+
+    assert.equal(primaryConv.latestTask.id, followTask.id, "a10-followup: newest task must be follow-up");
+    assert.equal(primaryConv.latestTask.goal, "compute 4 + 4 in Calculator", "a10-followup: newest task drives header prompt");
+    assert.equal(primaryConv.listClockText, followTask.listClockText, "a10-followup: row clock must come from newest task");
+    assert.notEqual(followTask.listClockText, firstTask.listClockText, "a10-followup: follow-up clock differs from first task");
+    assert.ok(
+      primaryConv.lastLinePreview.includes("Ava") || primaryConv.lastLinePreview === "mock",
+      `a10-followup: row preview must come from newest task, got "${primaryConv.lastLinePreview}"`
+    );
+
+    // Render both tasks + Work rows + compact result lines + live follow-up state
+    const indexSrc = fs.readFileSync(INDEX_HTML_PATH, "utf8");
+    const renderWorkFnSrc = extractStatement(indexSrc, /\bfunction renderWorkDividerHtml\s*\(/, "renderWorkDividerHtml");
+    const renderTaskFnSrc = extractStatement(indexSrc, /\bfunction renderAgentTaskHtml\s*\(/, "renderAgentTaskHtml");
+    const escapeHtml = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const renderCtx = {
+      escapeHtml,
+      openWorkKeys: new Set(),
+      openResultDetailIds: new Set(),
+      openErrorDetailIds: new Set(),
+      openOutputPreviewIds: new Set(),
+      copiedItemIds: new Set(),
+      stopNoticesByRunId: new Map(),
+      pendingStopIds: new Set(),
+      stopRouteSupported: true,
+      ttsSpeaking: false,
+      getPrimaryAgentRowIdentity: () => ({ name: "ComputerAnything", color: "#B5D0EB", rawEdge: "#D6E9FF", palette: { body: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" } }),
+      renderAgentChipHtml: (id) => `<span class="chip">${escapeHtml(id?.name || "Agent")}</span>`,
+      getVisibleMemoriesForRun: () => [],
+      pendingUndoMemoryIds: new Set(),
+    };
+    vm.runInNewContext(
+      `${renderWorkFnSrc}\n${renderTaskFnSrc}\nthis.renderWorkDividerHtml = renderWorkDividerHtml;\nthis.renderAgentTaskHtml = renderAgentTaskHtml;`,
+      renderCtx
+    );
+
+    // With step act events and non-mock verified results, both tasks render their own agent, Work row, and result line
+    const workRuns = JSON.parse(JSON.stringify(fx.runs)).map((r) => {
+      const nextSummary = r.goal.includes("4 + 4") ? "Calculated 8" : "Calculated 15";
+      return {
+        ...r,
+        result: {
+          ...r.result,
+          summary: nextSummary,
+          steps: 1,
+          ...(r.result?.digest ? { digest: { ...r.result.digest, summary: nextSummary, steps: 1 } } : {}),
+        },
+      };
+    });
+    const workDetails = {
+      "r1794717957-6-6e62": {
+        id: "r1794717957-6-6e62",
+        events: [
+          { t: 0.4, kind: "act", step: 0, action: "click:button:6", agent: "Mia" },
+          { t: 1.0, kind: "verify", achieved: true, evidence: "Calculator displays 15" },
+        ],
+      },
+      "r1794718608-8-de2b": {
+        id: "r1794718608-8-de2b",
+        events: [
+          { t: 0.4, kind: "act", step: 0, action: "click:button:4", agent: "Ava" },
+          { t: 1.0, kind: "verify", achieved: true, evidence: "Calculator displays 8" },
+        ],
+      },
+    };
+    const vmWork = WorkspaceAdapter.mapRuns(workRuns, workDetails, [], {
+      connectionStatus: "connected",
+      isSampleData: false,
+      transcriptsById: fx.transcripts,
+      costsById: {
+        "r1794717957-5-9b96": { run: "r1794717957-5-9b96", cost_usd: 0.0021 },
+        "r1794718608-7-a38f": { run: "r1794718608-7-a38f", cost_usd: 0.0014 },
+      },
+      nowSec,
+    });
+    const convWork = WorkspaceAdapter.buildAgentConversations(vmWork, {
+      primaryThread: "r1794717957-5-9b96",
+    }).byId.get("__primary__");
+    assert.equal(convWork.tasks.length, 2, "a10-followup (work): expected 2 tasks");
+    const htmlTask1 = renderCtx.renderAgentTaskHtml(convWork.tasks[0], convWork, vmWork, false);
+    const htmlTask2 = renderCtx.renderAgentTaskHtml(convWork.tasks[1], convWork, vmWork, true);
+
+    assert.ok(htmlTask1.includes("One agent will do this."), "a10-followup: task 1 must render plan line");
+    assert.ok(htmlTask1.includes("Asked Mia to help"), "a10-followup: task 1 must render Mia handoff");
+    assert.ok(htmlTask1.includes("work-divider-wrap") && htmlTask1.includes("Work · Mia · 1 step"), "a10-followup: task 1 must render Mia Work row");
+    assert.equal((htmlTask1.match(/chat-result-line/g) || []).length, 1, "a10-followup: task 1 must render 1 compact result line");
+    assert.ok(htmlTask1.includes("$0.0021") && htmlTask1.includes("copy-result"), "a10-followup: task 1 result line must include cost and copy control");
+
+    assert.ok(htmlTask2.includes("One agent will do this."), "a10-followup: task 2 must render plan line");
+    assert.ok(htmlTask2.includes("Asked Ava to help"), "a10-followup: task 2 must render Ava handoff");
+    assert.ok(htmlTask2.includes("work-divider-wrap") && htmlTask2.includes("Work · Ava · 1 step"), "a10-followup: task 2 must render Ava Work row");
+    assert.equal((htmlTask2.match(/chat-result-line/g) || []).length, 1, "a10-followup: task 2 must render 1 compact result line");
+    assert.ok(htmlTask2.includes("$0.0014") && htmlTask2.includes("copy-result"), "a10-followup: task 2 result line must include cost and copy control");
+    assert.equal(convWork.lastLinePreview, "Calculated 8", "a10-followup (work): newest task result must drive row preview");
+
+    // While follow-up is running: collapsed notch liveAgents, per-agent Stop, and live status track follow-up
+    const liveRuns = JSON.parse(JSON.stringify(workRuns)).map((r) =>
+      r.id === "r1794718608-7-a38f" || r.id === "r1794718608-8-de2b"
+        ? { ...r, state: "acting", result: null }
+        : r
+    );
+    const vmLive = WorkspaceAdapter.mapRuns(liveRuns, workDetails, [], {
+      connectionStatus: "connected",
+      isSampleData: false,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+    const convLive = WorkspaceAdapter.buildAgentConversations(vmLive, {
+      primaryThread: "r1794717957-5-9b96",
+    }).byId.get("__primary__");
+    assert.equal(vmLive.liveAgents.length, 1, "a10-followup (live): collapsed notch must track the running follow-up agent");
+    assert.equal(vmLive.liveAgents[0].name, "Ava", "a10-followup (live): collapsed notch dot must be Ava");
+    assert.deepEqual([...convLive.liveRunIds], ["r1794718608-7-a38f"], "a10-followup (live): Stop targets follow-up orchestrator");
+    const htmlLive2 = renderCtx.renderAgentTaskHtml(convLive.tasks[1], convLive, vmLive, false);
+    assert.ok(
+      htmlLive2.includes('data-action="stop-agent" data-run-id="r1794718608-8-de2b"'),
+      "a10-followup (live): per-agent Stop must address Ava's follow-up child run"
+    );
+
+    // Restart case where server's /api/runs omits grandchildren (r1794718608-8-de2b)
+    const restartRuns = fx.runs.filter((r) => r.id !== "r1794718608-8-de2b");
+    const vmRestart = WorkspaceAdapter.mapRuns(restartRuns, {}, [], {
+      connectionStatus: "connected",
+      isSampleData: false,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+    const convRestart = WorkspaceAdapter.buildAgentConversations(vmRestart, {
+      primaryThread: "r1794717957-5-9b96",
+    }).byId.get("__primary__");
+    assert.equal(convRestart.tasks.length, 2, "a10-followup (restart): follow-up task must survive even if grandchild omitted");
+    assert.ok(
+      convRestart.tasks[1].transcriptRows.some((r) => r.text.includes("Ava")),
+      "a10-followup (restart): follow-up must retain its transcript rows"
+    );
+  }
 }
 
 try {
