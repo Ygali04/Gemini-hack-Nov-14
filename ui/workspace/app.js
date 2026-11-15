@@ -711,6 +711,7 @@
     blockedApps: ["Banking", "Passwords", "Health"],
     customBlockedApp: "",
     memoryEnabled: true,
+    confirmForgetOnboardingMemory: false,
     memoryStatusNote: "",
     starterPrompts: [
       "Open Calculator and verify that 8 units at $31 equals 248",
@@ -5485,9 +5486,21 @@
             <button type="button" class="btn ${!OnboardingState.memoryEnabled ? "btn-active" : ""}" data-action="set-onboarding-memory" data-enabled="0">
               ${!OnboardingState.memoryEnabled ? "✓ " : ""}Not now
             </button>
-            <button type="button" class="btn btn-danger" data-action="forget-onboarding-memory">
-              Forget everything
-            </button>
+            ${
+              OnboardingState.confirmForgetOnboardingMemory
+                ? `
+                  <div class="filter-group" role="group" aria-label="Confirm forgetting all memories">
+                    <span class="section-subtitle">Forget all saved memories?</span>
+                    <button type="button" class="btn btn-destructive" data-action="confirm-forget-onboarding-memory">Delete all</button>
+                    <button type="button" class="btn" data-action="cancel-forget-onboarding-memory">Keep</button>
+                  </div>
+                `
+                : `
+                  <button type="button" class="btn btn-danger" data-action="forget-onboarding-memory">
+                    Forget everything
+                  </button>
+                `
+            }
           </div>
           ${OnboardingState.memoryStatusNote ? `<p class="section-subtitle">${escapeHtml(OnboardingState.memoryStatusNote)}</p>` : ""}
         </div>
@@ -7514,12 +7527,67 @@
           break;
 
         case "forget-onboarding-memory":
+          OnboardingState.confirmForgetOnboardingMemory = true;
+          renderNow();
+          break;
+
+        case "cancel-forget-onboarding-memory":
+          OnboardingState.confirmForgetOnboardingMemory = false;
+          renderNow();
+          break;
+
+        case "confirm-forget-onboarding-memory": {
+          OnboardingState.confirmForgetOnboardingMemory = false;
           OnboardingState.userName = "";
           OnboardingState.callMe = "";
           OnboardingState.pronounce = "";
-          OnboardingState.memoryStatusNote = "Cleared session memory preferences.";
+          try {
+            const memResp = await Transport.request("GET", "/api/memory");
+            const items = Array.isArray(memResp)
+              ? memResp
+              : Array.isArray(memResp?.facts)
+              ? memResp.facts
+              : Array.isArray(memResp?.memories)
+              ? memResp.memories
+              : [];
+            let deleted = 0;
+            let failed = 0;
+            const deletedIds = new Set();
+            for (const item of items) {
+              const mid = String(item?.id ?? item?.fact_id ?? "").trim();
+              if (!mid) {
+                failed += 1;
+                continue;
+              }
+              try {
+                await Transport.request("DELETE", `/api/memory/${encodeURIComponent(mid)}`);
+                deleted += 1;
+                deletedIds.add(mid);
+              } catch {
+                failed += 1;
+              }
+            }
+            if (deletedIds.size > 0) {
+              HistorySettingsState.liveMemories = HistorySettingsState.liveMemories.filter(
+                (m) => !deletedIds.has(String(m.id))
+              );
+              HistorySettingsState.memories = HistorySettingsState.memories.filter(
+                (m) => !deletedIds.has(String(m.id))
+              );
+            }
+            if (items.length === 0) {
+              OnboardingState.memoryStatusNote = "No saved memories to forget.";
+            } else if (failed === 0) {
+              OnboardingState.memoryStatusNote = `Forgot ${deleted} ${deleted === 1 ? "memory" : "memories"}.`;
+            } else {
+              OnboardingState.memoryStatusNote = `Forgot ${deleted} ${deleted === 1 ? "memory" : "memories"}; ${failed} remain.`;
+            }
+          } catch (err) {
+            OnboardingState.memoryStatusNote = err?.message || "Could not load memories to forget.";
+          }
           renderNow();
           break;
+        }
 
         case "fill-starter-prompt": {
           const text = actionEl.dataset.prompt || "";
