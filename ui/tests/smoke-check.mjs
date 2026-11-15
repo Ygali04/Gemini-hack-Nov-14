@@ -32,8 +32,11 @@ const WORKSPACE_VIEWS = [
   "state-machine",
   "logs",
   "analytics",
+  "artifacts",
+  "memory",
+  "agent-settings",
+  "app-settings",
   "onboarding",
-  "history-settings",
 ];
 
 const MIME_TYPES = {

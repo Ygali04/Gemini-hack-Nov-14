@@ -32,7 +32,9 @@ const ALL_WORKSPACE_VIEWS = [
   "analytics",
   "artifacts",
   "memory",
-  "settings",
+  "agent-settings",
+  "app-settings",
+  "onboarding",
 ];
 
 function parseArgs(argv) {
@@ -194,7 +196,7 @@ async function main() {
         cmd: "eval",
         target: "notch",
         js: "({ ready: document.readyState, href: location.href, state: document.body?.dataset?.state || null, hasTrigger: Boolean(document.getElementById('pill-trigger')), textLen: (document.body?.innerText || '').trim().length })",
-      }, 2000);
+      }, 6000);
       if (!res.ok || !res.result || typeof res.result !== "object") return false;
       const r = res.result;
       if (r.ready !== "complete" || !r.hasTrigger || !r.state || String(r.href).startsWith("about:")) {
@@ -204,7 +206,7 @@ async function main() {
         return false;
       }
       return r;
-    }, opts.url ? 8000 : 6000, 120, "notch webview ready");
+    }, 15000, 150, "notch webview ready");
 
     if (opts.openPanel) {
       const openRes = await send({ cmd: "open" });
@@ -367,7 +369,11 @@ async function main() {
             fs.copyFileSync(notesPng, approvalPng);
             console.log("approvalCardCapture:", JSON.stringify({ path: approvalPng, bytes: notesBytes }));
           }
+        } else if (opts.allSurfaces) {
+          throw new Error(`Approval card capture failed: ${JSON.stringify(capNotesRes)}`);
         }
+      } else if (opts.allSurfaces) {
+        throw new Error(`Approval card surface not visible for --all-surfaces: ${JSON.stringify(latestBoundsBeforeWs.notes)}`);
       }
 
       const wsStartMs = Date.now();
@@ -481,12 +487,15 @@ async function main() {
             cmd: "eval",
             target: "workspace",
             js: `(() => {
-              const item = document.querySelector('#view-menu-list [data-view="${vName}"]');
-              if (item) { item.click(); return true; }
-              return false;
+              if (window.location.hash !== "#${vName}") {
+                window.location.hash = "#${vName}";
+              }
+              const item = document.querySelector('[data-view="${vName}"]');
+              if (item) item.click();
+              return window.location.hash;
             })()`,
           }, 2000);
-          await sleep(140);
+          await sleep(180);
           const vBounds = await send({ cmd: "bounds" });
           console.log(`workspaceFrame[${vName}]:`, JSON.stringify(vBounds.workspace));
           const vPng = path.join(capDir, `workspace-${vName}.png`);
@@ -501,9 +510,9 @@ async function main() {
         await send({
           cmd: "eval",
           target: "workspace",
-          js: `(() => { document.querySelector('#view-menu-list [data-view="graph"]')?.click(); return true; })()`,
+          js: `(() => { window.location.hash = "#graph"; document.querySelector('[data-view="graph"]')?.click(); return true; })()`,
         }, 2000);
-        await sleep(120);
+        await sleep(150);
         const fullBounds = await send({ cmd: "bounds" });
         console.log("fullScreenFrames:", JSON.stringify({
           panel: fullBounds.panel,
