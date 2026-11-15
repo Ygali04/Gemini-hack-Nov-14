@@ -1,0 +1,72 @@
+{
+  "capabilities": { "stop": true },
+  "runs": [
+    {
+      "id": "r-perm-1",
+      "goal": "Click Calculate tax in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 4.2,
+      "n_events": 3,
+      "result": {
+        "ok": false,
+        "summary": "Accessibility access was revoked while running"
+      }
+    },
+    {
+      "id": "r-perm-1-cu",
+      "goal": "Click Calculate button",
+      "role": "computer_use",
+      "parent": "r-perm-1",
+      "state": "failed",
+      "elapsed": 3.8,
+      "n_events": 3,
+      "result": {
+        "ok": false,
+        "summary": "AX error: process is not trusted for Accessibility"
+      }
+    }
+  ],
+  "details": {
+    "r-perm-1": {
+      "id": "r-perm-1",
+      "goal": "Click Calculate tax in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 4.2,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "planning" },
+        { "t": 4.1, "kind": "error", "error": "Accessibility access revoked while controlling Calculator" },
+        { "t": 4.2, "kind": "state", "state": "failed" }
+      ],
+      "result": {
+        "ok": false,
+        "summary": "Accessibility access was revoked while running"
+      }
+    },
+    "r-perm-1-cu": {
+      "id": "r-perm-1-cu",
+      "goal": "Click Calculate button",
+      "role": "computer_use",
+      "parent": "r-perm-1",
+      "state": "failed",
+      "elapsed": 3.8,
+      "events": [
+        { "t": 0.4, "kind": "decide", "app": "Calculator", "thought": "Looking for button 8" },
+        { "t": 3.7, "kind": "error", "error": "Not trusted: Accessibility permission missing" },
+        { "t": 3.8, "kind": "state", "state": "failed" }
+      ],
+      "result": {
+        "ok": false,
+        "summary": "AX error: process is not trusted for Accessibility"
+      }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-perm-1": { "name": "Navigator", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-perm-1-cu": { "name": "Cursor", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  }
+}

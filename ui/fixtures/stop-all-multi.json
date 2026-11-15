@@ -1,0 +1,81 @@
+{
+  "capabilities": { "stop": true },
+  "runs": [
+    {
+      "id": "r-multi-1",
+      "goal": "Check Safari workspace summary",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 5.0,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-multi-1-cu",
+      "goal": "Inspect Safari tab",
+      "role": "computer_use",
+      "parent": "r-multi-1",
+      "state": "acting",
+      "elapsed": 4.5,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-multi-2",
+      "goal": "Verify Display Settings resolution",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "planning",
+      "elapsed": 2.1,
+      "n_events": 1,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-multi-1": {
+      "id": "r-multi-1",
+      "goal": "Check Safari workspace summary",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 5.0,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "planning" },
+        { "t": 2.0, "kind": "act", "app": "Safari", "action": "click(120, 44)", "target": "Address bar" }
+      ],
+      "result": null
+    },
+    "r-multi-1-cu": {
+      "id": "r-multi-1-cu",
+      "goal": "Inspect Safari tab",
+      "role": "computer_use",
+      "parent": "r-multi-1",
+      "state": "acting",
+      "elapsed": 4.5,
+      "events": [
+        { "t": 1.5, "kind": "decide", "app": "Safari", "thought": "Reading workspace summary heading" },
+        { "t": 3.1, "kind": "act", "app": "Safari", "action": "scroll(down)" }
+      ],
+      "result": null
+    },
+    "r-multi-2": {
+      "id": "r-multi-2",
+      "goal": "Verify Display Settings resolution",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "planning",
+      "elapsed": 2.1,
+      "events": [
+        { "t": 0.3, "kind": "decide", "app": "System Settings", "thought": "Opening Displays pane" }
+      ],
+      "result": null
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-multi-1": { "name": "Lagoon", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-multi-1-cu": { "name": "Rose", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" },
+    "r-multi-2": { "name": "Mint", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+  }
+}
