@@ -1471,8 +1471,15 @@
       width: 100%;
       margin-top: 2px;
     }
-    .work-divider-btn {
+    .work-divider-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       width: 100%;
+    }
+    .work-divider-btn {
+      flex: 1;
+      min-width: 0;
       min-height: 28px;
       padding: 2px 4px;
       border: none;
@@ -1534,6 +1541,44 @@
       padding: 2px 0;
       overflow-wrap: anywhere;
       user-select: text;
+    }
+    .work-stop-btn {
+      height: 24px;
+      min-height: 24px;
+      padding: 0 8px;
+      font-size: 12px;
+      line-height: 16px;
+      flex-shrink: 0;
+    }
+    .help-wait-row {
+      display: flex;
+      align-items: center;
+      padding: 2px 2px;
+    }
+    .help-wait-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 2px 8px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--state-warning);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 18px;
+      cursor: pointer;
+    }
+    .help-wait-btn:hover {
+      background: var(--btn-hover);
+    }
+    .help-wait-btn:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 1px;
+    }
+    .note.is-focused {
+      box-shadow: 0 0 0 2px var(--focus-ring), 0 8px 24px rgba(0, 0, 0, 0.35);
     }
     .prompt-section.hidden { display: none; }
     .chat-result-line {
@@ -4672,12 +4717,10 @@
       let latestSeenRunId = null;
       const expandedStepIds = new Set();
       const openRunStepsIds = new Set();
-      const openReplayRunIds = new Set();
       const knownStepFingerprints = new Map();
       const highlightedStepIds = new Set();
       const liveStepTimers = new Map();
       const mountedAgentChips = new Map();
-      let replayCursor = { runId: null, stepIndex: -1, timerId: null };
       let lastPanelStructureKey = "";
       let lastViewModel = null;
       let lastPostedResize = { width: 0, height: 0, state: "" };
@@ -4972,16 +5015,13 @@
           viewMode = "chat";
           isComposingNewChat = false;
           saveLastThreadId(preferredRunId);
-          stopStepReplay();
           renderNow();
         }
         requestAnimationFrame(() => {
-          const helpEl = timelineScroll.querySelector(".help-block:not(.is-expired)");
-          if (helpEl) {
-            helpEl.classList.add("is-focused");
-            helpEl.scrollIntoView({ block: "nearest" });
-            const approveBtn = helpEl.querySelector('button[data-action="answer-help"]:not(:disabled)');
-            if (approveBtn) approveBtn.focus();
+          const waitBtn = timelineScroll.querySelector('.help-wait-row:not(.is-expired) .help-wait-btn');
+          if (waitBtn) {
+            waitBtn.scrollIntoView({ block: "nearest" });
+            waitBtn.focus();
           }
         });
         return true;
@@ -5058,36 +5098,6 @@
 
       const prefersReducedMotion = () =>
         Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-
-      function stopStepReplay() {
-        if (replayCursor.timerId) {
-          clearInterval(replayCursor.timerId);
-        }
-        replayCursor = { runId: null, stepIndex: -1, timerId: null };
-      }
-
-      function startStepReplay(runId, totalSteps) {
-        stopStepReplay();
-        if (!runId || !totalSteps || prefersReducedMotion()) {
-          renderNow();
-          return;
-        }
-        replayCursor = { runId, stepIndex: 0, timerId: null };
-        renderNow();
-        replayCursor.timerId = setInterval(() => {
-          if (replayCursor.runId !== runId || !openReplayRunIds.has(runId)) {
-            stopStepReplay();
-            return;
-          }
-          if (replayCursor.stepIndex + 1 >= totalSteps) {
-            stopStepReplay();
-            renderNow();
-            return;
-          }
-          replayCursor.stepIndex += 1;
-          renderNow();
-        }, 420);
-      }
 
       function getSharedAgentGlass() {
         if (window.AgentGlass && typeof window.AgentGlass.mountAgentGlass === "function") {
@@ -6235,13 +6245,11 @@
 
         let expiryCrossed = false;
         for (const h of activeRun.pendingHelp) {
-          const el = timelineScroll.querySelector(`[data-help-note="${CSS.escape(h.id)}"]`);
+          const el = timelineScroll.querySelector(`[data-help-row-id="${CSS.escape(h.id)}"]`);
           if (h.isExpired) {
-            if (el && !el.closest(".help-block")?.classList.contains("is-expired")) {
+            if (el && !el.classList.contains("is-expired")) {
               expiryCrossed = true;
             }
-          } else if (el) {
-            el.innerHTML = `<span class="help-countdown" data-help-countdown="${escapeHtml(h.id)}">Denies in ${escapeHtml(h.countdownText)}</span> &middot; Silence means no.`;
           }
         }
 
@@ -6284,7 +6292,7 @@
         const stepsKey = activeRun.steps
           .map(
             (s) =>
-              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.elapsedText}:${s.workStepCount}:${s.workSteps.length}:${openWorkKeys.has(`${activeRun.id}:${s.id}`) ? 1 : 0}`
+              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.elapsedText}:${s.workStepCount}:${s.workSteps.length}:${openWorkKeys.has(`${activeRun.id}:${s.id}`) ? 1 : 0}`
           )
           .join("|");
         const memoryKey = getVisibleMemoriesForRun(activeRun)
@@ -6330,6 +6338,7 @@
           activeRun.evidenceText,
           activeRun.elapsedText,
           activeRun.digest.costText,
+          activeRun.digest.liveCostText || "",
           liveStepsKey,
           helpKey,
           historyKey,
@@ -6522,27 +6531,45 @@
         return `<div class="chat-list">${primaryRowHtml}${runRowsHtml}</div>`;
       }
 
-      function renderWorkDividerHtml(runId, step) {
+      function renderWorkDividerHtml(runId, step, runVm) {
         if (!step || !Array.isArray(step.workSteps) || !step.workSteps.length) return "";
         const workKey = `${runId}:${step.id}`;
         const isOpen = openWorkKeys.has(workKey);
         const count = step.workStepCount || step.workSteps.length;
         const stepWord = count === 1 ? "step" : "steps";
         const timeText = step.elapsedText || "";
+        const rawLiveCost = String(step.liveCostText || runVm?.digest?.liveCostText || "").trim();
+        const showLiveCost = Boolean(
+          step.isWorking &&
+          !runVm?.isMock &&
+          rawLiveCost &&
+          rawLiveCost !== "—" &&
+          !/^\$0(?:\.0+)?(?:\s*\(mock run\))?$/i.test(rawLiveCost)
+        );
         const labelParts = ["Work", step.agentIdentity.name, `${count} ${stepWord}`];
         if (timeText && timeText !== "—") labelParts.push(timeText);
+        if (showLiveCost) labelParts.push(rawLiveCost);
         const labelText = labelParts.join(" · ");
+        const canStopAgent = Boolean(step.isWorking && stopRouteSupported);
+        const isStoppingAgent = pendingStopIds.has(step.id);
         return `
           <div class="work-divider-wrap">
-            <button
-              type="button"
-              class="work-divider-btn"
-              data-action="toggle-work"
-              data-work-key="${escapeHtml(workKey)}"
-              aria-expanded="${isOpen ? "true" : "false"}"
-            >
-              <span class="work-divider-label">${escapeHtml(labelText)} &middot; <span class="work-toggle-word">${isOpen ? "Hide" : "Show"}</span></span>
-            </button>
+            <div class="work-divider-header">
+              <button
+                type="button"
+                class="work-divider-btn"
+                data-action="toggle-work"
+                data-work-key="${escapeHtml(workKey)}"
+                aria-expanded="${isOpen ? "true" : "false"}"
+              >
+                <span class="work-divider-label">${escapeHtml(labelText)} &middot; <span class="work-toggle-word">${isOpen ? "Hide" : "Show"}</span></span>
+              </button>
+              ${
+                canStopAgent
+                  ? `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(step.agentIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`
+                  : ""
+              }
+            </div>
             ${
               isOpen
                 ? `<div class="work-steps-list">${step.workSteps
@@ -6810,6 +6837,7 @@
           if (match) lastRowIdxByStepId.set(match.id, idx);
         });
         const attachedWorkStepIds = new Set();
+        const attachedStopStepIds = new Set();
         const attachedLiveStepIds = new Set();
         const primaryIdentity = getPrimaryAgentRowIdentity();
         const introducedAgents = new Set([headerAgent.name, primaryIdentity.name, "ComputerAnything"].filter(Boolean));
@@ -6856,12 +6884,18 @@
           let workHtml = "";
           if (matchingStep && !attachedWorkStepIds.has(matchingStep.id)) {
             attachedWorkStepIds.add(matchingStep.id);
-            workHtml = renderWorkDividerHtml(activeRun.id, matchingStep);
+            workHtml = renderWorkDividerHtml(activeRun.id, matchingStep, activeRun);
+          }
+          let inlineStopHtml = "";
+          if (matchingStep && matchingStep.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(matchingStep.id)) {
+            attachedStopStepIds.add(matchingStep.id);
+            const isStoppingAgent = pendingStopIds.has(matchingStep.id);
+            inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(matchingStep.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(chipIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
           }
           messageNodes.push(`
             ${handoffLineHtml}
             <div class="chat-msg-row is-agent">
-              <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}</div>
+              <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}${inlineStopHtml}</div>
               <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
               ${workHtml}
             </div>
@@ -6871,7 +6905,7 @@
         for (const step of activeRun.steps) {
           const needsWork = !attachedWorkStepIds.has(step.id);
           if (!needsWork && renderedAgentBubble) continue;
-          const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step) : "";
+          const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step, activeRun) : "";
           let greetingText = "";
           if (!renderedAgentBubble) {
             if (step.goal && activeRun.steps.length > 1) {
@@ -6891,10 +6925,16 @@
           if (greetingText || workHtml) {
             attachedWorkStepIds.add(step.id);
             const handoffLineHtml = greetingText ? buildHandoffLineHtml(step.agentIdentity?.name, step.app) : "";
+            let inlineStopHtml = "";
+            if (greetingText && step.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(step.id)) {
+              attachedStopStepIds.add(step.id);
+              const isStoppingAgent = pendingStopIds.has(step.id);
+              inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(step.agentIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
+            }
             messageNodes.push(`
               ${handoffLineHtml}
               <div class="chat-msg-row is-agent">
-                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div>` : ""}
+                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}${inlineStopHtml}</div>` : ""}
                 ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
                 ${workHtml}
               </div>
@@ -6910,43 +6950,10 @@
           .join("");
 
         const helpHtml = activeRun.pendingHelp
-          .map(
-            (h) => `
-              <div class="help-block ${h.isExpired ? "is-expired" : ""}">
-                <div class="timeline-row">
-                  <span class="state-text ${h.isExpired ? "state-neutral" : "state-warning"}">${h.isExpired ? "Timed out waiting for you" : "Waiting for you"}</span>
-                </div>
-                <div class="help-row">
-                  <span class="help-question">${escapeHtml(h.question)}</span>
-                  <span class="help-actions">
-                    ${
-                      h.isExpired
-                        ? `<span class="state-text state-neutral">Expired</span>`
-                        : h.options
-                            .map(
-                              (opt) => `
-                                <button
-                                  type="button"
-                                  class="btn"
-                                  data-action="answer-help"
-                                  data-help-id="${escapeHtml(h.id)}"
-                                  data-choice="${escapeHtml(opt)}"
-                                >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
-                              `
-                            )
-                            .join("")
-                    }
-                  </span>
-                </div>
-                ${h.kindWarning ? `<div class="help-warning">${escapeHtml(h.kindWarning)}</div>` : ""}
-                ${h.detail ? `<div class="help-meta">${escapeHtml(h.detail)}</div>` : ""}
-                <div class="help-meta" data-help-note="${escapeHtml(h.id)}">${
-                  h.isExpired
-                    ? escapeHtml(h.timeoutNote)
-                    : `<span class="help-countdown" data-help-countdown="${escapeHtml(h.id)}">Denies in ${escapeHtml(h.countdownText)}</span> &middot; Silence means no.`
-                }</div>
-              </div>
-            `
+          .map((h) =>
+            h.isExpired
+              ? `<div class="help-wait-row is-expired" data-help-row-id="${escapeHtml(h.id)}"><span class="state-text state-neutral">Timed out waiting for you</span></div>`
+              : `<div class="help-wait-row" data-help-row-id="${escapeHtml(h.id)}"><button type="button" class="help-wait-btn" data-action="bring-approval-forward" data-help-id="${escapeHtml(h.id)}">&#9684; Waiting for you</button></div>`
           )
           .join("");
 
@@ -7250,7 +7257,6 @@
               confirmDeleteRunId = "";
               saveLastThreadId(runId);
               markFailedRunSeen(runId);
-              stopStepReplay();
               renderNow();
             }
             return;
@@ -7533,45 +7539,16 @@
             renderNow();
             return;
           }
-          if (action === "toggle-steps") {
-            const runId = actionBtn.dataset.runId || selectedRunId;
-            if (!runId) return;
-            if (openReplayRunIds.has(runId)) {
-              openReplayRunIds.delete(runId);
-              if (replayCursor.runId === runId) stopStepReplay();
-              renderNow();
-            } else {
-              openReplayRunIds.add(runId);
-              const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
-              startStepReplay(runId, runVm?.digest?.actEvents?.length || 0);
-            }
-            return;
-          }
-          if (action === "replay-steps") {
-            const runId = actionBtn.dataset.runId || selectedRunId;
-            if (!runId) return;
-            openReplayRunIds.add(runId);
-            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
-            startStepReplay(runId, runVm?.digest?.actEvents?.length || 0);
-            return;
-          }
-          if (action === "answer-help") {
-            const hid = actionBtn.dataset.helpId;
-            const choice = actionBtn.dataset.choice;
-            const helpRecord = pendingHelp.find((h) => h.id === hid);
-            const allowedOptions = Array.isArray(helpRecord?.options) ? helpRecord.options : [];
-            if (hid && choice && allowedOptions.includes(choice)) {
-              actionBtn.disabled = true;
-              try {
-                await Transport.request("POST", `/api/help/${encodeURIComponent(hid)}`, {
-                  jsonBody: { choice },
-                });
-                await pollAll();
-              } catch (err) {
-                sendErrorText = err.message || "Could not send answer";
-                renderNow();
+          if (action === "bring-approval-forward") {
+            const hid = actionBtn.dataset.helpId || "";
+            try {
+              if (typeof localStorage !== "undefined") {
+                localStorage.setItem("ca.focusApprovalCard", JSON.stringify({ id: hid, at: Date.now() }));
               }
+            } catch {
+              // Ignore storage write errors
             }
+            announceStatus("Answer in the approval card");
             return;
           }
         }
@@ -7591,7 +7568,6 @@
         const runBtn = e.target.closest("[data-run-id]");
         if (runBtn) {
           selectedRunId = runBtn.dataset.runId;
-          stopStepReplay();
           renderNow();
         }
       });
@@ -8384,6 +8360,18 @@
         setInterval(() => {
           if (currentHelpList.length) renderCard();
         }, 1000);
+        window.addEventListener("storage", (e) => {
+          if (e.key !== "ca.focusApprovalCard" && e.key !== null) return;
+          renderCard();
+          const cardEl = $("notes")?.querySelector("[data-help-card]");
+          if (!cardEl) return;
+          const height = $("notes").scrollHeight + 4;
+          ca().Transport.post("resize", { state: "notes", width: 330, height, fresh: true });
+          cardEl.classList.add("is-focused");
+          const firstBtn = cardEl.querySelector("button:not(:disabled)");
+          if (firstBtn) firstBtn.focus();
+          setTimeout(() => cardEl.classList.remove("is-focused"), 900);
+        });
       }
     })();
   </script>
