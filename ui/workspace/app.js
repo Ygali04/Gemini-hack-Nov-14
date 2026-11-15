@@ -2273,6 +2273,49 @@
     profileSaveError: "",
   };
 
+  const VIEW_DEFINITIONS = [
+    { id: "graph", label: "Agent graph", desc: "Live agents, status, and step timeline", key: "1" },
+    { id: "state-machine", label: "State machine", desc: "Screens visited and actions between them", key: "2" },
+    { id: "logs", label: "Transcript", desc: "Past and current task runs, history, and search", key: "3" },
+    { id: "analytics", label: "Analytics", desc: "Token usage, cost, and app reliability", key: "4" },
+    { id: "artifacts", label: "Artifacts", desc: "Files and outputs created by agents", key: "5" },
+    { id: "memory", label: "Memory", desc: "Saved facts agents remember across runs", key: "6" },
+    { id: "settings", label: "Settings", desc: "Profile, primary agent, approvals, and spend cap", key: "7" },
+    { id: "onboarding", label: "Onboarding", desc: "First-run agent setup and approval rules", key: "8" },
+  ];
+
+  let viewMenuOpen = false;
+
+  function formatIncompleteOutcomeText(summaryText) {
+    const raw = String(summaryText || "").trim();
+    const low = raw.toLowerCase();
+    if (low.includes("cancel")) return "Cancelled by you";
+    if (low.includes("stopped") || low.includes("stop")) return "Stopped by you";
+    if (low.includes("timed out") || low.includes("timeout")) return "Timed out waiting for you";
+    if (raw) {
+      const cleaned = raw.replace(/^×\s*failed\s*·?\s*/i, "").replace(/^failed\s*·?\s*/i, "").trim();
+      if (cleaned) {
+        const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0].trim();
+        return firstSentence.length > 72 ? firstSentence.slice(0, 69).trimEnd() + "…" : firstSentence;
+      }
+    }
+    return "Did not finish";
+  }
+
+  function formatUiStatusDisplay(status, summaryText) {
+    if (!status) return { text: "Running", colorClass: "state-working" };
+    if (status.filterKey === "failed") {
+      return {
+        text: formatIncompleteOutcomeText(summaryText),
+        colorClass: "state-neutral",
+      };
+    }
+    return {
+      text: status.symbolWord || status.word || "Running",
+      colorClass: status.colorClass || "state-neutral",
+    };
+  }
+
   function normalizeViewName(raw) {
     const v = String(raw || "").toLowerCase().trim();
     if (v === "b1" || v === "graph" || v === "agent-graph") return "graph";
@@ -2282,7 +2325,9 @@
     if (v === "b7" || v === "marketing" || v === "promo") return "marketing";
     if (v === "b3" || v === "analytics" || v === "cost") return "analytics";
     if (v === "b4" || v === "onboarding" || v === "setup") return "onboarding";
-    if (v === "b5" || v === "history" || v === "settings" || v === "history-settings") return "history-settings";
+    if (v === "settings") return "settings";
+    if (v === "memory") return "memory";
+    if (v === "b5" || v === "history" || v === "history-settings") return "history";
     return "graph";
   }
 
@@ -2352,33 +2397,44 @@
       if (vm.isSampleData) {
         provEl.style.display = "inline-flex";
         provEl.textContent = vm.sampleLabel || "Sample data";
-      } else if (vm.connectionStatus === "connected") {
-        provEl.style.display = "inline-flex";
-        provEl.textContent = "Live backend";
       } else {
         provEl.style.display = "none";
       }
     }
 
-    const countGraph = document.getElementById("nav-count-graph");
-    if (countGraph) {
-      countGraph.textContent = vm.activeGroup ? String(vm.activeGroup.allNodes.length) : "0";
+    const activeDef = VIEW_DEFINITIONS.find((v) => v.id === currentView) || VIEW_DEFINITIONS[0];
+    const menuLabelEl = document.getElementById("view-menu-label");
+    if (menuLabelEl) {
+      menuLabelEl.textContent = activeDef.label;
     }
-    const countSm = document.getElementById("nav-count-sm");
-    if (countSm) {
-      countSm.textContent = String(vm.stateMachine.screens.length);
+
+    const menuBtn = document.getElementById("view-menu-btn");
+    const menuDrop = document.getElementById("view-menu-dropdown");
+    if (menuBtn) {
+      menuBtn.setAttribute("aria-expanded", viewMenuOpen ? "true" : "false");
     }
-    const countLogs = document.getElementById("nav-count-logs");
-    if (countLogs) {
-      countLogs.textContent = String(vm.taskGroups.length);
-    }
-    const countArtifacts = document.getElementById("nav-count-artifacts");
-    if (countArtifacts) {
-      countArtifacts.textContent = String((vm.artifacts || []).length);
-    }
-    const countMarketing = document.getElementById("nav-count-marketing");
-    if (countMarketing) {
-      countMarketing.textContent = String((vm.marketingRuns || []).length);
+    if (menuDrop) {
+      menuDrop.classList.toggle("hidden", !viewMenuOpen);
+      menuDrop.innerHTML = VIEW_DEFINITIONS.map((v) => {
+        const isCurrent = v.id === currentView;
+        const shortcutText = v.key >= "1" && v.key <= "8" ? `⌘${v.key}` : "";
+        return `
+          <button
+            type="button"
+            class="view-menu-item"
+            role="menuitemradio"
+            aria-checked="${isCurrent ? "true" : "false"}"
+            data-action="select-view-menu"
+            data-view="${escapeHtml(v.id)}"
+          >
+            <span class="view-menu-item-text">
+              <span class="view-menu-item-title">${escapeHtml(v.label)}</span>
+              <span class="view-menu-item-desc">${escapeHtml(v.desc)}</span>
+            </span>
+            ${shortcutText ? `<span class="view-menu-item-key">${shortcutText}</span>` : ""}
+          </button>
+        `;
+      }).join("");
     }
 
     const activeRunCount = (rawRuns || []).filter(
@@ -2402,11 +2458,6 @@
       stopStatusEl.className = `state-text ${stopAllStatusTone}${showStopStatus ? "" : " hidden"}`;
       stopStatusEl.textContent = stopAllStatus;
     }
-
-    document.querySelectorAll("[data-view-tab]").forEach((btn) => {
-      const isSelected = btn.dataset.viewTab === currentView;
-      btn.setAttribute("aria-selected", isSelected ? "true" : "false");
-    });
 
     document.querySelectorAll("[data-view-panel]").forEach((panel) => {
       const isActive = panel.dataset.viewPanel === currentView;
@@ -2871,7 +2922,10 @@
                 <span class="glass-role-tag">${escapeHtml(node.roleText)}</span>
               </span>
               <span class="glass-node-status">
-                <span class="state-text ${escapeHtml(node.status.colorClass)}">${escapeHtml(node.status.symbolWord)}</span>
+                ${(() => {
+                  const st = formatUiStatusDisplay(node.status, node.stateFact);
+                  return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
+                })()}
                 <span>&middot; ${escapeHtml(node.elapsedText)}</span>
               </span>
             </span>
@@ -2902,7 +2956,10 @@
               <span class="glass-role-tag">${escapeHtml(node.roleText)}</span>
             </span>
             <span class="glass-node-status">
-              <span>${escapeHtml(node.status.symbolWord)}</span>
+              ${(() => {
+                const st = formatUiStatusDisplay(node.status, node.stateFact);
+                return `<span>${escapeHtml(st.text)}</span>`;
+              })()}
               <span>&middot; ${escapeHtml(node.elapsedText)}</span>
             </span>
           </span>
@@ -2938,7 +2995,10 @@
         <div>
           <h2 class="section-title">${escapeHtml(group.goal)}</h2>
           <p class="section-subtitle">
-            <span class="state-text ${escapeHtml(group.overallStatus.colorClass)}">${escapeHtml(group.overallStatus.symbolWord)}</span>
+            ${(() => {
+              const st = formatUiStatusDisplay(group.overallStatus, group.resultSummary);
+              return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
+            })()}
             &middot; ${escapeHtml(group.resultSummary)} &middot; Elapsed ${escapeHtml(group.elapsedText)}${
               group.digestSummaryText ? ` &middot; ${escapeHtml(group.digestSummaryText)}` : ""
             }
@@ -2964,7 +3024,10 @@
             <div>
               <div class="section-title">${escapeHtml(selectedNode.agentName)}</div>
               <div class="section-subtitle">
-                <span class="state-text ${escapeHtml(selectedNode.status.colorClass)}">${escapeHtml(selectedNode.status.symbolWord)}</span>
+                ${(() => {
+                  const st = formatUiStatusDisplay(selectedNode.status, selectedNode.stateFact);
+                  return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
+                })()}
                 &middot; ${escapeHtml(selectedNode.roleText)} &middot; ${selectedNode.steps.length} step${selectedNode.steps.length === 1 ? "" : "s"}
               </div>
             </div>
@@ -3725,7 +3788,7 @@
       { key: "running", label: "▶ Running" },
       { key: "waiting", label: "◔ Waiting" },
       { key: "success", label: "✓ Success" },
-      { key: "failed", label: "× Failed" },
+      { key: "failed", label: "Did not finish" },
     ];
 
     const chipsHtml = statusChips
@@ -3794,7 +3857,10 @@
                   aria-expanded="${isExpanded ? "true" : "false"}"
                 >
                   <span class="transcript-main">
-                    <span class="state-text ${escapeHtml(g.overallStatus.colorClass)}">${escapeHtml(g.overallStatus.symbolWord)}</span>
+                    ${(() => {
+                      const st = formatUiStatusDisplay(g.overallStatus, g.resultSummary);
+                      return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
+                    })()}
                     <span class="transcript-goal">${escapeHtml(g.goal)}</span>
                     <span class="transcript-result">&middot; ${escapeHtml(g.resultSummary)}</span>
                   </span>
@@ -4474,7 +4540,10 @@
               return `
                 <tr>
                   <td>${escapeHtml(g.goal)}</td>
-                  <td><span class="state-text ${escapeHtml(g.overallStatus.colorClass)}">${escapeHtml(g.overallStatus.shortSymbolWord || g.overallStatus.symbolWord)}</span></td>
+                  <td>${(() => {
+                    const st = formatUiStatusDisplay(g.overallStatus, g.resultSummary);
+                    return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
+                  })()}</td>
                   <td class="num-col">${escapeHtml(g.allNodes.length)}</td>
                   <td class="num-col" colspan="4"><span class="section-subtitle">No model calls logged (mock mode or pending)</span></td>
                   <td class="num-col">${escapeHtml(g.elapsedText)}</td>
@@ -4670,7 +4739,7 @@
                     <th>Application</th>
                     <th class="num-col">Steps</th>
                     <th class="num-col">✓ Ok</th>
-                    <th class="num-col">× Failed</th>
+                    <th class="num-col">Did not finish</th>
                     <th class="num-col">⊘ Denied</th>
                     <th class="num-col">Success rate</th>
                   </tr>
@@ -4875,7 +4944,7 @@
               </div>
               ${
                 OnboardingState.profileSaveError
-                  ? `<span class="state-text state-danger">${escapeHtml(OnboardingState.profileSaveError)}</span>`
+                  ? `<span class="state-text state-neutral">${escapeHtml(OnboardingState.profileSaveError)}</span>`
                   : OnboardingState.profileSaveStatus
                     ? `<span class="state-text state-success">${escapeHtml(OnboardingState.profileSaveStatus)}</span>`
                     : ""
@@ -5335,12 +5404,13 @@
       const apps = Array.from(appSet).sort();
       const costUsd = typeof g.cost?.cost_usd === "number" ? g.cost.cost_usd : null;
       const isFailed = g.overallStatus?.filterKey === "failed";
+      const uiStatus = formatUiStatusDisplay(g.overallStatus, g.resultSummary || g.primaryNode?.stateFact);
       const isSpike = costUsd !== null && costUsd >= 0.05;
       const hasDenied = (g.combinedEvents || []).some(
         (ev) => ev?.kind === "help" && /denied|deny/i.test(String(ev?.text || ev?.detail || ""))
       );
       const exceptionParts = [];
-      if (isFailed) exceptionParts.push("Failed run");
+      if (isFailed) exceptionParts.push(uiStatus.text);
       if (hasDenied) exceptionParts.push("Denied action");
       if (isSpike) exceptionParts.push("Cost spike");
       return {
@@ -5348,7 +5418,8 @@
         goal: g.goal || "Untitled task",
         apps,
         outcomeKey: g.overallStatus?.filterKey || "running",
-        outcomeLabel: g.overallStatus?.symbolWord || "Running",
+        outcomeLabel: uiStatus.text,
+        outcomeColorClass: uiStatus.colorClass,
         costUsd,
         elapsedText: g.elapsedText || "—",
         hasException: exceptionParts.length > 0,
@@ -5359,19 +5430,19 @@
     return { usingSample: false, rows };
   }
 
-  function renderHistorySettingsView(vm) {
+  function renderHistoryView(vm) {
     const container = document.getElementById("b5-content");
     if (!container) return;
 
     if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
-      container.innerHTML = renderLoadingSkeletonViewHtml("history-settings");
+      container.innerHTML = renderLoadingSkeletonViewHtml("history");
       return;
     }
 
     if (vm.connectionStatus === "disconnected") {
       container.innerHTML = renderNotConnectedViewHtml({
-        title: "History and settings",
-        subtitle: "Search past tasks, review what the agent knows, and set app permissions and spend limits",
+        title: "History",
+        subtitle: "Past tasks, outcomes, apps used, and cost",
         connectionError: vm.connectionError,
       });
       attachConnectInputHandlers(container);
@@ -5400,7 +5471,7 @@
       if (costFilter === "spike" && !row.hasException) return false;
       if (query) {
         if (transcriptMatchRunIds && transcriptMatchRunIds.has(row.id)) return true;
-        const hay = `${row.goal} ${row.apps.join(" ")} ${row.exceptionNote}`.toLowerCase();
+        const hay = `${row.goal} ${row.apps.join(" ")} ${row.outcomeLabel}`.toLowerCase();
         if (!hay.includes(query)) return false;
       }
       return true;
@@ -5408,51 +5479,308 @@
 
     const historyRowsHtml = !rows.length
       ? `
-        <tr>
-          <td colspan="6">
-            <div class="view-state-block" style="padding: 8px 0;">
-              <span class="state-text state-neutral">&cir; No task history yet. Completed runs appear here after your first task.</span>
-              <div class="filter-group">
-                <button type="button" class="btn btn-primary" data-action="focus-prompt">Ask agents to run a task</button>
-              </div>
-            </div>
-          </td>
-        </tr>
+        <div class="view-state-block" style="padding: 8px 0;">
+          <span class="state-text state-neutral">&cir; No task history yet. Completed runs appear here after your first task.</span>
+        </div>
       `
       : filteredRows.length
       ? filteredRows
           .map((row) => {
             const costText = row.costUsd !== null ? `$${row.costUsd.toFixed(4)}` : "—";
             const appsText = row.apps.length ? row.apps.join(", ") : "General";
-            const outcomeHtml = row.hasException
-              ? `<span class="state-text state-danger">${escapeHtml(row.outcomeLabel)}</span>${
-                  row.exceptionNote
-                    ? `<div class="section-subtitle">${escapeHtml(row.exceptionNote)}</div>`
-                    : ""
-                }`
-              : `<span class="state-text state-neutral">${escapeHtml(row.outcomeLabel)}</span>`;
-            const openBtnHtml = row.canOpenRun
-              ? `<button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(row.id)}">Open run</button>`
-              : `<span class="section-subtitle">Sample</span>`;
             return `
-              <tr>
-                <td>
-                  <div class="history-goal-text">${escapeHtml(row.goal)}</div>
-                </td>
-                <td>${escapeHtml(appsText)}</td>
-                <td>${outcomeHtml}</td>
-                <td class="num-cell">${escapeHtml(costText)}</td>
-                <td class="num-cell">${escapeHtml(row.elapsedText)}</td>
-                <td>${openBtnHtml}</td>
-              </tr>
+              <div class="history-row-2line">
+                <div class="history-row-goal">${escapeHtml(row.goal)}</div>
+                <div class="history-row-meta">
+                  <span class="state-text ${escapeHtml(row.outcomeColorClass)}">${escapeHtml(row.outcomeLabel)}</span>
+                  <span>&middot;</span>
+                  <span>${escapeHtml(appsText)}</span>
+                  <span>&middot;</span>
+                  <span>${escapeHtml(costText)}</span>
+                  ${row.canOpenRun ? `<button type="button" class="btn" data-action="open-run-in-graph" data-run-id="${escapeHtml(row.id)}">Open run</button>` : ""}
+                </div>
+              </div>
             `;
           })
           .join("")
-      : `
-        <tr>
-          <td colspan="6" class="section-subtitle">No tasks match the current search and filters.</td>
-        </tr>
-      `;
+      : `<p class="section-subtitle">No tasks match the current search and filters.</p>`;
+
+    container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">History</h2>
+          <p class="section-subtitle">${
+            usingSample
+              ? "Sample data — no live runs recorded yet."
+              : "Past tasks, outcomes, apps used, and cost."
+          }</p>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <div class="inline-input-row" style="flex: 1; min-width: 200px; max-width: 340px;">
+          <label for="history-search-input" class="visually-hidden">Search task history by goal or app</label>
+          <input
+            type="search"
+            id="history-search-input"
+            class="inline-text-input"
+            placeholder="Search by goal or app…"
+            value="${escapeHtml(HistorySettingsState.searchQuery)}"
+          />
+        </div>
+
+        <div class="filter-group" role="group" aria-label="Filter by outcome">
+          <button type="button" class="btn ${outcomeFilter === "all" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "all" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="all">All</button>
+          <button type="button" class="btn ${outcomeFilter === "success" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "success" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="success">Success</button>
+          <button type="button" class="btn ${outcomeFilter === "failed" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "failed" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="failed">Did not finish</button>
+          <button type="button" class="btn ${outcomeFilter === "waiting" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "waiting" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="waiting">Waiting</button>
+        </div>
+
+        <div class="filter-group">
+          <label for="history-cost-filter" class="section-subtitle">Cost</label>
+          <select id="history-cost-filter" class="inline-select" data-action="set-history-cost">
+            <option value="all" ${costFilter === "all" ? "selected" : ""}>All costs</option>
+            <option value="under-1c" ${costFilter === "under-1c" ? "selected" : ""}>Under $0.01</option>
+            <option value="1c-5c" ${costFilter === "1c-5c" ? "selected" : ""}>$0.01 to $0.05</option>
+            <option value="over-5c" ${costFilter === "over-5c" ? "selected" : ""}>Over $0.05</option>
+            <option value="spike" ${costFilter === "spike" ? "selected" : ""}>Exceptions only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="history-list">
+        ${historyRowsHtml}
+      </div>
+    `;
+
+    const nextSearchInput = document.getElementById("history-search-input");
+    if (nextSearchInput) {
+      nextSearchInput.addEventListener("input", (e) => {
+        HistorySettingsState.searchQuery = e.target.value;
+        scheduleTranscriptSearch(e.target.value);
+        renderHistoryView(getViewModel());
+      });
+      if (searchHadFocus) {
+        nextSearchInput.focus();
+        if (searchCursor != null) {
+          try {
+            nextSearchInput.setSelectionRange(searchCursor, searchCursor);
+          } catch {
+            // Ignore
+          }
+        }
+      }
+    }
+  }
+
+  function renderSettingsView(vm) {
+    const container = document.getElementById("b8-content");
+    if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("settings");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Settings",
+        subtitle: "Manage your profile settings and model preferences",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    const activeProfileFieldId = document.activeElement?.id || "";
+    const activeProfileCursor =
+      activeProfileFieldId.startsWith("settings-") && document.activeElement?.selectionStart != null
+        ? document.activeElement.selectionStart
+        : null;
+
+    const draft = HistorySettingsState.profileDraft;
+    const settingsStatusHtml = HistorySettingsState.profileSaveError
+      ? `<span class="state-text state-neutral">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
+      : HistorySettingsState.profileSaveStatus
+        ? `<span class="state-text state-success">${escapeHtml(HistorySettingsState.profileSaveStatus)}</span>`
+        : "";
+
+    container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">Settings</h2>
+          <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
+        </div>
+      </div>
+
+      <form id="workspace-settings-form" class="settings-form-grid">
+        <div class="onboarding-field">
+          <label for="settings-call-me" class="filter-label">What should agents call you?</label>
+          <input
+            type="text"
+            id="settings-call-me"
+            name="call_me"
+            class="inline-text-input"
+            maxlength="200"
+            placeholder="Your name"
+            value="${escapeHtml(draft.call_me)}"
+          />
+        </div>
+
+        <div class="onboarding-field">
+          <label for="settings-voice-id" class="filter-label">Voice</label>
+          <input
+            type="text"
+            id="settings-voice-id"
+            name="voice_id"
+            class="inline-text-input"
+            maxlength="200"
+            placeholder="Default voice"
+            value="${escapeHtml(draft.voice_id)}"
+          />
+        </div>
+
+        <div class="onboarding-field">
+          <label for="settings-model" class="filter-label">Primary model</label>
+          <input
+            type="text"
+            id="settings-model"
+            name="model"
+            class="inline-text-input"
+            maxlength="200"
+            placeholder="Default model"
+            value="${escapeHtml(draft.model)}"
+          />
+        </div>
+
+        <div class="onboarding-field">
+          <label for="settings-decide-model" class="filter-label">Faster step model</label>
+          <input
+            type="text"
+            id="settings-decide-model"
+            name="decide_model"
+            class="inline-text-input"
+            maxlength="200"
+            placeholder="Uses primary model when blank"
+            value="${escapeHtml(draft.decide_model)}"
+          />
+        </div>
+
+        <div class="settings-form-actions">
+          <button type="submit" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
+            ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
+          </button>
+          <span aria-live="polite">${settingsStatusHtml}</span>
+        </div>
+      </form>
+
+      <div class="section-header-row" style="margin-top: 8px;">
+        <div>
+          <h3 class="section-title">Primary agent</h3>
+          <p class="section-subtitle">Name and color for your orchestrator. On-screen cursor names and colors still come from the backend.</p>
+        </div>
+      </div>
+      <div class="settings-form-grid">
+        <div class="onboarding-field">
+          <label for="settings-agent-name" class="filter-label">Primary agent name</label>
+          <input
+            type="text"
+            id="settings-agent-name"
+            class="inline-text-input"
+            maxlength="60"
+            placeholder="Primary orchestrator"
+            value="${escapeHtml(OnboardingState.agentName)}"
+          />
+        </div>
+        <div class="onboarding-field">
+          <span class="filter-label">Color</span>
+          <div class="filter-group" role="group" aria-label="Primary agent color">
+            ${AGENT_SWATCHES.map((sw) => {
+              const selected = OnboardingState.swatchKey === sw.key;
+              return `<button type="button" class="btn ${selected ? "btn-active" : ""}" data-action="select-swatch" data-swatch="${escapeHtml(sw.key)}" aria-pressed="${selected ? "true" : "false"}"><span class="agent-color-dot" style="background:${escapeHtml(sw.body)};"></span><span>${escapeHtml(sw.label)}</span></button>`;
+            }).join("")}
+          </div>
+        </div>
+      </div>
+
+      <div class="section-header-row" style="margin-top: 8px;">
+        <div>
+          <h3 class="section-title">Approvals, app permissions, and daily cap</h3>
+          <p class="section-subtitle">Money, sign-in, send, delete, and script actions always ask first.</p>
+        </div>
+      </div>
+      <div class="settings-form-grid">
+        <div class="onboarding-field">
+          <span class="filter-label">Off-limits apps</span>
+          <span class="section-subtitle">${OnboardingState.blockedApps.length ? escapeHtml(OnboardingState.blockedApps.join(", ")) : "None"}</span>
+        </div>
+        <div class="onboarding-field">
+          <span class="filter-label">Daily spend cap</span>
+          <span class="section-subtitle">$${escapeHtml(Number(OnboardingState.dailyCapUsd || 5).toFixed(2))} per day (enforced in session)</span>
+        </div>
+      </div>
+    `;
+
+    const agentNameInput = document.getElementById("settings-agent-name");
+    if (agentNameInput) {
+      agentNameInput.addEventListener("input", (e) => {
+        OnboardingState.agentName = e.target.value;
+        savePrimaryAgentChoice();
+      });
+    }
+
+    const settingsForm = document.getElementById("workspace-settings-form");
+    if (settingsForm) {
+      ["call_me", "voice_id", "model", "decide_model"].forEach((key) => {
+        const inputEl = settingsForm.querySelector(`[name="${key}"]`);
+        if (!inputEl) return;
+        inputEl.addEventListener("input", (e) => {
+          HistorySettingsState.profileDraft[key] = e.target.value;
+          HistorySettingsState.profileDirty = true;
+          HistorySettingsState.profileSaveStatus = "";
+          HistorySettingsState.profileSaveError = "";
+        });
+      });
+      if (activeProfileFieldId && activeProfileFieldId.startsWith("settings-")) {
+        const refocused = document.getElementById(activeProfileFieldId);
+        if (refocused) {
+          refocused.focus();
+          if (activeProfileCursor != null) {
+            try {
+              refocused.setSelectionRange(activeProfileCursor, activeProfileCursor);
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      }
+      settingsForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        await saveWorkspaceProfileSettings();
+      });
+    }
+  }
+
+  function renderMemoryView(vm) {
+    const container = document.getElementById("b9-content");
+    if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("memory");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "Memory",
+        subtitle: "Saved facts agents remember across runs",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
 
     const activeMemories = HistorySettingsState.memoryLive
       ? HistorySettingsState.liveMemories
@@ -5511,234 +5839,32 @@
             `;
           })
           .join("")
-      : `<p class="section-subtitle">No saved memories in this session.</p>`;
-
-    const activeProfileFieldId = document.activeElement?.id || "";
-    const activeProfileCursor =
-      activeProfileFieldId.startsWith("settings-") && document.activeElement?.selectionStart != null
-        ? document.activeElement.selectionStart
-        : null;
-
-    const draft = HistorySettingsState.profileDraft;
-    const settingsStatusHtml = HistorySettingsState.profileSaveError
-      ? `<span class="state-text state-danger">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
-      : HistorySettingsState.profileSaveStatus
-        ? `<span class="state-text state-success">${escapeHtml(HistorySettingsState.profileSaveStatus)}</span>`
-        : "";
+      : `<p class="section-subtitle">${
+          HistorySettingsState.memoryLive ? "No saved memories yet." : "No sample memories."
+        }</p>`;
 
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
-          <h2 class="section-title">History and settings</h2>
-          <p class="section-subtitle">Manage your profile settings, search past tasks, and review what the agent remembers</p>
+          <h2 class="section-title">Memory</h2>
+          <p class="section-subtitle">${
+            HistorySettingsState.memoryLive
+              ? "Saved memories from the backend. Forgetting a memory deletes it."
+              : "Sample memories. Nothing here is saved."
+          }</p>
         </div>
+        ${HistorySettingsState.memoryLive ? "" : `<span class="provenance-tag">Sample</span>`}
       </div>
-
-      <section class="onboarding-block" aria-labelledby="settings-profile-heading">
-        <div class="section-header-row">
-          <div>
-            <h3 id="settings-profile-heading" class="section-title">Settings</h3>
-            <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
-          </div>
-        </div>
-
-        <form id="workspace-settings-form" class="settings-form-grid">
-          <div class="onboarding-field">
-            <label for="settings-call-me" class="filter-label">What should agents call you?</label>
-            <input
-              type="text"
-              id="settings-call-me"
-              name="call_me"
-              class="inline-text-input"
-              maxlength="200"
-              placeholder="Your name"
-              value="${escapeHtml(draft.call_me)}"
-            />
-          </div>
-
-          <div class="onboarding-field">
-            <label for="settings-voice-id" class="filter-label">Voice</label>
-            <input
-              type="text"
-              id="settings-voice-id"
-              name="voice_id"
-              class="inline-text-input"
-              maxlength="200"
-              placeholder="Default voice"
-              value="${escapeHtml(draft.voice_id)}"
-            />
-          </div>
-
-          <div class="onboarding-field">
-            <label for="settings-model" class="filter-label">Primary model</label>
-            <input
-              type="text"
-              id="settings-model"
-              name="model"
-              class="inline-text-input"
-              maxlength="200"
-              placeholder="Default model"
-              value="${escapeHtml(draft.model)}"
-            />
-          </div>
-
-          <div class="onboarding-field">
-            <label for="settings-decide-model" class="filter-label">Faster step model</label>
-            <input
-              type="text"
-              id="settings-decide-model"
-              name="decide_model"
-              class="inline-text-input"
-              maxlength="200"
-              placeholder="Uses primary model when blank"
-              value="${escapeHtml(draft.decide_model)}"
-            />
-          </div>
-
-          <div class="settings-form-actions">
-            <button type="submit" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
-              ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
-            </button>
-            <span aria-live="polite">${settingsStatusHtml}</span>
-          </div>
-        </form>
-      </section>
-
-      <section class="onboarding-block" aria-labelledby="history-tasks-heading">
-        <div class="section-header-row">
-          <div>
-            <h3 id="history-tasks-heading" class="section-title">Task history</h3>
-            <p class="section-subtitle">${
-              usingSample
-                ? "Sample data — no live runs recorded yet. Searchable by goal and app."
-                : "Searchable by goal and app. Exceptions mark failed runs, denied actions, or cost spikes."
-            }</p>
-          </div>
-        </div>
-
-        <div class="filter-bar">
-          <div class="inline-input-row" style="flex: 1; min-width: 220px; max-width: 360px;">
-            <label for="history-search-input" class="visually-hidden">Search task history by goal or app</label>
-            <input
-              type="search"
-              id="history-search-input"
-              class="inline-text-input"
-              placeholder="Search by goal or app…"
-              value="${escapeHtml(HistorySettingsState.searchQuery)}"
-            />
-          </div>
-
-          <div class="filter-group" role="group" aria-label="Filter by outcome">
-            <button type="button" class="btn ${outcomeFilter === "all" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "all" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="all">All</button>
-            <button type="button" class="btn ${outcomeFilter === "success" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "success" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="success">Success</button>
-            <button type="button" class="btn ${outcomeFilter === "failed" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "failed" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="failed">Failed</button>
-            <button type="button" class="btn ${outcomeFilter === "waiting" ? "btn-active" : ""}" aria-pressed="${outcomeFilter === "waiting" ? "true" : "false"}" data-action="set-history-outcome" data-outcome="waiting">Waiting</button>
-          </div>
-
-          <div class="filter-group">
-            <label for="history-cost-filter" class="section-subtitle">Cost</label>
-            <select id="history-cost-filter" class="inline-select" data-action="set-history-cost">
-              <option value="all" ${costFilter === "all" ? "selected" : ""}>All costs</option>
-              <option value="under-1c" ${costFilter === "under-1c" ? "selected" : ""}>Under $0.01</option>
-              <option value="1c-5c" ${costFilter === "1c-5c" ? "selected" : ""}>$0.01 to $0.05</option>
-              <option value="over-5c" ${costFilter === "over-5c" ? "selected" : ""}>Over $0.05</option>
-              <option value="spike" ${costFilter === "spike" ? "selected" : ""}>Exceptions only</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="data-table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Goal</th>
-                <th>Apps</th>
-                <th>Outcome</th>
-                <th>Cost</th>
-                <th>Time</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${historyRowsHtml}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="onboarding-block" aria-labelledby="history-memory-heading">
-        <div class="section-header-row">
-          <div>
-            <h3 id="history-memory-heading" class="section-title">Memory viewer</h3>
-            <p class="section-subtitle">${
-              HistorySettingsState.memoryLive
-                ? "Saved memories from the backend. Forgetting a memory deletes it."
-                : "Sample data — no backend memory endpoint yet. Changes apply to this session only."
-            }</p>
-          </div>
-          ${HistorySettingsState.memoryLive ? "" : `<span class="provenance-tag">Sample</span>`}
-        </div>
-        ${
-          HistorySettingsState.memoryError
-            ? `<p class="state-text state-danger">${escapeHtml(HistorySettingsState.memoryError)}</p>`
-            : ""
-        }
-        <div class="history-list">
-          ${memoriesHtml}
-        </div>
-      </section>
+      ${
+        HistorySettingsState.memoryError
+          ? `<p class="state-text state-neutral">${escapeHtml(HistorySettingsState.memoryError)}</p>`
+          : ""
+      }
+      <div class="history-list">
+        ${memoriesHtml}
+      </div>
     `;
-
-    const settingsForm = document.getElementById("workspace-settings-form");
-    if (settingsForm) {
-      ["call_me", "voice_id", "model", "decide_model"].forEach((key) => {
-        const inputEl = settingsForm.querySelector(`[name="${key}"]`);
-        if (!inputEl) return;
-        inputEl.addEventListener("input", (e) => {
-          HistorySettingsState.profileDraft[key] = e.target.value;
-          HistorySettingsState.profileDirty = true;
-          HistorySettingsState.profileSaveStatus = "";
-          HistorySettingsState.profileSaveError = "";
-        });
-      });
-      if (activeProfileFieldId && activeProfileFieldId.startsWith("settings-")) {
-        const refocused = document.getElementById(activeProfileFieldId);
-        if (refocused) {
-          refocused.focus();
-          if (activeProfileCursor != null) {
-            try {
-              refocused.setSelectionRange(activeProfileCursor, activeProfileCursor);
-            } catch {
-              // Ignore
-            }
-          }
-        }
-      }
-      settingsForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        await saveWorkspaceProfileSettings();
-      });
-    }
-
-    const nextSearchInput = document.getElementById("history-search-input");
-    if (nextSearchInput) {
-      nextSearchInput.addEventListener("input", (e) => {
-        HistorySettingsState.searchQuery = e.target.value;
-        scheduleTranscriptSearch(e.target.value);
-        renderHistorySettingsView(getViewModel());
-      });
-      if (searchHadFocus) {
-        nextSearchInput.focus();
-        if (searchCursor != null) {
-          try {
-            nextSearchInput.setSelectionRange(searchCursor, searchCursor);
-          } catch {
-            // Ignore
-          }
-        }
-      }
-    }
 
     if (HistorySettingsState.editingMemoryId) {
       const editInput = container.querySelector(
@@ -5765,18 +5891,6 @@
     }
   }
 
-  function renderSendErrorBanner() {
-    const errBanner = document.getElementById("send-error-banner");
-    if (!errBanner) return;
-    if (sendErrorText) {
-      errBanner.classList.remove("hidden");
-      errBanner.innerHTML = `<span class="state-text state-danger">&times; Failed &middot; ${escapeHtml(sendErrorText)}</span>`;
-    } else {
-      errBanner.classList.add("hidden");
-      errBanner.innerHTML = "";
-    }
-  }
-
   function renderNow() {
     const vm = getViewModel();
     if (!selectedTaskRunId && vm.taskGroups[0]) {
@@ -5784,8 +5898,6 @@
     }
     renderHeaderAndProvenance(vm);
     renderConnectionBanner(vm);
-    renderApprovalsStrip(vm);
-    renderSendErrorBanner();
 
     if (currentView === "graph") {
       renderAgentGraphView(vm);
@@ -5799,10 +5911,14 @@
       renderMarketingView(vm);
     } else if (currentView === "analytics") {
       renderAnalyticsView(vm);
+    } else if (currentView === "settings") {
+      renderSettingsView(vm);
+    } else if (currentView === "history") {
+      renderHistoryView(vm);
+    } else if (currentView === "memory") {
+      renderMemoryView(vm);
     } else if (currentView === "onboarding") {
       renderOnboardingView(vm);
-    } else if (currentView === "history-settings") {
-      renderHistorySettingsView(vm);
     }
   }
 
@@ -6032,7 +6148,7 @@
       stopAllStatusTone = "state-warning";
       stopAllStatus = `◔ Stopped ${stoppedCount} of ${activeParents.length} tasks`;
     } else {
-      stopAllStatusTone = "state-danger";
+      stopAllStatusTone = "state-neutral";
       stopAllStatus = "✕ Could not stop running tasks";
     }
     if (stopAllStatusTimer) clearTimeout(stopAllStatusTimer);
@@ -6638,12 +6754,20 @@
       }
     });
 
-    /* Delegated clicks across navigation & all 5 views */
+    const viewMenuBtn = document.getElementById("view-menu-btn");
+    if (viewMenuBtn) {
+      viewMenuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        viewMenuOpen = !viewMenuOpen;
+        renderHeaderAndProvenance(getViewModel());
+      });
+    }
+
+    /* Delegated clicks across view menu & all 10 views */
     document.addEventListener("click", async (e) => {
-      const tabBtn = e.target.closest("[data-view-tab]");
-      if (tabBtn) {
-        setView(tabBtn.dataset.viewTab);
-        return;
+      if (viewMenuOpen && !e.target.closest(".view-menu-wrap")) {
+        viewMenuOpen = false;
+        renderHeaderAndProvenance(getViewModel());
       }
 
       const actionEl = e.target.closest("[data-action]");
@@ -6651,6 +6775,12 @@
       const action = actionEl.dataset.action;
 
       switch (action) {
+        case "select-view-menu":
+          viewMenuOpen = false;
+          setView(actionEl.dataset.view || "graph");
+          document.getElementById("view-menu-btn")?.focus();
+          break;
+
         case "switch-view":
           setView(actionEl.dataset.targetView || "graph");
           break;
@@ -7125,27 +7255,30 @@
     });
 
     /* Keyboard accessibility:
-       - ArrowLeft / ArrowRight / Home / End on view tabs
-       - Enter / Space on SVG .sm-edge-group controls
-       - Escape closes the innermost open menu, inline form, confirmation, or detail */
+       - Cmd+1..Cmd+8 (and Cmd+9/Cmd+0) switch views
+       - Cmd+W and Escape close the window (after closing innermost open menu/detail)
+       - Enter / Space on SVG .sm-edge-group controls */
     document.addEventListener("keydown", (e) => {
       const target = e.target;
 
-      if (target && target.matches && target.matches('[role="tab"][data-view-tab]')) {
-        const tabs = Array.from(document.querySelectorAll('[role="tab"][data-view-tab]'));
-        const idx = tabs.indexOf(target);
-        if (idx !== -1 && (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === "Home" || e.key === "End")) {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        const k = String(e.key || "").toLowerCase();
+        if (k === "w") {
           e.preventDefault();
-          let nextIdx = idx;
-          if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
-          else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
-          else if (e.key === "Home") nextIdx = 0;
-          else if (e.key === "End") nextIdx = tabs.length - 1;
-          const nextTab = tabs[nextIdx];
-          if (nextTab) {
-            setView(nextTab.dataset.viewTab);
-            nextTab.focus();
+          if (hasShellBridge()) {
+            try {
+              window.webkit.messageHandlers.shell.postMessage({ type: "closeWindow" });
+            } catch {
+              // Ignore shell errors
+            }
           }
+          return;
+        }
+        const matchedView = VIEW_DEFINITIONS.find((v) => v.key === k);
+        if (matchedView) {
+          e.preventDefault();
+          viewMenuOpen = false;
+          setView(matchedView.id);
           return;
         }
       }
@@ -7162,23 +7295,15 @@
 
       if (e.key !== "Escape") return;
 
-      if (attachMenu && attachMenu.classList.contains("open")) {
+      if (viewMenuOpen) {
         e.preventDefault();
-        attachMenu.classList.remove("open");
-        attachBtn?.setAttribute("aria-expanded", "false");
-        attachBtn?.focus();
+        viewMenuOpen = false;
+        renderHeaderAndProvenance(getViewModel());
+        document.getElementById("view-menu-btn")?.focus();
         return;
       }
 
-      if (linkInputRow && !linkInputRow.classList.contains("hidden")) {
-        e.preventDefault();
-        if (linkInput) linkInput.value = "";
-        linkInputRow.classList.add("hidden");
-        attachBtn?.focus();
-        return;
-      }
-
-      if (currentView === "history-settings" && HistorySettingsState.confirmForgetId) {
+      if (currentView === "memory" && HistorySettingsState.confirmForgetId) {
         e.preventDefault();
         const mid = HistorySettingsState.confirmForgetId;
         HistorySettingsState.confirmForgetId = null;
@@ -7189,7 +7314,7 @@
         return;
       }
 
-      if (currentView === "history-settings" && HistorySettingsState.editingMemoryId) {
+      if (currentView === "memory" && HistorySettingsState.editingMemoryId) {
         e.preventDefault();
         const mid = HistorySettingsState.editingMemoryId;
         HistorySettingsState.editingMemoryId = null;
