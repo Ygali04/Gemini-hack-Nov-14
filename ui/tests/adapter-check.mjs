@@ -34,6 +34,7 @@ function loadFixtureNormalized(fileName, nowSec) {
     details: raw.details && typeof raw.details === "object" ? raw.details : {},
     help,
     agents: raw.agents && typeof raw.agents === "object" ? raw.agents : {},
+    transcripts: raw.transcripts && typeof raw.transcripts === "object" ? raw.transcripts : {},
   };
 }
 
@@ -615,6 +616,101 @@ function runChecks() {
     assert.equal(verifiedRun.digest.memorySteps, 1);
     assert.equal(verifiedRun.digest.costUsd, 0.0049);
     assert.equal(verifiedRun.digest.costText, "$0.0049");
+  }
+
+  // =========================================================================
+  // 6. Parallel chat isolation & transcript action-line filtering
+  // =========================================================================
+  {
+    const fx = loadFixtureNormalized("two-chats-parallel.json", nowSec);
+    const vmParallel = WorkspaceAdapter.mapRuns(fx.runs, fx.details, fx.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fx.agents,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+
+    assert.equal(vmParallel.runs.length, 2, "two-chats-parallel: expected 2 parent chats");
+    const mercury = vmParallel.runs.find((r) => r.id === "r-chat-mercury");
+    const cal = vmParallel.runs.find((r) => r.id === "r-chat-cal");
+    assert.ok(mercury && cal, "two-chats-parallel: expected both Mercury and Cal chats");
+    assert.equal(mercury.steps[0].agentIdentity.name, "Mercury", "two-chats-parallel: Mercury step 0 name");
+    assert.equal(cal.steps[0].agentIdentity.name, "Cal", "two-chats-parallel: Cal step 0 name");
+
+    for (const row of mercury.transcriptRows) {
+      const hay = `${row.who || ""} ${row.text || ""}`;
+      assert.ok(!hay.includes("Cal") && !hay.includes("408"), `two-chats-parallel: Mercury transcript leaked Cal: ${hay}`);
+    }
+    for (const row of cal.transcriptRows) {
+      const hay = `${row.who || ""} ${row.text || ""}`;
+      assert.ok(!hay.includes("Mercury") && !hay.includes("Q3-Ledger"), `two-chats-parallel: Cal transcript leaked Mercury: ${hay}`);
+    }
+
+    const pollutedTranscripts = {
+      ...fx.transcripts,
+      "r-chat-mercury": [
+        ...(fx.transcripts["r-chat-mercury"] || []),
+        {
+          id: 999,
+          ts: 1763149252.5,
+          run: "r-chat-cal-cu",
+          role: "agent",
+          agent: "Cal",
+          kind: "result",
+          text: "Cal leaked 408",
+        },
+      ],
+    };
+    const vmPolluted = WorkspaceAdapter.mapRuns(fx.runs, fx.details, fx.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fx.agents,
+      transcriptsById: pollutedTranscripts,
+      nowSec,
+    });
+    const mercuryPolluted = vmPolluted.runs.find((r) => r.id === "r-chat-mercury");
+    assert.ok(
+      !mercuryPolluted.transcriptRows.some((row) => row.id === "999" || `${row.who} ${row.text}`.includes("Cal")),
+      "two-chats-parallel: foreign-run transcript row must be rejected"
+    );
+  }
+
+  {
+    const fx = loadFixtureNormalized("transcript-action-lines.json", nowSec);
+    const vmActions = WorkspaceAdapter.mapRuns(fx.runs, fx.details, fx.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fx.agents,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+
+    assert.equal(vmActions.runs.length, 1, "transcript-action-lines: expected 1 parent run");
+    const run = vmActions.runs[0];
+    const bubbleIds = run.transcriptRows.map((r) => r.id);
+    assert.deepEqual(bubbleIds, ["1", "2", "9"], "transcript-action-lines: action lines must not become chat bubbles");
+    const actionIds = new Set(["3", "4", "5", "6", "7", "8"]);
+    for (const row of run.transcriptRows) {
+      assert.ok(!actionIds.has(row.id), `transcript-action-lines: action row ${row.id} leaked into chat bubbles`);
+    }
+
+    const step0 = run.steps[0];
+    assert.equal(step0.workStepCount, 6, "transcript-action-lines: expected 6 counted action steps");
+    const expectedActionSteps = [
+      "Enter 8 * 31 into Calculator",
+      "Pressed return",
+      "Clicked 3",
+      "Clicked 2",
+      "Typed in display",
+      "Clicked 3",
+    ];
+    for (const expectedLine of expectedActionSteps) {
+      assert.ok(
+        step0.workSteps.includes(expectedLine),
+        `transcript-action-lines: missing action line "${expectedLine}" in steps[0].workSteps`
+      );
+    }
   }
 }
 

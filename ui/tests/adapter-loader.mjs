@@ -182,6 +182,12 @@ export function loadNotchAdapterFromIndexHtml(indexHtmlPath = path.join(DEFAULT_
     parseInt,
     parseFloat,
     isNaN,
+    resolvePrimaryAgentDisplay: (backendName, backendColor) => ({
+      name: String(backendName || "").trim(),
+      color: backendColor || "",
+      edge: "",
+      ink: "",
+    }),
   });
 
   const adapter = vm.runInContext(adapterSource, context, {
