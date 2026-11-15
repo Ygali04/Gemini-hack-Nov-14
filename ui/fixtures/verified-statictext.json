@@ -1,0 +1,174 @@
+{
+  "runs": [
+    {
+      "id": "r-statictext-1",
+      "goal": "compute 23 times 19 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.4,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Computed 23 × 19 = 437 in Calculator",
+        "digest": {
+          "run": "r-statictext-1",
+          "goal": "compute 23 times 19 in Calculator",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "Computed 23 × 19 = 437 in Calculator",
+          "seconds": 3.4,
+          "steps": 2,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "llm": { "calls": 2, "prompt_tokens": 640, "completion_tokens": 90, "cost": 0.0014, "ms": 980 },
+          "task_cost": {
+            "run": "r-statictext-1",
+            "agents": 2,
+            "llm_calls": 2,
+            "prompt_tokens": 640,
+            "completion_tokens": 90,
+            "cost_usd": 0.0014,
+            "model_seconds": 0.98
+          },
+          "children": ["r-statictext-1-cu"]
+        }
+      }
+    },
+    {
+      "id": "r-statictext-1-cu",
+      "goal": "compute 23 times 19 in Calculator",
+      "role": "cu",
+      "parent": "r-statictext-1",
+      "state": "done",
+      "elapsed": 3.1,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Computed 23 × 19 = 437",
+        "steps": 2
+      }
+    },
+    {
+      "id": "r-unconvertible-ax-1",
+      "goal": "Check window layout in Finder",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.9,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Finder sidebar and file list are visible",
+        "digest": {
+          "run": "r-unconvertible-ax-1",
+          "goal": "Check window layout in Finder",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "Finder sidebar and file list are visible",
+          "seconds": 2.9,
+          "steps": 1,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "children": ["r-unconvertible-ax-1-cu"]
+        }
+      }
+    },
+    {
+      "id": "r-unconvertible-ax-1-cu",
+      "goal": "Check window layout in Finder",
+      "role": "cu",
+      "parent": "r-unconvertible-ax-1",
+      "state": "done",
+      "elapsed": 2.6,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Finder sidebar and file list are visible",
+        "steps": 1
+      }
+    }
+  ],
+  "details": {
+    "r-statictext-1": {
+      "id": "r-statictext-1",
+      "goal": "compute 23 times 19 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "app": "Calculator", "goal": "compute 23 times 19 in Calculator" },
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 3.4, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Computed 23 × 19 = 437 in Calculator"
+      }
+    },
+    "r-statictext-1-cu": {
+      "id": "r-statictext-1-cu",
+      "goal": "compute 23 times 19 in Calculator",
+      "role": "cu",
+      "parent": "r-statictext-1",
+      "state": "done",
+      "elapsed": 3.1,
+      "events": [
+        { "t": 0.2, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.2 },
+        { "t": 1.1, "kind": "act", "step": 0, "source": "llm", "action": "type:textfield:display", "act_ms": 95, "agent": "CU 1" },
+        { "t": 1.8, "kind": "act", "step": 1, "source": "llm", "action": "press:return", "act_ms": 60, "agent": "CU 1" },
+        { "t": 2.9, "kind": "verify", "achieved": true, "evidence": "statictext \"437\"" },
+        { "t": 3.1, "kind": "result", "ok": true, "summary": "Computed 23 × 19 = 437", "steps": 2 },
+        { "t": 3.1, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Computed 23 × 19 = 437",
+        "steps": 2
+      }
+    },
+    "r-unconvertible-ax-1": {
+      "id": "r-unconvertible-ax-1",
+      "goal": "Check window layout in Finder",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.9,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "app": "Finder", "goal": "Check window layout in Finder" },
+        { "t": 2.9, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Finder sidebar and file list are visible"
+      }
+    },
+    "r-unconvertible-ax-1-cu": {
+      "id": "r-unconvertible-ax-1-cu",
+      "goal": "Check window layout in Finder",
+      "role": "cu",
+      "parent": "r-unconvertible-ax-1",
+      "state": "done",
+      "elapsed": 2.6,
+      "events": [
+        { "t": 0.2, "kind": "app_ready", "app": "Finder", "method": "running", "seconds": 0.2 },
+        { "t": 2.4, "kind": "verify", "achieved": true, "evidence": "AXGroup > AXScrollArea > AXOutline" },
+        { "t": 2.6, "kind": "result", "ok": true, "summary": "Finder sidebar and file list are visible", "steps": 1 },
+        { "t": 2.6, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Finder sidebar and file list are visible",
+        "steps": 1
+      }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-statictext-1-cu": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-unconvertible-ax-1-cu": { "name": "CU 2", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  }
+}

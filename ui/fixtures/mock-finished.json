@@ -1,0 +1,156 @@
+{
+  "runs": [
+    {
+      "id": "r-mock-calc-1",
+      "goal": "compute 7 + 8 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.4,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "digest": {
+          "run": "r-mock-calc-1",
+          "goal": "compute 7 + 8 in Calculator",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "mock",
+          "seconds": 1.4,
+          "steps": 1,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "llm": { "calls": 1, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0, "ms": 1 },
+          "task_cost": {
+            "run": "r-mock-calc-1",
+            "agents": 2,
+            "llm_calls": 2,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "mock": true,
+            "model_seconds": 0.0
+          },
+          "children": ["r-mock-calc-1-cu"]
+        }
+      }
+    },
+    {
+      "id": "r-mock-calc-1-cu",
+      "goal": "compute 7 + 8 in Calculator",
+      "role": "cu",
+      "parent": "r-mock-calc-1",
+      "state": "done",
+      "elapsed": 1.2,
+      "n_events": 5,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "steps": 1
+      }
+    },
+    {
+      "id": "r-mock-notes-2",
+      "goal": "open Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.1,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "digest": {
+          "run": "r-mock-notes-2",
+          "goal": "open Notes",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "mock",
+          "seconds": 1.1,
+          "steps": 1,
+          "task_cost": { "run": "r-mock-notes-2", "cost_usd": 0.0, "mock": true },
+          "children": ["r-mock-notes-2-cu"]
+        }
+      }
+    },
+    {
+      "id": "r-mock-notes-2-cu",
+      "goal": "open Notes",
+      "role": "cu",
+      "parent": "r-mock-notes-2",
+      "state": "done",
+      "elapsed": 0.9,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "steps": 1
+      }
+    }
+  ],
+  "details": {
+    "r-mock-calc-1": {
+      "id": "r-mock-calc-1",
+      "goal": "compute 7 + 8 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.4,
+      "events": [
+        { "t": 0.0, "kind": "state", "state": "planning" },
+        { "t": 0.02, "kind": "route", "role": "cu", "app": "Google Chrome", "goal": "compute 7 + 8 in Calculator" },
+        { "t": 0.02, "kind": "state", "state": "acting" },
+        { "t": 1.4, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "mock" }
+    },
+    "r-mock-calc-1-cu": {
+      "id": "r-mock-calc-1-cu",
+      "goal": "compute 7 + 8 in Calculator",
+      "role": "cu",
+      "parent": "r-mock-calc-1",
+      "state": "done",
+      "elapsed": 1.2,
+      "events": [
+        { "t": 0.2, "kind": "app_ready", "app": "Google Chrome", "method": "running", "seconds": 0.2 },
+        { "t": 0.3, "kind": "act", "step": 0, "source": "llm", "action": "open_app:running:google chrome", "act_ms": 80, "agent": "CU 1" },
+        { "t": 0.4, "kind": "verify", "achieved": true, "evidence": "mock" },
+        { "t": 1.2, "kind": "result", "ok": true, "summary": "mock", "steps": 1 },
+        { "t": 1.2, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "mock", "steps": 1 }
+    },
+    "r-mock-notes-2": {
+      "id": "r-mock-notes-2",
+      "goal": "open Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.1,
+      "events": [
+        { "t": 0.0, "kind": "state", "state": "planning" },
+        { "t": 1.1, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "mock" }
+    },
+    "r-mock-notes-2-cu": {
+      "id": "r-mock-notes-2-cu",
+      "goal": "open Notes",
+      "role": "cu",
+      "parent": "r-mock-notes-2",
+      "state": "done",
+      "elapsed": 0.9,
+      "events": [
+        { "t": 0.2, "kind": "app_ready", "app": "Notes", "method": "running", "seconds": 0.2 },
+        { "t": 0.3, "kind": "verify", "achieved": true, "evidence": "mock" },
+        { "t": 0.9, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "mock", "steps": 1 }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-mock-calc-1-cu": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  }
+}

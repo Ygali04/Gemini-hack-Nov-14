@@ -1,0 +1,39 @@
+{
+  "capabilities": { "stop": true },
+  "runs": [
+    {
+      "id": "r-perm-fda-1",
+      "goal": "Read protected Mail attachment",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 2.1,
+      "n_events": 3,
+      "result": {
+        "ok": false,
+        "summary": "Operation not permitted while reading Mail folder"
+      }
+    }
+  ],
+  "details": {
+    "r-perm-fda-1": {
+      "id": "r-perm-fda-1",
+      "goal": "Read protected Mail attachment",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 2.1,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 2.0, "kind": "error", "error": "Full Disk Access needed: operation not permitted" },
+        { "t": 2.1, "kind": "state", "state": "failed" }
+      ],
+      "result": {
+        "ok": false,
+        "summary": "Operation not permitted while reading Mail folder"
+      }
+    }
+  },
+  "help": [],
+  "agents": {}
+}
