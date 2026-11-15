@@ -33,6 +33,38 @@
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-base: 13px;
+  --line-height-base: 20px;
+}
+
+:root[data-a11y-text-size="large"] {
+  --font-size-base: 15px;
+  --line-height-base: 22px;
+}
+
+:root[data-a11y-text-size="extra_large"] {
+  --font-size-base: 17px;
+  --line-height-base: 25px;
+}
+
+:root[data-a11y-high-contrast="true"] {
+  --bg-app: #000000;
+  --bg-raised: #0e1014;
+  --line-divider: rgba(255, 255, 255, 0.28);
+  --focus-ring: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: #e2e6ef;
+  --text-muted: #c2c8d6;
+}
+
+:root[data-a11y-reduce-motion="true"] {
+  --dur-enter: 0ms;
+  --dur-exit: 0ms;
+}
+
+:root[data-a11y-reduce-motion="true"] * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
 }
 
 * {
@@ -49,8 +81,8 @@ body {
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   user-select: text;
@@ -174,8 +206,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -330,8 +362,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   font-weight: 400;
   cursor: pointer;
   white-space: nowrap;
@@ -493,8 +525,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   text-align: left;
   cursor: pointer;
 }
@@ -527,8 +559,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   border-radius: 4px;
   overflow-y: auto;
   user-select: text;
@@ -573,8 +605,8 @@ select:focus-visible,
   padding: 0 10px;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   user-select: text;
 }
 
@@ -735,8 +767,8 @@ select:focus-visible,
 }
 
 .approval-question {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -1182,8 +1214,8 @@ select:focus-visible,
 }
 
 .agent-step-summary {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   color: var(--text-primary);
   flex: 1;
   word-break: break-word;
@@ -1322,8 +1354,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   border-radius: 4px;
   user-select: text;
 }
@@ -1354,8 +1386,8 @@ select:focus-visible,
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   text-align: left;
   cursor: pointer;
   display: flex;
@@ -1379,8 +1411,8 @@ select:focus-visible,
 }
 
 .transcript-goal {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -1533,8 +1565,8 @@ select:focus-visible,
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
 }
 
 .data-table th {
@@ -1613,8 +1645,8 @@ select:focus-visible,
 }
 
 .starter-prompt-text {
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-base);
   color: var(--text-primary);
 }
 

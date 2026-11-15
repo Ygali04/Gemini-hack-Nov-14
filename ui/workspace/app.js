@@ -689,19 +689,39 @@
     swatchIndex: 0,
     voiceId: "",
     voicePreviewStatus: "",
-    a11y: {
-      text_size: "default",
-      reduce_motion:
-        typeof window !== "undefined" &&
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      high_contrast:
-        typeof window !== "undefined" &&
-        typeof window.matchMedia === "function" &&
-        window.matchMedia("(prefers-contrast: more)").matches,
-      cursor_palette: "default",
-      cursor_scale: 1.0,
-    },
+    a11y: (() => {
+      const defaults = {
+        text_size: "default",
+        reduce_motion:
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        high_contrast:
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-contrast: more)").matches,
+      };
+      try {
+        const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ca.a11y") : null;
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object") {
+            if (["default", "large", "extra_large"].includes(parsed.text_size)) {
+              defaults.text_size = parsed.text_size;
+            }
+            if (typeof parsed.reduce_motion === "boolean") {
+              defaults.reduce_motion = parsed.reduce_motion;
+            }
+            if (typeof parsed.high_contrast === "boolean") {
+              defaults.high_contrast = parsed.high_contrast;
+            }
+          }
+        }
+      } catch {
+        // Ignore invalid ca.a11y storage
+      }
+      return defaults;
+    })(),
     permissions: {
       accessibility: false,
       screen_recording: false,
@@ -762,7 +782,39 @@
 
   const PRIMARY_AGENT_STORAGE_KEY = "ca.primaryAgent";
   const ONBOARDING_SEEN_STORAGE_KEY = "ca.onboardingSeen";
+  const A11Y_STORAGE_KEY = "ca.a11y";
   let autoOnboardingChecked = false;
+
+  function applyA11ySettings(a11y) {
+    if (typeof document === "undefined" || !document.documentElement) return;
+    const root = document.documentElement;
+    const textSize = ["default", "large", "extra_large"].includes(a11y?.text_size)
+      ? a11y.text_size
+      : "default";
+    root.dataset.a11yTextSize = textSize;
+    root.dataset.a11yHighContrast = a11y?.high_contrast ? "true" : "false";
+    root.dataset.a11yReduceMotion = a11y?.reduce_motion ? "true" : "false";
+  }
+
+  function saveAndApplyA11ySettings() {
+    applyA11ySettings(OnboardingState.a11y);
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          A11Y_STORAGE_KEY,
+          JSON.stringify({
+            text_size: OnboardingState.a11y.text_size,
+            reduce_motion: Boolean(OnboardingState.a11y.reduce_motion),
+            high_contrast: Boolean(OnboardingState.a11y.high_contrast),
+          })
+        );
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  applyA11ySettings(OnboardingState.a11y);
 
   function hasSeenOnboarding() {
     try {
@@ -5113,7 +5165,7 @@
     const stepQuestions = [
       "Hi — what should I call you, and what name and color would you like for me?",
       "Which voice should I use for spoken replies?",
-      "How should text, motion, contrast, and agent cursors look?",
+      "How should text, motion, and contrast look?",
       "Before I operate apps, let's check the three macOS permissions I need.",
       "Which display should hold the agent stage while I work?",
       "Sensitive actions always ask first. Here is the approval gate:",
@@ -5133,9 +5185,10 @@
       }
       if (sNum === 3) {
         const a = OnboardingState.a11y;
-        return `Text: ${WorkspaceAdapter.sentenceCase(a.text_size.replace("_", " "))} · Palette: ${
-          a.cursor_palette === "okabe_ito" ? "Okabe-Ito" : "Default"
-        } · ${a.cursor_scale}x`;
+        const parts = [`Text: ${WorkspaceAdapter.sentenceCase(a.text_size.replace("_", " "))}`];
+        if (a.high_contrast) parts.push("High contrast");
+        if (a.reduce_motion) parts.push("Reduced motion");
+        return parts.join(" · ");
       }
       if (sNum === 4) {
         return "Permissions reviewed (macOS asks when needed)";
@@ -5293,25 +5346,10 @@
                 <option value="extra_large" ${a11y.text_size === "extra_large" ? "selected" : ""}>Extra large</option>
               </select>
             </div>
-            <div class="onboarding-field">
-              <label for="onboarding-cursor-palette" class="filter-label">Cursor palette</label>
-              <select id="onboarding-cursor-palette" class="inline-text-input" data-action="set-a11y-select" data-a11y-key="cursor_palette">
-                <option value="default" ${a11y.cursor_palette === "default" ? "selected" : ""}>Default sea-glass</option>
-                <option value="okabe_ito" ${a11y.cursor_palette === "okabe_ito" ? "selected" : ""}>Okabe-Ito (color-blind-safe)</option>
-              </select>
-            </div>
-            <div class="onboarding-field">
-              <label for="onboarding-cursor-scale" class="filter-label">Cursor scale</label>
-              <select id="onboarding-cursor-scale" class="inline-text-input" data-action="set-a11y-select" data-a11y-key="cursor_scale">
-                <option value="1" ${Number(a11y.cursor_scale) === 1 ? "selected" : ""}>1.0x</option>
-                <option value="1.25" ${Number(a11y.cursor_scale) === 1.25 ? "selected" : ""}>1.25x</option>
-                <option value="1.5" ${Number(a11y.cursor_scale) === 1.5 ? "selected" : ""}>1.5x</option>
-              </select>
-            </div>
           </div>
           <div class="filter-group" style="margin-top: 8px;">
             <button type="button" class="btn ${a11y.reduce_motion ? "btn-active" : ""}" data-action="toggle-a11y" data-a11y-key="reduce_motion">
-              ${a11y.reduce_motion ? "✓ Reduced motion: cursors jump instead of flying" : "○ Reduced motion: off"}
+              ${a11y.reduce_motion ? "✓ Reduced motion: on" : "○ Reduced motion: off"}
             </button>
             <button type="button" class="btn ${a11y.high_contrast ? "btn-active" : ""}" data-action="toggle-a11y" data-a11y-key="high_contrast">
               ${a11y.high_contrast ? "✓ High contrast: on" : "○ High contrast: off"}
@@ -7440,6 +7478,7 @@
           const key = actionEl.dataset.a11yKey;
           if (key === "reduce_motion" || key === "high_contrast") {
             OnboardingState.a11y[key] = !OnboardingState.a11y[key];
+            saveAndApplyA11ySettings();
             renderNow();
           }
           break;
@@ -7685,10 +7724,9 @@
         renderNow();
       } else if (target && target.matches('[data-action="set-a11y-select"]')) {
         const key = target.dataset.a11yKey;
-        if (key === "cursor_scale") {
-          OnboardingState.a11y.cursor_scale = Number(target.value) || 1.0;
-        } else if (key === "text_size" || key === "cursor_palette") {
-          OnboardingState.a11y[key] = target.value;
+        if (key === "text_size" && ["default", "large", "extra_large"].includes(target.value)) {
+          OnboardingState.a11y.text_size = target.value;
+          saveAndApplyA11ySettings();
         }
         renderNow();
       } else if (target && target.matches('[data-action="set-history-cost"]')) {
