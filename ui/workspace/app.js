@@ -687,7 +687,7 @@
     profileSaveError: "",
     agentName: "Mercury",
     swatchIndex: 0,
-    voiceId: "2X7h8q4r8pMNZ7zRmpiF",
+    voiceId: "",
     voicePreviewStatus: "",
     a11y: {
       text_size: "default",
@@ -5067,9 +5067,8 @@
 
   /* ---------------- B4: ONBOARDING VIEW ---------------- */
   const ONBOARDING_VOICES = [
-    { id: "2X7h8q4r8pMNZ7zRmpiF", name: "Sunny", note: "Warm and steady (default)" },
-    { id: "voice_river", name: "River", note: "Calm and neutral" },
-    { id: "voice_sage", name: "Sage", note: "Crisp and brisk" },
+    { id: "", name: "System voice", note: "Default macOS spoken voice" },
+    { id: "off", name: "No voice", note: "Mute spoken replies" },
   ];
 
   function renderOnboardingView(vm) {
@@ -5130,7 +5129,7 @@
       }
       if (sNum === 2) {
         const v = ONBOARDING_VOICES.find((item) => item.id === OnboardingState.voiceId);
-        return v ? `Voice: ${v.name}` : "Voice: Default";
+        return v ? `Voice: ${v.name}` : "Voice: System voice";
       }
       if (sNum === 3) {
         const a = OnboardingState.a11y;
@@ -5989,9 +5988,8 @@
       : "";
 
     const voiceOptions = [
-      { value: "", label: "Default voice" },
-      { value: "2X7h8q4r8pMNZ7zRmpiF", label: "Warm & clear (default)" },
-      ...ONBOARDING_VOICES.map((v) => ({ value: v.id, label: v.name })),
+      { value: "", label: "System voice" },
+      { value: "off", label: "No voice" },
     ];
     if (draft.voice_id && !voiceOptions.some((o) => o.value === draft.voice_id)) {
       voiceOptions.push({ value: draft.voice_id, label: "Custom voice" });
@@ -7408,13 +7406,18 @@
           break;
 
         case "select-onboarding-voice":
-          OnboardingState.voiceId = actionEl.dataset.voiceId || "2X7h8q4r8pMNZ7zRmpiF";
+          OnboardingState.voiceId = actionEl.dataset.voiceId ?? "";
           renderNow();
           break;
 
         case "preview-onboarding-voice": {
-          const vid = actionEl.dataset.voiceId || "2X7h8q4r8pMNZ7zRmpiF";
+          const vid = actionEl.dataset.voiceId ?? "";
           const voiceObj = ONBOARDING_VOICES.find((v) => v.id === vid) || ONBOARDING_VOICES[0];
+          if (vid === "off") {
+            OnboardingState.voicePreviewStatus = "Spoken replies are muted (No voice).";
+            renderNow();
+            break;
+          }
           OnboardingState.voicePreviewStatus = `Playing 3-second sample for ${voiceObj.name}…`;
           renderNow();
           if (typeof window !== "undefined" && window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function") {
