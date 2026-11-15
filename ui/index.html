@@ -2292,7 +2292,18 @@
                 data: { error: "no such run" },
               });
             }
-            const targets = [target, ...fixtureState.runs.filter((r) => r.parent === runId)];
+            const targetSet = new Set([runId]);
+            let added = true;
+            while (added) {
+              added = false;
+              for (const r of fixtureState.runs) {
+                if (r.parent && targetSet.has(r.parent) && !targetSet.has(r.id)) {
+                  targetSet.add(r.id);
+                  added = true;
+                }
+              }
+            }
+            const targets = fixtureState.runs.filter((r) => targetSet.has(r.id));
             const actCount = targets.reduce((sum, r) => {
               const evs = Array.isArray(fixtureState.details?.[r.id]?.events) ? fixtureState.details[r.id].events : [];
               return sum + evs.filter((e) => e?.kind === "act" || (e?.kind === "patch" && e.applied === true)).length;
@@ -2723,7 +2734,7 @@
           return "";
         }
 
-        function extractEventOrTranscriptAgent(runObj, events, transcriptsById, parentRouteEvent, fallbackIndex) {
+        function extractEventOrTranscriptAgent(runObj, events, transcriptsById, parentRouteEvent, fallbackIndex, extraTranscriptRows) {
           const list = Array.isArray(events) ? events : [];
           let evColor = "";
           let evEdge = "";
@@ -2744,6 +2755,9 @@
           }
           if (transcriptsById && runObj?.parent && Array.isArray(transcriptsById[runObj.parent])) {
             allRows.push(...transcriptsById[runObj.parent]);
+          }
+          if (Array.isArray(extraTranscriptRows)) {
+            allRows.push(...extraTranscriptRows);
           }
           let trName = "";
           let trColor = "";
@@ -2772,14 +2786,16 @@
           parentRouteEvent,
           transcriptsById,
           primaryAgentPref,
-          groupAgentCount
+          groupAgentCount,
+          extraTranscriptRows
         ) {
           const recovered = extractEventOrTranscriptAgent(
             runObj,
             events,
             transcriptsById,
             parentRouteEvent,
-            fallbackIndex
+            fallbackIndex,
+            extraTranscriptRows
           );
           const directRecord =
             (agentsMap && runObj?.id ? agentsMap[runObj.id] : null) ||
@@ -3915,7 +3931,8 @@
             parentRouteEvent,
             transcriptsById,
             primaryAgentPref,
-            groupAgentCount
+            groupAgentCount,
+            groupTranscriptRows
           );
           const app = extractRunApp(childRun, events, parentRouteEvent);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
@@ -4281,17 +4298,40 @@
             rootParentByRunId.set(r.id, cur ? (cur.parent && !byId.has(cur.parent) ? cur.id : cur.parent || cur.id) : r.id);
           }
 
-          /* Group child runs (including follow-up orchestrator grandchildren) under root parent runs */
-          const parents = runsList.filter((r) => !r.parent || !byId.has(r.parent));
-          const childrenByParent = new Map();
+          /* Build each task from its own orchestrator run (root or follow-up) and attach its descendant agents */
+          const taskRunIds = new Set();
           for (const r of runsList) {
-            const rootId = rootParentByRunId.get(r.id);
-            if (rootId && rootId !== r.id && byId.has(rootId)) {
-              if (!childrenByParent.has(rootId)) childrenByParent.set(rootId, []);
-              childrenByParent.get(rootId).push(r);
-            } else if (r.parent && byId.has(r.parent)) {
-              if (!childrenByParent.has(r.parent)) childrenByParent.set(r.parent, []);
-              childrenByParent.get(r.parent).push(r);
+            if (!r || !r.id) continue;
+            if (!r.parent || !byId.has(r.parent) || r.role === "orchestrator") {
+              taskRunIds.add(r.id);
+            }
+          }
+          const taskRuns = runsList.filter((r) => r && r.id && taskRunIds.has(r.id));
+          const taskOwnerByRunId = new Map();
+          const childrenByTask = new Map();
+          for (const t of taskRuns) {
+            taskOwnerByRunId.set(t.id, t.id);
+            const digestKids = Array.isArray(t.result?.digest?.children) ? t.result.digest.children : [];
+            for (const kidId of digestKids) {
+              if (kidId && !taskRunIds.has(kidId) && !taskOwnerByRunId.has(kidId)) {
+                taskOwnerByRunId.set(kidId, t.id);
+              }
+            }
+          }
+          for (const r of runsList) {
+            if (!r || !r.id || taskRunIds.has(r.id)) continue;
+            let cur = r;
+            const seen = new Set();
+            while (cur && cur.parent && byId.has(cur.parent) && !taskRunIds.has(cur.parent) && !seen.has(cur.id)) {
+              seen.add(cur.id);
+              cur = byId.get(cur.parent);
+            }
+            const ownerId =
+              cur && cur.parent && taskRunIds.has(cur.parent) ? cur.parent : rootParentByRunId.get(r.id);
+            if (ownerId && byId.has(ownerId)) {
+              taskOwnerByRunId.set(r.id, ownerId);
+              if (!childrenByTask.has(ownerId)) childrenByTask.set(ownerId, []);
+              childrenByTask.get(ownerId).push(r);
             }
           }
 
@@ -4302,7 +4342,7 @@
             if (!entry || typeof entry !== "object") continue;
             const runObj = byId.get(agentId);
             if (runObj && (runObj.state === "done" || runObj.state === "failed")) continue;
-            if (runObj && runObj.role === "orchestrator" && childrenByParent.has(runObj.id)) continue;
+            if (runObj && runObj.role === "orchestrator" && childrenByTask.has(runObj.id)) continue;
             const entryName = String(entry.name || actorLabelForRole(runObj?.role)).trim();
             const isOrchAgent = runObj?.role === "orchestrator" || entryName === "ComputerAnything";
             const customSwatch = isOrchAgent && primaryAgentPref ? primaryAgentPref.swatch : null;
@@ -4319,10 +4359,12 @@
               ink: normalizeHex(customSwatch ? customSwatch.ink : entry.ink, "#323B43"),
             });
           }
-          for (const parent of parents) {
-            const rawChildren = [...(childrenByParent.get(parent.id) || [])].reverse();
+          for (const parent of taskRuns) {
+            const rootId = rootParentByRunId.get(parent.id) || parent.id;
+            const rawChildren = [...(childrenByTask.get(parent.id) || [])].reverse();
             const parentEvs = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
             const parentRoute = [...parentEvs].reverse().find((e) => e?.kind === "route") || null;
+            const rootTranscriptRows = Array.isArray(transcriptsById[rootId]) ? transcriptsById[rootId] : null;
             const candidates = rawChildren.length ? rawChildren : [parent];
             candidates.forEach((child, idx) => {
               if (!child || addedAgentIds.has(child.id)) return;
@@ -4342,7 +4384,8 @@
                 parentRoute,
                 transcriptsById,
                 primaryAgentPref,
-                candidates.length
+                candidates.length,
+                rootTranscriptRows
               );
               addedAgentIds.add(child.id);
               liveAgents.push({
@@ -4355,8 +4398,9 @@
             });
           }
 
-          const mappedRuns = parents.map((parent) => {
-            const rawChildren = [...(childrenByParent.get(parent.id) || [])].reverse();
+          const mappedRuns = taskRuns.map((parent) => {
+            const rootId = rootParentByRunId.get(parent.id) || parent.id;
+            const rawChildren = [...(childrenByTask.get(parent.id) || [])].reverse();
             const groupRuns = [parent, ...rawChildren];
             const groupRunIds = new Set(groupRuns.map((r) => r.id));
 
@@ -4437,15 +4481,24 @@
             const hasMockVerify = hasMockVerifyEvidence(groupRuns, detailsById);
             const isMockRun = isMockRunGroup(groupRuns, detailsById, costsById[parent.id], isSampleContext);
 
-            const rawGroupTranscript = Array.isArray(transcriptsById[parent.id])
-              ? transcriptsById[parent.id].filter((row) => {
-                  if (!row) return false;
-                  if (row.run && rootParentByRunId.has(row.run) && rootParentByRunId.get(row.run) !== parent.id) {
-                    return false;
-                  }
-                  return true;
-                })
-              : [];
+            const rawTranscriptSource =
+              Array.isArray(transcriptsById[parent.id]) && transcriptsById[parent.id].length
+                ? transcriptsById[parent.id]
+                : Array.isArray(transcriptsById[rootId])
+                ? transcriptsById[rootId]
+                : [];
+            const rawGroupTranscript = rawTranscriptSource.filter((row) => {
+              if (!row) return false;
+              if (!row.run) return parent.id === rootId;
+              if (taskOwnerByRunId.has(row.run)) {
+                return taskOwnerByRunId.get(row.run) === parent.id;
+              }
+              if (groupRunIds.has(row.run)) return true;
+              if (rootParentByRunId.has(row.run) && rootParentByRunId.get(row.run) !== rootId) {
+                return false;
+              }
+              return parent.id === rootId;
+            });
             const stepRuns = rawChildren.length ? rawChildren : [parent];
             const stepRunIdSet = new Set(stepRuns.map((r) => r.id));
             const steps = stepRuns.map((child, idx) => {
@@ -4581,7 +4634,7 @@
               stateColorClass = "state-neutral";
             }
 
-            const transcriptRows = normalizeTranscriptRows(rawGroupTranscript, parent.id, rootParentByRunId);
+            const transcriptRows = normalizeTranscriptRows(rawGroupTranscript, parent.id, taskOwnerByRunId);
             const errorTranscriptRow = transcriptRows.find((tr) => tr.isErrorNotice) || null;
             const rawParentSummary = String(parent.result?.summary || parent.result?.digest?.summary || "").trim();
             const rawParentErr = isPipelineErrorText(rawParentSummary)
@@ -4674,6 +4727,7 @@
             return {
               id: parent.id,
               parent: parent.parent || null,
+              rootId,
               goal: parent.goal || "Untitled run",
               apps,
               appLabel: apps.join(", "),
@@ -4713,7 +4767,11 @@
             };
           });
 
-          const pendingHelpRun = mappedRuns.find((r) => r.pendingHelp.some((h) => !h.isExpired)) || null;
+          const waitingRuns = mappedRuns.filter((r) => r.pendingHelp.some((h) => !h.isExpired));
+          const pendingHelpRun = waitingRuns.reduce((best, r) => {
+            if (!best) return r;
+            return Number(r.sortTs || r.startTs || 0) > Number(best.sortTs || best.startTs || 0) ? r : best;
+          }, null);
 
           return {
             connectionStatus: meta.connectionStatus,
@@ -4867,8 +4925,21 @@
           });
 
           runs.forEach((runVm, vmIdx) => {
-            if (!runVm || !runVm.id || hiddenSet.has(runVm.id)) return;
-            let ownerId = optimisticMap[runVm.id] || claimMap.get(runVm.id) || "";
+            if (
+              !runVm ||
+              !runVm.id ||
+              hiddenSet.has(runVm.id) ||
+              (runVm.rootId && hiddenSet.has(runVm.rootId)) ||
+              (runVm.parent && hiddenSet.has(runVm.parent))
+            ) {
+              return;
+            }
+            let ownerId =
+              optimisticMap[runVm.id] ||
+              claimMap.get(runVm.id) ||
+              (runVm.rootId ? claimMap.get(runVm.rootId) : "") ||
+              (runVm.parent ? claimMap.get(runVm.parent) : "") ||
+              "";
             if (!ownerId && Array.isArray(runVm.steps)) {
               for (const s of runVm.steps) {
                 if (s && s.id && claimMap.has(s.id)) {
@@ -4888,6 +4959,8 @@
               const aTs = Number(a.run.startTs || a.run.sortTs || 0);
               const bTs = Number(b.run.startTs || b.run.sortTs || 0);
               if (aTs && bTs && aTs !== bTs) return aTs - bTs;
+              if (b.run.parent === a.run.id || (b.run.rootId === a.run.id && a.run.id !== b.run.id)) return -1;
+              if (a.run.parent === b.run.id || (a.run.rootId === b.run.id && a.run.id !== b.run.id)) return 1;
               return b.vmIdx - a.vmIdx;
             });
             conv.tasks = conv._taskEntries.map((e) => e.run);
@@ -5032,6 +5105,7 @@
       let hasInitializedSpokenBaseline = false;
       const seenSpokenEventKeys = new Set();
       const finalCostsFetched = new Set();
+      const lastTranscriptKeyByRoot = new Map();
       let stopRouteSupported = false;
       let stopProbeKey = "";
       const stopNoticesByRunId = new Map();
@@ -5640,6 +5714,7 @@
 
       function resetCapabilityState() {
         finalCostsFetched.clear();
+        lastTranscriptKeyByRoot.clear();
         stopRouteSupported = false;
         stopProbeKey = "";
         stopNoticesByRunId.clear();
@@ -5655,6 +5730,34 @@
         pendingUndoMemoryIds.clear();
       }
 
+      function findRootRunId(runId) {
+        let id = String(runId || "").trim();
+        if (!id) return "";
+        const byId = new Map(rawRuns.map((r) => [r.id, r]));
+        const seen = new Set();
+        while (byId.has(id) && byId.get(id).parent && !seen.has(id)) {
+          seen.add(id);
+          id = byId.get(id).parent;
+        }
+        return id;
+      }
+
+      function findTaskOrchestratorId(runId) {
+        let id = String(runId || "").trim();
+        if (!id) return "";
+        const byId = new Map(rawRuns.map((r) => [r.id, r]));
+        const seen = new Set();
+        while (byId.has(id) && !seen.has(id)) {
+          const run = byId.get(id);
+          if (!run.parent || !byId.has(run.parent) || run.role === "orchestrator") {
+            return run.id;
+          }
+          seen.add(id);
+          id = run.parent;
+        }
+        return id;
+      }
+
       function buildStopSummary(runId, resp) {
         if (resp && typeof resp.summary === "string" && resp.summary.trim()) {
           return resp.summary.trim();
@@ -5662,7 +5765,18 @@
         if (resp && typeof resp.changed === "string" && resp.changed.trim()) {
           return `Stopped. ${resp.changed.trim()}`;
         }
-        const targetIds = [runId, ...rawRuns.filter((r) => r.parent === runId).map((r) => r.id)];
+        const targetSet = new Set([runId]);
+        let added = true;
+        while (added) {
+          added = false;
+          for (const r of rawRuns) {
+            if (r.parent && targetSet.has(r.parent) && !targetSet.has(r.id)) {
+              targetSet.add(r.id);
+              added = true;
+            }
+          }
+        }
+        const targetIds = Array.from(targetSet);
         let patchCount = 0;
         let actCount = 0;
         for (const id of targetIds) {
@@ -6616,8 +6730,9 @@
 
       /* ---------------- SUBMIT PROMPT ---------------- */
       function recordAgentThread(agentId, threadId, runId) {
-        const cleanThread = String(threadId || "").trim();
+        const rawThread = String(threadId || "").trim();
         const cleanRun = String(runId || "").trim();
+        const cleanThread = (rawThread && (findRootRunId(rawThread) || rawThread)) || "";
         const aid = String(agentId || "__primary__").trim() || "__primary__";
         if (aid === "__primary__") {
           if (cleanThread) savePrimaryThreadId(cleanThread);
@@ -6643,9 +6758,13 @@
 
       function resolveThreadTargetForAgent(agentId) {
         const aid = String(agentId || "__primary__").trim() || "__primary__";
-        if (aid === "__primary__") return readPrimaryThreadId();
+        if (aid === "__primary__") {
+          const primary = readPrimaryThreadId();
+          return primary ? (findRootRunId(primary) || primary) : "";
+        }
         const ag = readCreatedAgents().find((a) => a.id === aid);
-        return ag?.thread ? String(ag.thread).trim() : "";
+        const stored = ag?.thread ? String(ag.thread).trim() : "";
+        return stored ? (findRootRunId(stored) || stored) : "";
       }
 
       async function submitTask(rawPrompt, attachedItems, options = {}) {
@@ -6659,26 +6778,24 @@
           options.thread !== undefined
             ? options.thread
             : resolveThreadTargetForAgent(targetAgentId);
-        const threadTarget =
+        const rawThreadTarget =
           explicitThread && !String(explicitThread).startsWith("optimistic-") ? String(explicitThread) : "";
+        const threadTarget = rawThreadTarget ? (findRootRunId(rawThreadTarget) || rawThreadTarget) : "";
 
         if (threadTarget) {
-          if (!Array.isArray(transcriptsById[threadTarget])) {
-            transcriptsById[threadTarget] = [];
-          }
-          transcriptsById[threadTarget] = [
-            ...transcriptsById[threadTarget],
-            {
-              id: `local-${Date.now()}`,
-              ts: Math.floor(Date.now() / 1000),
-              run: threadTarget,
-              role: "user",
-              agent: "",
-              kind: "msg",
-              text: rawPrompt,
-            },
-          ];
-          selectedRunId = threadTarget;
+          const tempId = `optimistic-${Date.now()}`;
+          optimisticAgentByRunId[tempId] = targetAgentId;
+          optimisticRuns.push({
+            id: tempId,
+            goal: rawPrompt,
+            role: "orchestrator",
+            parent: threadTarget,
+            state: "planning",
+            elapsed: 0,
+            n_events: 0,
+            result: null,
+          });
+          selectedRunId = tempId;
           saveLastThreadId(threadTarget);
           dirtyTranscriptRunIds.add(threadTarget);
           openAgentConversation(targetAgentId, { render: true });
@@ -6694,17 +6811,22 @@
                 throw threadErr;
               }
             }
+            optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+            delete optimisticAgentByRunId[tempId];
             const nextThread = String(created?.thread || created?.run || threadTarget).trim();
-            recordAgentThread(targetAgentId, nextThread, created?.run || "");
+            const rootThread = (nextThread && (findRootRunId(nextThread) || nextThread)) || threadTarget;
+            recordAgentThread(targetAgentId, rootThread, created?.run || "");
             if (created?.run) {
               selectedRunId = created.run;
               saveLastThreadId(created.run);
               dirtyTranscriptRunIds.add(created.run);
             }
-            if (nextThread) dirtyTranscriptRunIds.add(nextThread);
+            if (rootThread) dirtyTranscriptRunIds.add(rootThread);
             announceStatus("Message sent");
             await pollAll();
           } catch (err) {
+            optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+            delete optimisticAgentByRunId[tempId];
             if (err.code === "AUTH") {
               Transport.clearConnection();
               rememberedAgentsById = {};
@@ -8271,7 +8393,9 @@
               (r) =>
                 r.state !== "done" &&
                 r.state !== "failed" &&
-                !liveParents.some((p) => p.id === r.id || p.id === r.parent)
+                !liveParents.some(
+                  (p) => p.id === r.id || p.id === r.parent || p.id === findTaskOrchestratorId(r.id)
+                )
             );
             const stopTargets = [...liveParents.map((r) => r.id), ...liveStandalone.map((r) => r.id)];
             if (!stopTargets.length) return;
@@ -8328,9 +8452,10 @@
             openRowMenuKey = "";
             confirmDeleteRunId = "";
             if (!targetRunId || pendingStopIds.has(targetRunId)) return;
-            const targetRunObj = rawRuns.find((r) => r.id === targetRunId);
             const parentNoticeId =
-              action === "stop-run" ? targetRunId : targetRunObj?.parent || selectedRunId || targetRunId;
+              action === "stop-run"
+                ? targetRunId
+                : findTaskOrchestratorId(targetRunId) || selectedRunId || targetRunId;
             pendingStopIds.add(targetRunId);
             renderNow();
             try {
@@ -8537,8 +8662,15 @@
             return cur ? cur.id : r.id;
           };
           const parents = nextRuns.filter((r) => !r.parent || !rawByIdPoll.has(r.parent));
+          const taskRuns = nextRuns.filter(
+            (r) => !r.parent || !rawByIdPoll.has(r.parent) || r.role === "orchestrator"
+          );
+          const selectedRootId =
+            selectedRunId && rawByIdPoll.has(selectedRunId)
+              ? rootOfRun(rawByIdPoll.get(selectedRunId))
+              : selectedRunId;
           const focusParentId =
-            (selectedRunId && parents.some((p) => p.id === selectedRunId) && selectedRunId) ||
+            (selectedRootId && parents.some((p) => p.id === selectedRootId) && selectedRootId) ||
             parents[0]?.id ||
             null;
 
@@ -8547,6 +8679,7 @@
             return (
               rootId === focusParentId ||
               !r.parent ||
+              r.role === "orchestrator" ||
               (r.state !== "done" && r.state !== "failed") ||
               !detailsById[r.id]
             );
@@ -8574,7 +8707,7 @@
             })
           );
 
-          const costTargets = parents.filter((p) => {
+          const costTargets = taskRuns.filter((p) => {
             const isFinishedParent = p.state === "done" || p.state === "failed";
             if (!isFinishedParent) return true;
             return !finalCostsFetched.has(p.id);
@@ -8650,13 +8783,29 @@
           }
 
           /* Fetch transcript for the focused run thread and recover agent identities/colors */
+          const transcriptMetaByRoot = new Map();
           const transcriptTargets = parents.filter((p) => {
-            const isActive = p.state !== "done" && p.state !== "failed";
-            if (p.id === focusParentId && (isActive || !Array.isArray(transcriptsById[p.id]) || dirtyTranscriptRunIds.has(p.id))) {
+            const treeRuns = nextRuns.filter((r) => rootOfRun(r) === p.id);
+            const isTreeActive = treeRuns.some((r) => r.state !== "done" && r.state !== "failed");
+            const treeKey = treeRuns
+              .map((r) => `${r.id}:${r.state || ""}:${Number(r.n_events || 0)}`)
+              .sort()
+              .join("|");
+            const prevTreeState = lastTranscriptKeyByRoot.get(p.id);
+            const treeChanged = prevTreeState ? prevTreeState.key !== treeKey : false;
+            const wasTreeActive = prevTreeState ? prevTreeState.active : false;
+            const hasDirty = treeRuns.some((r) => dirtyTranscriptRunIds.has(r.id));
+            transcriptMetaByRoot.set(p.id, { treeRuns, isTreeActive, treeKey });
+            if (
+              (p.id === focusParentId || isTreeActive || wasTreeActive || treeChanged || hasDirty) &&
+              (isTreeActive || wasTreeActive || treeChanged || !Array.isArray(transcriptsById[p.id]) || hasDirty)
+            ) {
               return true;
             }
-            if (!isActive && Array.isArray(transcriptsById[p.id])) return false;
-            const groupIds = nextRuns.filter((r) => r.id === p.id || r.parent === p.id).map((r) => r.id);
+            if (!isTreeActive && !wasTreeActive && !treeChanged && !hasDirty && Array.isArray(transcriptsById[p.id])) {
+              return false;
+            }
+            const groupIds = treeRuns.map((r) => r.id);
             const missingColor = groupIds.some((gid) => {
               const live = nextAgents[gid];
               const rem = rememberedAgentsById[gid];
@@ -8674,7 +8823,15 @@
                   );
                   if (Array.isArray(rows)) {
                     transcriptsById[p.id] = rows;
-                    dirtyTranscriptRunIds.delete(p.id);
+                    const meta = transcriptMetaByRoot.get(p.id);
+                    if (meta) {
+                      lastTranscriptKeyByRoot.set(p.id, { key: meta.treeKey, active: meta.isTreeActive });
+                      for (const r of meta.treeRuns) {
+                        dirtyTranscriptRunIds.delete(r.id);
+                      }
+                    } else {
+                      dirtyTranscriptRunIds.delete(p.id);
+                    }
                     for (const row of rows) {
                       if (row && row.role === "agent" && row.agent && (row.color || row.body)) {
                         const info = {
@@ -8734,7 +8891,13 @@
           } else {
             const newlyFailed = checkVm.runs.find((r) => r.isRealFailure && !isFailedRunSeen(r.id));
             if (newlyFailed) {
-              if (getCurrentState() === "expanded" && viewMode === "chat" && selectedRunId === newlyFailed.id) {
+              const selectedRoot = selectedRunId ? findRootRunId(selectedRunId) : "";
+              const failedRoot = newlyFailed.rootId || findRootRunId(newlyFailed.id);
+              if (
+                getCurrentState() === "expanded" &&
+                viewMode === "chat" &&
+                (selectedRunId === newlyFailed.id || (selectedRoot && failedRoot === selectedRoot))
+              ) {
                 markFailedRunSeen(newlyFailed.id);
               } else {
                 triggerPillFailureNotice(newlyFailed);
@@ -8989,12 +9152,16 @@
             ? lastViewModel.runs.find((r) => r.id === lastViewModel.pendingHelpRunId)
             : null;
           const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
+          const activeRootId = activeRun ? (activeRun.rootId || activeRun.id) : "";
+          const activeThreadRuns = activeRootId
+            ? lastViewModel.runs.filter((r) => (r.rootId || r.id) === activeRootId)
+            : (activeRun ? [activeRun] : []);
           if (!isExpanded && !pendingRun) return;
           const hasActiveHelp = Boolean(
-            (activeRun && activeRun.pendingHelp.some((h) => !h.isExpired)) ||
+            activeThreadRuns.some((r) => r.pendingHelp.some((h) => !h.isExpired)) ||
             (pendingRun && pendingRun.pendingHelp.some((h) => !h.isExpired))
           );
-          const hasLiveStep = Boolean(isExpanded && activeRun && activeRun.liveStep);
+          const hasLiveStep = Boolean(isExpanded && activeThreadRuns.some((r) => r.liveStep));
           if (!hasActiveHelp && !hasLiveStep) return;
           const vmNow = WorkspaceAdapter.mapRuns([...optimisticRuns, ...rawRuns], detailsById, pendingHelp, {
             connectionStatus,
