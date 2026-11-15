@@ -411,7 +411,7 @@
     <header class="demo-header">
       <h1 class="demo-title">Agent monitor</h1>
       <p class="demo-intro">
-        A notch panel and shared workspace for supervising coding agents — this page shows sample data, not live agent runs.
+        Recorded sample walkthrough of the notch panel and shared workspace — no live agents are running behind this page.
       </p>
     </header>
 
@@ -424,13 +424,13 @@
           <button type="button" id="demo-next-btn" class="control-btn" aria-label="Next step">Next</button>
         </div>
         <div class="demo-player-meta">
-          <span id="demo-step-counter" class="demo-step-counter">Step 1 of 9 · 0:00 / 0:57</span>
+          <span id="demo-step-counter" class="demo-step-counter">Step 1 of 11 · 0:00 / 0:58</span>
           <span>Space: play or pause · Arrows: step</span>
         </div>
       </div>
 
       <p id="demo-caption" class="demo-caption" aria-live="polite">
-        Press Play demo for a one-minute walkthrough of the notch panel and workspace.
+        Press Play demo for a one-minute recorded walkthrough of the notch panel and workspace.
       </p>
 
       <div class="demo-progress-track" aria-hidden="true">
@@ -448,9 +448,13 @@
         </div>
 
         <div class="control-row" role="group" aria-label="Sample panel states">
+          <button type="button" class="control-btn" data-sample="empty" aria-pressed="false">Prompt</button>
+          <button type="button" class="control-btn" data-sample="attachments-states" aria-pressed="false">Dropped file</button>
           <button type="button" class="control-btn" data-sample="working-live" aria-pressed="true">Working</button>
+          <button type="button" class="control-btn" data-sample="working-live-controls" aria-pressed="false">Stop and memory</button>
           <button type="button" class="control-btn" data-sample="awaiting-approval" aria-pressed="false">Needs approval</button>
           <button type="button" class="control-btn" data-sample="qa-loop-verified" aria-pressed="false">Verified</button>
+          <button type="button" class="control-btn" data-sample="completed-cu" aria-pressed="false">Cost</button>
           <button type="button" class="control-btn" data-sample="failed" aria-pressed="false">Failed</button>
           <button type="button" class="control-btn" data-sample="finished-unverified" aria-pressed="false">Finished unverified</button>
         </div>
@@ -495,6 +499,12 @@
             target="workspace-frame"
             data-view="logs"
           >Transcript log</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=artifacts"
+            target="workspace-frame"
+            data-view="artifacts"
+          >Artifacts</a>
           <a
             class="view-link"
             href="../workspace.html?fixture=workspace-demo&amp;view=analytics"
@@ -552,63 +562,77 @@
         {
           target: "notch",
           fixture: "empty",
-          duration: 5,
+          duration: 4,
           label: "Prompt",
-          caption: "Start in the notch panel by typing a task for your coding agents."
+          caption: "Type a task in the prompt box under the notch or pick a starter prompt."
+        },
+        {
+          target: "notch",
+          fixture: "attachments-states",
+          duration: 5,
+          label: "Dropped file",
+          caption: "Drop files or screenshots to see what agents get before you send."
         },
         {
           target: "notch",
           fixture: "working-live",
-          duration: 7,
+          duration: 6,
           label: "Working",
-          caption: "Two agents work in parallel and report each step."
+          caption: "Named, colored agents work in parallel and stream live steps."
+        },
+        {
+          target: "notch",
+          fixture: "working-live-controls",
+          duration: 6,
+          label: "Stop & memory",
+          caption: "Stop any running task, or undo an I'll remember preference inline."
         },
         {
           target: "notch",
           fixture: "awaiting-approval",
-          duration: 7,
+          duration: 6,
           label: "Approval",
-          caption: "Before a sensitive action runs, the agent pauses and asks you to approve."
+          caption: "Before a sensitive action runs, the agent pauses for approval in the conversation."
         },
         {
           target: "notch",
           fixture: "qa-loop-verified",
-          duration: 7,
-          label: "Answered",
+          duration: 6,
+          label: "Verified",
           caption: "Once approved, the agent applies the fix, runs checks, and verifies the result."
         },
         {
           target: "notch",
           fixture: "completed-cu",
-          duration: 7,
-          label: "Result",
+          duration: 5,
+          label: "Cost",
           caption: "Completed runs report verified outcomes alongside total cost and step counts."
         },
         {
           target: "workspace",
           view: "graph",
-          duration: 6,
+          duration: 5,
           label: "Graph",
-          caption: "Open the workspace to see how the main agent and helper agents connect."
+          caption: "Open the workspace sheet to see how the main and helper agents connect."
         },
         {
           target: "workspace",
           view: "state-machine",
-          duration: 6,
+          duration: 5,
           label: "States",
           caption: "Inspect each agent's state machine to trace planning, acting, and handoffs."
         },
         {
           target: "workspace",
-          view: "logs",
-          duration: 6,
-          label: "Search",
-          caption: "Search the transcript log to review every decision, command, and output."
+          view: "artifacts",
+          duration: 5,
+          label: "Artifacts",
+          caption: "Review produced patches, outputs, and verification evidence in artifacts."
         },
         {
           target: "workspace",
           view: "analytics",
-          duration: 6,
+          duration: 5,
           label: "Analytics",
           caption: "Track run duration, model spend, and step counts across tasks in analytics."
         }
