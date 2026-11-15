@@ -552,6 +552,167 @@ function runChecks() {
     assert.equal(sampleCalcChild.status.isVerified, false);
     assert.equal(sampleCalcChild.status.symbolWord, "Finished · sample run, not verified");
   }
+
+  // ===========================================================================
+  // 6. Follow-up task in the same conversation (workspace-followup.json)
+  // ===========================================================================
+  {
+    const followFx = readFixtureJson("workspace-followup.json");
+    const rootId = "r1794717957-5-9b96";
+    const followId = "r1794718608-7-a38f";
+
+    const vmFollow = WorkspaceAdapter.buildViewModel({
+      rawRuns: followFx.runs,
+      detailsById: {},
+      pendingHelp: [],
+      rawAgents: {},
+      rawActions: [],
+      rawGraph: null,
+      rawAnalytics: null,
+      costsById: {},
+      transcriptsByRunId: followFx.transcripts,
+      searchedTranscriptRows: null,
+      sentAttachmentsByRunId: new Map(),
+      connectionStatus: "connected",
+      connectionError: "",
+      isSampleData: true,
+      selectedTaskRunId: null,
+      selectedAgentId: null,
+      smAgentFilter: "",
+      selectedAppFilter: "all",
+      logSearchQuery: "",
+      logStatusFilter: "all",
+    });
+
+    // 1. Agent graph: 2 separate tasks (newest first), follow-up orchestrator not a child of root
+    assert.equal(vmFollow.taskGroups.length, 2, "Follow-up conversation must produce 2 taskGroups");
+    assert.equal(vmFollow.taskGroups[0].id, followId, "Newest task (follow-up) must be first in taskGroups");
+    assert.equal(vmFollow.taskGroups[0].goal, "compute 4 + 4 in Calculator");
+    assert.equal(vmFollow.taskGroups[0].elapsedText, "7.5s");
+    assert.equal(vmFollow.taskGroups[0].overallStatus.filterKey, "success");
+    assert.equal(vmFollow.taskGroups[0].childNodes.length, 1, "Follow-up task must have 1 child agent");
+    assert.equal(vmFollow.taskGroups[0].childNodes[0].runId, "r1794718608-8-de2b");
+    assert.equal(vmFollow.taskGroups[0].childNodes[0].agentName, "Ava");
+
+    assert.equal(vmFollow.taskGroups[1].id, rootId, "First task must remain its own taskGroup");
+    assert.equal(vmFollow.taskGroups[1].goal, "compute 6 + 9 in Calculator");
+    assert.equal(vmFollow.taskGroups[1].elapsedText, "12s");
+    assert.equal(vmFollow.taskGroups[1].childNodes.length, 1, "First task must have only its own child agent");
+    assert.equal(vmFollow.taskGroups[1].childNodes[0].runId, "r1794717957-6-6e62");
+    assert.equal(vmFollow.taskGroups[1].childNodes[0].agentName, "Mia");
+    assert.ok(
+      !vmFollow.taskGroups[1].childNodes.some((c) => c.runId === followId),
+      "Follow-up orchestrator must not appear as a child agent of the first task"
+    );
+
+    const vmSelectFirst = WorkspaceAdapter.buildViewModel({
+      rawRuns: followFx.runs,
+      detailsById: {},
+      pendingHelp: [],
+      rawAgents: {},
+      rawActions: [],
+      rawGraph: null,
+      rawAnalytics: null,
+      costsById: {},
+      transcriptsByRunId: followFx.transcripts,
+      searchedTranscriptRows: null,
+      sentAttachmentsByRunId: new Map(),
+      connectionStatus: "connected",
+      connectionError: "",
+      isSampleData: true,
+      selectedTaskRunId: rootId,
+      selectedAgentId: null,
+      smAgentFilter: "",
+      selectedAppFilter: "all",
+      logSearchQuery: "",
+      logStatusFilter: "all",
+    });
+    assert.equal(vmSelectFirst.activeGroup?.id, rootId, "First task must be selectable in run switcher");
+
+    // 2. Transcript and history: 2 tasks newest first, each with only its own messages
+    assert.equal(vmFollow.filteredTranscriptRuns.length, 2, "Transcript log must list 2 tasks");
+    assert.equal(vmFollow.filteredTranscriptRuns[0].id, followId, "Transcript log must list newest task first");
+    assert.equal(vmFollow.filteredTranscriptRuns[1].id, rootId);
+
+    const followEvents = vmFollow.taskGroups[0].combinedEvents;
+    const firstEvents = vmFollow.taskGroups[1].combinedEvents;
+    assert.equal(followEvents.length, 5, "Follow-up transcript must have only its 5 messages");
+    assert.ok(followEvents.some((e) => e.summary.includes("4 + 4")), "Follow-up transcript must include its prompt");
+    assert.ok(followEvents.some((e) => e.agentName === "Ava"), "Follow-up transcript must include Ava");
+    assert.ok(
+      followEvents.every((e) => e.agentName !== "Mia" && !e.summary.includes("6 + 9")),
+      "Follow-up transcript must not include first task messages"
+    );
+
+    assert.equal(firstEvents.length, 5, "First task transcript must have only its 5 messages");
+    assert.ok(firstEvents.some((e) => e.summary.includes("6 + 9")), "First task transcript must include its prompt");
+    assert.ok(firstEvents.some((e) => e.agentName === "Mia"), "First task transcript must include Mia");
+    assert.ok(
+      firstEvents.every((e) => e.agentName !== "Ava" && !e.summary.includes("4 + 4")),
+      "First task transcript must not include follow-up messages"
+    );
+
+    // 3. Analytics: Tasks counts 2, per-task cost has 2 rows, nothing counted twice
+    assert.ok(vmFollow.analytics, "Analytics must be populated for follow-up conversation");
+    assert.equal(vmFollow.analytics.tasks, 2, "Analytics Tasks count must be 2");
+    assert.equal(vmFollow.analytics.llm_calls, 4, "Analytics llm_calls must not double-count");
+    assert.ok(vmFollow.taskGroups[0].cost, "Follow-up task group must have per-task cost");
+    assert.ok(vmFollow.taskGroups[1].cost, "First task group must have per-task cost");
+    assert.equal(vmFollow.taskGroups[0].cost.agents, 2);
+    assert.equal(vmFollow.taskGroups[0].cost.llm_calls, 2);
+    assert.equal(vmFollow.taskGroups[1].cost.agents, 2);
+    assert.equal(vmFollow.taskGroups[1].cost.llm_calls, 2);
+
+    // Simulate live /api/runs/<root>/cost returning _tree(root) (which includes follow-up subtree)
+    const vmNoDoubleCount = WorkspaceAdapter.buildViewModel({
+      rawRuns: followFx.runs,
+      detailsById: {},
+      pendingHelp: [],
+      rawAgents: {},
+      rawActions: [],
+      rawGraph: null,
+      rawAnalytics: null,
+      costsById: {
+        [rootId]: {
+          run: rootId,
+          agents: 4,
+          llm_calls: 4,
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          cost_usd: 0.05,
+          model_seconds: 2.5,
+          actions: {},
+          by_agent: [],
+        },
+        [followId]: {
+          run: followId,
+          agents: 2,
+          llm_calls: 2,
+          prompt_tokens: 60,
+          completion_tokens: 30,
+          cost_usd: 0.03,
+          model_seconds: 1.5,
+          actions: {},
+          by_agent: [],
+        },
+      },
+      transcriptsByRunId: followFx.transcripts,
+      searchedTranscriptRows: null,
+      sentAttachmentsByRunId: new Map(),
+      connectionStatus: "connected",
+      connectionError: "",
+      isSampleData: false,
+      selectedTaskRunId: null,
+      selectedAgentId: null,
+      smAgentFilter: "",
+      selectedAppFilter: "all",
+      logSearchQuery: "",
+      logStatusFilter: "all",
+    });
+    assert.equal(vmNoDoubleCount.taskGroups[1].cost.agents, 2, "Root cost must not double-count follow-up agents");
+    assert.equal(vmNoDoubleCount.taskGroups[1].cost.llm_calls, 2, "Root cost must not double-count follow-up calls");
+    assert.equal(vmNoDoubleCount.taskGroups[1].cost.cost_usd, 0.02, "Root cost must subtract follow-up cost");
+  }
 }
 
 try {

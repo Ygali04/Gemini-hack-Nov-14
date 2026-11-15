@@ -1,0 +1,308 @@
+{
+  "runs": [
+    {
+      "id": "r1794718608-8-de2b",
+      "goal": "compute 4 + 4 in Calculator",
+      "role": "cu",
+      "parent": "r1794718608-7-a38f",
+      "state": "done",
+      "elapsed": 7.5,
+      "n_events": 13,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "steps": 0
+      }
+    },
+    {
+      "id": "r1794718608-7-a38f",
+      "goal": "compute 4 + 4 in Calculator",
+      "role": "orchestrator",
+      "parent": "r1794717957-5-9b96",
+      "state": "done",
+      "elapsed": 7.5,
+      "n_events": 8,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "digest": {
+          "run": "r1794718608-7-a38f",
+          "goal": "compute 4 + 4 in Calculator",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "mock",
+          "seconds": 7.5,
+          "steps": 0,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "llm": {
+            "calls": 1,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost": 0.0,
+            "ms": 0
+          },
+          "task_cost": {
+            "run": "r1794718608-7-a38f",
+            "agents": 2,
+            "llm_calls": 2,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "model_seconds": 0.0,
+            "actions": {
+              "done_verified": 1,
+              "ok": 1
+            },
+            "by_agent": [
+              {
+                "agent": "Ava",
+                "calls": 1,
+                "cost": 0.0,
+                "ms": 0
+              },
+              {
+                "agent": "orchestrator",
+                "calls": 1,
+                "cost": 0.0,
+                "ms": 0
+              }
+            ]
+          },
+          "children": [
+            "r1794718608-8-de2b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "r1794717957-6-6e62",
+      "goal": "compute 6 + 9 in Calculator",
+      "role": "cu",
+      "parent": "r1794717957-5-9b96",
+      "state": "done",
+      "elapsed": 11.8,
+      "n_events": 13,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "steps": 0
+      }
+    },
+    {
+      "id": "r1794717957-5-9b96",
+      "goal": "compute 6 + 9 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 11.9,
+      "n_events": 8,
+      "result": {
+        "ok": true,
+        "summary": "mock",
+        "digest": {
+          "run": "r1794717957-5-9b96",
+          "goal": "compute 6 + 9 in Calculator",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "mock",
+          "seconds": 11.9,
+          "steps": 0,
+          "help_requests": 0,
+          "memory_steps": 0,
+          "llm": {
+            "calls": 1,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost": 0.0,
+            "ms": 0
+          },
+          "task_cost": {
+            "run": "r1794717957-5-9b96",
+            "agents": 2,
+            "llm_calls": 2,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "model_seconds": 0.0,
+            "actions": {
+              "done_verified": 1,
+              "ok": 1
+            },
+            "by_agent": [
+              {
+                "agent": "Mia",
+                "calls": 1,
+                "cost": 0.0,
+                "ms": 0
+              },
+              {
+                "agent": "orchestrator",
+                "calls": 1,
+                "cost": 0.0,
+                "ms": 0
+              }
+            ]
+          },
+          "children": [
+            "r1794717957-6-6e62"
+          ]
+        }
+      }
+    }
+  ],
+  "transcripts": {
+    "r1794717957-5-9b96": [
+      {
+        "id": 57,
+        "ts": 1794717957.882352,
+        "run": "r1794717957-5-9b96",
+        "role": "user",
+        "agent": "ComputerAnything",
+        "kind": "prompt",
+        "text": "compute 6 + 9 in Calculator",
+        "meta": {
+          "attachments": [
+            "01-collapsed.png"
+          ]
+        },
+        "color": null
+      },
+      {
+        "id": 58,
+        "ts": 1794717957.984698,
+        "run": "r1794717957-5-9b96",
+        "role": "assistant",
+        "agent": "ComputerAnything",
+        "kind": "plan",
+        "text": "One agent will do this.",
+        "meta": {
+          "route": {
+            "role": "cu",
+            "app": null,
+            "repo": null,
+            "url": null,
+            "goal": "compute 6 + 9 in Calculator",
+            "subtasks": [],
+            "names": [],
+            "fallback": "bad router reply: {'action': 'done', 'reason': 'mock'}"
+          }
+        },
+        "color": null
+      },
+      {
+        "id": 59,
+        "ts": 1794717957.990504,
+        "run": "r1794717957-6-6e62",
+        "role": "agent",
+        "agent": "Mia",
+        "kind": "hello",
+        "text": "Hi, I'm Mia! I'll compute 6 + 9 in Calculator.",
+        "meta": {
+          "agent_role": "cu"
+        },
+        "color": "#F0D9BE"
+      },
+      {
+        "id": 60,
+        "ts": 1794717969.7994509,
+        "run": "r1794717957-6-6e62",
+        "role": "agent",
+        "agent": "Mia",
+        "kind": "result",
+        "text": "mock",
+        "meta": {
+          "ok": true
+        },
+        "color": "#F0D9BE"
+      },
+      {
+        "id": 61,
+        "ts": 1794717969.803645,
+        "run": "r1794717957-5-9b96",
+        "role": "assistant",
+        "agent": "ComputerAnything",
+        "kind": "result",
+        "text": "Finished.",
+        "meta": {
+          "echo": true
+        },
+        "color": null
+      },
+      {
+        "id": 62,
+        "ts": 1794718608.068444,
+        "run": "r1794718608-7-a38f",
+        "role": "user",
+        "agent": "ComputerAnything",
+        "kind": "prompt",
+        "text": "compute 4 + 4 in Calculator",
+        "meta": {
+          "attachments": []
+        },
+        "color": null
+      },
+      {
+        "id": 63,
+        "ts": 1794718608.072893,
+        "run": "r1794718608-7-a38f",
+        "role": "assistant",
+        "agent": "ComputerAnything",
+        "kind": "plan",
+        "text": "One agent will do this.",
+        "meta": {
+          "route": {
+            "role": "cu",
+            "app": null,
+            "repo": null,
+            "url": null,
+            "goal": "compute 4 + 4 in Calculator",
+            "subtasks": [],
+            "names": [],
+            "fallback": "bad router reply: {'action': 'done', 'reason': 'mock'}"
+          }
+        },
+        "color": null
+      },
+      {
+        "id": 64,
+        "ts": 1794718608.0748968,
+        "run": "r1794718608-8-de2b",
+        "role": "agent",
+        "agent": "Ava",
+        "kind": "hello",
+        "text": "Hi, I'm Ava! I'll compute 4 + 4 in Calculator.",
+        "meta": {
+          "agent_role": "cu"
+        },
+        "color": "#B5D0EB"
+      },
+      {
+        "id": 65,
+        "ts": 1794718615.532834,
+        "run": "r1794718608-8-de2b",
+        "role": "agent",
+        "agent": "Ava",
+        "kind": "result",
+        "text": "mock",
+        "meta": {
+          "ok": true
+        },
+        "color": "#B5D0EB"
+      },
+      {
+        "id": 66,
+        "ts": 1794718615.535776,
+        "run": "r1794718608-7-a38f",
+        "role": "assistant",
+        "agent": "ComputerAnything",
+        "kind": "result",
+        "text": "Finished.",
+        "meta": {
+          "echo": true
+        },
+        "color": null
+      }
+    ]
+  }
+}
