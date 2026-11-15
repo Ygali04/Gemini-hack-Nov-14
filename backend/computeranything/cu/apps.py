@@ -107,15 +107,35 @@ def open_app(agent, name, method="auto", lane=None, timeout=30):
     method: auto | finder (file system) | spotlight (Spotlight's index). Returns
     {"app", "window", "method", "seconds", "ready_after", "path"}."""
     t0 = time.time()
+    deadline = t0 + timeout
     path = find_app(name)  # file system first, then the Spotlight index (mdfind)
     if not path:
         raise FileNotFoundError("no app named %r on disk or in the Spotlight index" % name)
     app = os.path.basename(path)[:-4]
     used = "running"
-    if not windows(app):
+    if windows(app):
+        win, waited = wait_ready(app, timeout)
+    else:
+        slice_s = min(8, timeout / 3)
         subprocess.run(["open", "-g", path], check=False, timeout=30)  # -g: launch without coming to the front
         used = "spotlight" if method == "spotlight" else "finder"
-    win, waited = wait_ready(app, timeout)
+        try:
+            win, waited = wait_ready(app, slice_s)
+        except TimeoutError:
+            _osa(["tell application (item 1 of argv) to reopen"], app)  # running app with zero windows
+            used = "reopen"
+            try:
+                win, waited = wait_ready(app, min(slice_s, max(0.5, deadline - time.time())))
+            except TimeoutError:
+                _osa(["tell application (item 1 of argv) to quit"], app)
+                if deadline - time.time() > 1:
+                    time.sleep(0.5)
+                subprocess.run(["open", "-g", path], check=False, timeout=30)
+                used = "relaunch"
+                try:
+                    win, waited = wait_ready(app, max(0.5, deadline - time.time()))
+                except TimeoutError:
+                    raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout)) from None
     if lane:
         place(win["pid"], lane)  # moving a window does not activate its app
         win = next(iter(windows(app)), win)
@@ -136,11 +156,39 @@ def run_applescript(script, timeout=30):
 
 
 def selftest():
+    global windows, wait_ready, _osa
     assert find_app("calculator").endswith("Calculator.app")
     assert find_app("system settings").endswith("System Settings.app")
     assert find_app("") is None
     code, out = _osa(["return (item 1 of argv)"], 'x" & (do shell script "echo pwned") & "')
     assert code == 0 and out == 'x" & (do shell script "echo pwned") & "', out  # data stayed data
+
+    orig = (windows, wait_ready, _osa, subprocess.run)
+    state, seen = {"win": False}, []
+    windows = lambda app: [{"id": 1, "pid": 123}] if state["win"] else []
+
+    def fake_wait(app, timeout=30):
+        if state["win"]:
+            return {"id": 1, "pid": 123}, 0.1
+        raise TimeoutError("%s did not open a usable window within %ds" % (app, timeout))
+
+    def fake_osa(lines, *args, **kwargs):
+        seen.append(("osa", list(lines), args))
+        if any("reopen" in ln for ln in lines):
+            state["win"] = True
+        return 0, ""
+
+    def fake_run(cmd, *args, **kwargs):
+        seen.append(("run", list(cmd)))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    wait_ready, _osa, subprocess.run = fake_wait, fake_osa, fake_run
+    try:
+        res = open_app(None, "Calculator")
+        assert res["method"] == "reopen", res
+        assert not any("activate" in ln.lower() for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+    finally:
+        windows, wait_ready, _osa, subprocess.run = orig
     print("apps selftest OK")
 
 
