@@ -5245,11 +5245,15 @@
             <text x="${leftPad - 8}" y="${midY + 4}" text-anchor="end" fill="#7d8495" font-size="11">${escapeHtml(formatUsd(midCost))}</text>
             <text x="${leftPad - 8}" y="${baselineY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$0</text>
           `;
+      const totalTasks = Math.max(Number(an && an.tasks) || 0, vm.taskGroups.length, tasksWithCost.length);
+      const chartCountLabel = tasksWithCost.length < totalTasks
+        ? `last ${tasksWithCost.length} of ${totalTasks}`
+        : `${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}`;
       spendChartHtml = `
         <div class="analytics-spark-wrap">
           <div class="section-header-row">
             <span class="filter-label">Cost per task</span>
-            <span class="section-subtitle">${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}</span>
+            <span class="section-subtitle">${escapeHtml(chartCountLabel)}</span>
           </div>
           <svg class="analytics-spark-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task">
             ${axisGridSvg}
