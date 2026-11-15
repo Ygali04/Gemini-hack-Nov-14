@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-clarify-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Export the latest project notes folder",
+      "state": "awaiting_human",
+      "elapsed": 8.4,
+      "result": null
+    },
+    {
+      "id": "r-clarify-c",
+      "parent": "r-clarify-p",
+      "role": "cu",
+      "goal": "Select the target folder in Finder",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 6.9,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-clarify-p": {
+      "id": "r-clarify-p",
+      "role": "orchestrator",
+      "goal": "Export the latest project notes folder",
+      "state": "awaiting_human",
+      "elapsed": 8.4,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Finder agent" },
+        { "t": 0.7, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-clarify-c": {
+      "id": "r-clarify-c",
+      "role": "cu",
+      "goal": "Select the target folder in Finder",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 6.9,
+      "events": [
+        { "t": 0.4, "kind": "app_ready", "app": "Finder" },
+        {
+          "t": 6.7,
+          "kind": "help",
+          "id": "h-clarify-1",
+          "help_kind": "clarify",
+          "question": "Pick the workspace folder in Finder, then choose Done.",
+          "options": ["done", "cancel"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-clarify-1",
+      "run": "r-clarify-c",
+      "kind": "clarify",
+      "question": "Pick the workspace folder in Finder, then choose Done.",
+      "options": ["done", "cancel"],
+      "detail": "Multiple folders match that name on your Desktop.",
+      "asked_age_s": 25,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-clarify-c": {
+      "name": "Finder agent",
+      "color": "#3A94B8",
+      "edge": "#297494",
+      "ink": "#FFFFFF"
+    }
+  }
+}

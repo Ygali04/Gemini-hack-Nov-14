@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-send-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Email the weekly release summary to the design list",
+      "state": "awaiting_human",
+      "elapsed": 13.0,
+      "result": null
+    },
+    {
+      "id": "r-send-c",
+      "parent": "r-send-p",
+      "role": "cu",
+      "goal": "Send drafted message in Mail",
+      "app": "Mail",
+      "state": "awaiting_human",
+      "elapsed": 11.2,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-send-p": {
+      "id": "r-send-p",
+      "role": "orchestrator",
+      "goal": "Email the weekly release summary to the design list",
+      "state": "awaiting_human",
+      "elapsed": 13.0,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Mail agent" },
+        { "t": 0.8, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-send-c": {
+      "id": "r-send-c",
+      "role": "cu",
+      "goal": "Send drafted message in Mail",
+      "app": "Mail",
+      "state": "awaiting_human",
+      "elapsed": 11.2,
+      "events": [
+        { "t": 0.5, "kind": "app_ready", "app": "Mail" },
+        {
+          "t": 11.0,
+          "kind": "help",
+          "id": "h-send-1",
+          "help_kind": "send",
+          "question": "Send weekly update email to 4 recipients?",
+          "options": ["approve", "deny"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-send-1",
+      "run": "r-send-c",
+      "kind": "send",
+      "question": "Send weekly update email to 4 recipients?",
+      "options": ["approve", "deny"],
+      "detail": "This sends a message from Mail to the design list.",
+      "asked_age_s": 15,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-send-c": {
+      "name": "Mail agent",
+      "color": "#7E6CE0",
+      "edge": "#6352C4",
+      "ink": "#FFFFFF"
+    }
+  }
+}

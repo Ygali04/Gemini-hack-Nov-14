@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-money-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Order a standing desk mat on Amazon",
+      "state": "awaiting_human",
+      "elapsed": 18.6,
+      "result": null
+    },
+    {
+      "id": "r-money-c",
+      "parent": "r-money-p",
+      "role": "cu",
+      "goal": "Proceed to checkout in Chrome",
+      "app": "Google Chrome",
+      "state": "awaiting_human",
+      "elapsed": 16.4,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-money-p": {
+      "id": "r-money-p",
+      "role": "orchestrator",
+      "goal": "Order a standing desk mat on Amazon",
+      "state": "awaiting_human",
+      "elapsed": 18.6,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Checkout agent" },
+        { "t": 1.0, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-money-c": {
+      "id": "r-money-c",
+      "role": "cu",
+      "goal": "Proceed to checkout in Chrome",
+      "app": "Google Chrome",
+      "state": "awaiting_human",
+      "elapsed": 16.4,
+      "events": [
+        { "t": 0.6, "kind": "app_ready", "app": "Google Chrome" },
+        {
+          "t": 16.2,
+          "kind": "help",
+          "id": "h-money-1",
+          "help_kind": "money",
+          "question": "Buy standing desk mat for $48.00?",
+          "options": ["approve", "deny"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-money-1",
+      "run": "r-money-c",
+      "kind": "money",
+      "question": "Buy standing desk mat for $48.00?",
+      "options": ["approve", "deny"],
+      "detail": "Places the order using your saved card ending in 4242.",
+      "asked_age_s": 20,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-money-c": {
+      "name": "Checkout agent",
+      "color": "#C98A2C",
+      "edge": "#A56E1C",
+      "ink": "#FFFFFF"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-captcha-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Submit the support request in Safari",
+      "state": "awaiting_human",
+      "elapsed": 15.5,
+      "result": null
+    },
+    {
+      "id": "r-captcha-c",
+      "parent": "r-captcha-p",
+      "role": "cu",
+      "goal": "Complete form verification in Safari",
+      "app": "Safari",
+      "state": "awaiting_human",
+      "elapsed": 13.7,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-captcha-p": {
+      "id": "r-captcha-p",
+      "role": "orchestrator",
+      "goal": "Submit the support request in Safari",
+      "state": "awaiting_human",
+      "elapsed": 15.5,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Safari agent" },
+        { "t": 0.9, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-captcha-c": {
+      "id": "r-captcha-c",
+      "role": "cu",
+      "goal": "Complete form verification in Safari",
+      "app": "Safari",
+      "state": "awaiting_human",
+      "elapsed": 13.7,
+      "events": [
+        { "t": 0.5, "kind": "app_ready", "app": "Safari" },
+        {
+          "t": 13.5,
+          "kind": "help",
+          "id": "h-captcha-1",
+          "help_kind": "captcha",
+          "question": "Solve the human verification challenge in Safari, then choose Done.",
+          "options": ["done", "cancel"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-captcha-1",
+      "run": "r-captcha-c",
+      "kind": "captcha",
+      "question": "Solve the human verification challenge in Safari, then choose Done.",
+      "options": ["done", "cancel"],
+      "detail": "Safari is showing a verification check before submitting.",
+      "asked_age_s": 60,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-captcha-c": {
+      "name": "Safari agent",
+      "color": "#3C9D6D",
+      "edge": "#2B7D54",
+      "ink": "#FFFFFF"
+    }
+  }
+}

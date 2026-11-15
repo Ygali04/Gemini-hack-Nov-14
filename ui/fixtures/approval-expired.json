@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-exp-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Free up disk space by emptying Trash",
+      "state": "awaiting_human",
+      "elapsed": 308.0,
+      "result": null
+    },
+    {
+      "id": "r-exp-c",
+      "parent": "r-exp-p",
+      "role": "cu",
+      "goal": "Empty Trash in Finder",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 306.0,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-exp-p": {
+      "id": "r-exp-p",
+      "role": "orchestrator",
+      "goal": "Free up disk space by emptying Trash",
+      "state": "awaiting_human",
+      "elapsed": 308.0,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Finder agent" },
+        { "t": 1.0, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-exp-c": {
+      "id": "r-exp-c",
+      "role": "cu",
+      "goal": "Empty Trash in Finder",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 306.0,
+      "events": [
+        { "t": 0.5, "kind": "app_ready", "app": "Finder" },
+        {
+          "t": 5.0,
+          "kind": "help",
+          "id": "h-exp-1",
+          "help_kind": "destructive",
+          "question": "Empty Trash in Finder?",
+          "options": ["approve", "deny"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-exp-1",
+      "run": "r-exp-c",
+      "kind": "destructive",
+      "question": "Empty Trash in Finder?",
+      "options": ["approve", "deny"],
+      "detail": "Permanently deletes items currently in Trash.",
+      "asked_age_s": 305,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-exp-c": {
+      "name": "Finder agent",
+      "color": "#D96B43",
+      "edge": "#B8532F",
+      "ink": "#FFFFFF"
+    }
+  }
+}

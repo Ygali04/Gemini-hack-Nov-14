@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-destr-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Clean up archived build folders in Finder",
+      "state": "awaiting_human",
+      "elapsed": 14.2,
+      "result": null
+    },
+    {
+      "id": "r-destr-c",
+      "parent": "r-destr-p",
+      "role": "cu",
+      "goal": "Remove old archived build folders",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 12.1,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-destr-p": {
+      "id": "r-destr-p",
+      "role": "orchestrator",
+      "goal": "Clean up archived build folders in Finder",
+      "state": "awaiting_human",
+      "elapsed": 14.2,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Finder agent" },
+        { "t": 1.0, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-destr-c": {
+      "id": "r-destr-c",
+      "role": "cu",
+      "goal": "Remove old archived build folders",
+      "app": "Finder",
+      "state": "awaiting_human",
+      "elapsed": 12.1,
+      "events": [
+        { "t": 0.5, "kind": "app_ready", "app": "Finder" },
+        {
+          "t": 12.0,
+          "kind": "help",
+          "id": "h-destr-1",
+          "help_kind": "destructive",
+          "question": "Allow double_click \"Delete Permanently\" (matched \"delete\")",
+          "options": ["approve", "deny"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-destr-1",
+      "run": "r-destr-c",
+      "kind": "destructive",
+      "question": "Allow double_click \"Delete Permanently\" (matched \"delete\")",
+      "options": ["approve", "deny"],
+      "detail": "Deletes 12 archived build folders from Trash.",
+      "asked_age_s": 45,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-destr-c": {
+      "name": "Finder agent",
+      "color": "#D96B43",
+      "edge": "#B8532F",
+      "ink": "#FFFFFF"
+    }
+  }
+}

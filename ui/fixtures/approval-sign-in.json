@@ -1,0 +1,75 @@
+{
+  "runs": [
+    {
+      "id": "r-signin-p",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Check team invoices in the billing portal",
+      "state": "awaiting_human",
+      "elapsed": 11.4,
+      "result": null
+    },
+    {
+      "id": "r-signin-c",
+      "parent": "r-signin-p",
+      "role": "cu",
+      "goal": "Open the billing portal in Safari",
+      "app": "Safari",
+      "state": "awaiting_human",
+      "elapsed": 9.8,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-signin-p": {
+      "id": "r-signin-p",
+      "role": "orchestrator",
+      "goal": "Check team invoices in the billing portal",
+      "state": "awaiting_human",
+      "elapsed": 11.4,
+      "events": [
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Safari agent" },
+        { "t": 0.9, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-signin-c": {
+      "id": "r-signin-c",
+      "role": "cu",
+      "goal": "Open the billing portal in Safari",
+      "app": "Safari",
+      "state": "awaiting_human",
+      "elapsed": 9.8,
+      "events": [
+        { "t": 0.4, "kind": "app_ready", "app": "Safari" },
+        {
+          "t": 9.6,
+          "kind": "help",
+          "id": "h-signin-1",
+          "help_kind": "sign_in",
+          "question": "Continue signing in to your cloud account?",
+          "options": ["approve", "deny"]
+        }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-signin-1",
+      "run": "r-signin-c",
+      "kind": "sign_in",
+      "question": "Continue signing in to your cloud account?",
+      "options": ["approve", "deny"],
+      "detail": "Submits your saved login on the account sign-in page.",
+      "asked_age_s": 30,
+      "answer": null
+    }
+  ],
+  "agents": {
+    "r-signin-c": {
+      "name": "Safari agent",
+      "color": "#3C9D6D",
+      "edge": "#2B7D54",
+      "ink": "#FFFFFF"
+    }
+  }
+}
