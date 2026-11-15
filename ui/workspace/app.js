@@ -1164,20 +1164,66 @@
       return null;
     }
 
+    const OPEN_METHOD_TOKENS = new Set(["finder", "running", "spotlight", "reopen", "relaunch"]);
+    const UI_KIND_TOKENS = new Set([
+      "button", "menuitem", "textfield", "checkbox", "link", "tab", "radio", "sidebar", "menu", "item",
+    ]);
+
+    function formatAppDisplayName(rawTarget, appName) {
+      const cleanTarget = String(rawTarget || "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+      const cleanApp = String(appName || "").trim();
+      const usableApp = cleanApp && !/^(app|desktop)$/i.test(cleanApp) ? cleanApp : "";
+      if (!cleanTarget) return usableApp || "app";
+      if (usableApp) {
+        const lowT = cleanTarget.toLowerCase();
+        const lowA = usableApp.toLowerCase();
+        if (lowA === lowT || lowA.startsWith(lowT) || lowT.startsWith(lowA)) {
+          return usableApp;
+        }
+      }
+      if (cleanTarget === cleanTarget.toLowerCase()) {
+        return cleanTarget
+          .split(/\s+/)
+          .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+          .join(" ");
+      }
+      return cleanTarget;
+    }
+
+    function formatUsd(amount) {
+      if (amount == null) return "—";
+      const n = Number(amount);
+      if (!Number.isFinite(n)) return "—";
+      if (n === 0) return "$0.00";
+      if (Math.abs(n) >= 0.01) return `$${n.toFixed(2)}`;
+      return `$${n.toFixed(4)}`;
+    }
+
     function humanizeSmAction(rawAction, appName) {
       const raw = String(rawAction || "").trim();
       if (!raw) return "Performed action";
-      const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
+      const hasColon = raw.includes(":");
+      const parts = (hasColon ? raw.split(":") : raw.split(/\s+/)).map((p) => p.trim()).filter(Boolean);
       const verb = (parts[0] || "").toLowerCase();
-      const target = parts.slice(1).filter((p) => !["button", "menuitem", "textfield", "checkbox", "link", "tab"].includes(p.toLowerCase())).join(" ").trim();
       if (verb === "open_app" || verb === "open") {
-        return `Opened ${target || appName || "app"}`;
+        const appTokens = parts
+          .slice(1)
+          .filter((p) => !OPEN_METHOD_TOKENS.has(p.toLowerCase()) && !UI_KIND_TOKENS.has(p.toLowerCase()));
+        return `Opened ${formatAppDisplayName(appTokens.join(" "), appName)}`;
       }
-      if (verb === "click") {
-        return `Clicked ${target || "control"}`;
+      const restParts = parts
+        .slice(1)
+        .filter((p) => !UI_KIND_TOKENS.has(p.toLowerCase()) && !OPEN_METHOD_TOKENS.has(p.toLowerCase()));
+      const hadInvalidTarget = restParts.some((p) => /^invalid[-_\s]?target$/i.test(p));
+      const validParts = restParts.filter((p) => !/^invalid[-_\s]?target$/i.test(p));
+      const target = validParts.join(" ").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+      if (verb === "click" || verb === "double_click") {
+        const prefix = verb === "double_click" ? "Double-clicked" : "Clicked";
+        if (hadInvalidTarget && !target) return `${prefix} (nothing matched)`;
+        return `${prefix} ${target || "control"}`;
       }
       if (verb === "type" || verb === "input") {
-        return `Typed ${target || "text"}`;
+        return `Typed ${target || (hadInvalidTarget ? "(nothing matched)" : "text")}`;
       }
       if (verb === "key" || verb === "press" || verb === "hotkey") {
         return `Pressed ${target || "key"}`;
@@ -1188,7 +1234,11 @@
       if (verb === "verify" || verb === "done_verified") {
         return `Checked ${target || appName || "screen"}`;
       }
-      const clean = raw.replace(/[:_]+/g, " ").replace(/\s+/g, " ").trim();
+      const clean = raw
+        .replace(/invalid[-_\s]?target/gi, "(nothing matched)")
+        .replace(/[:_]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
       return clean.charAt(0).toUpperCase() + clean.slice(1);
     }
 
@@ -1313,7 +1363,7 @@
           };
         }
         case "llm": {
-          const costStr = ev.cost == null ? "—" : `$${Number(ev.cost).toFixed(4)}`;
+          const costStr = formatUsd(ev.cost);
           return {
             kind: "decide",
             label: "Model",
@@ -1404,10 +1454,14 @@
         .filter(Boolean);
       if (!parts.length) return "action";
       const verb = parts[0].toLowerCase();
-      const uiKinds = new Set(["button", "textfield", "radio", "sidebar", "menu", "link", "checkbox", "tab", "running", "item"]);
-      const rest = parts.slice(1).filter((p) => !uiKinds.has(p.toLowerCase()));
-      const target = rest.join(" ") || parts.slice(1).join(" ") || verb;
-      return target.replace(/[-_]+/g, " ").trim();
+      const rest = parts
+        .slice(1)
+        .filter((p) => !UI_KIND_TOKENS.has(p.toLowerCase()) && !OPEN_METHOD_TOKENS.has(p.toLowerCase()));
+      const cleaned = rest
+        .map((p) => (/^invalid[-_\s]?target$/i.test(p) ? "(nothing matched)" : p))
+        .join(" ");
+      const target = cleaned || parts.slice(1).join(" ") || verb;
+      return target.replace(/invalid[-_\s]?target/gi, "(nothing matched)").replace(/[-_]+/g, " ").trim();
     }
 
     function formatActionAsScreenTitle(action, detail, app, direction) {
@@ -1415,8 +1469,8 @@
       const verb = raw.split(":")[0].toLowerCase();
       const target = formatActionTargetForScreen(raw);
       if (direction === "to") {
-        if (verb === "open_app") {
-          return `${app || sentenceCase(target)} opened`;
+        if (verb === "open_app" || verb === "open") {
+          return `${formatAppDisplayName(target, app)} opened`;
         }
         if (verb === "done") {
           if (typeof detail === "string" && detail.trim()) {
@@ -1429,7 +1483,7 @@
         if (verb === "key") return `After ${target}`;
         return `After ${target}`;
       }
-      if (verb === "open_app") return `Before opening ${app || sentenceCase(target)}`;
+      if (verb === "open_app" || verb === "open") return `Before opening ${formatAppDisplayName(target, app)}`;
       if (verb === "done") return `${app || "App"} ready`;
       return `Before ${target}`;
     }
@@ -1637,7 +1691,7 @@
           isDestructive,
           meanMs,
           reliabilityP,
-          actionClean: String(e.action || "").replace(/:/g, " · "),
+          actionClean: humanizeSmAction(e.action, e.app),
           sourceLabel: Array.from(e.sources).join(", ") || "model",
         };
       });
@@ -2368,6 +2422,7 @@
     return {
       buildViewModel,
       formatSeconds,
+      formatUsd,
       sentenceCase,
       humanizeSmAction,
     };
@@ -3433,6 +3488,7 @@
   /* ---------------- B1b: STATE MACHINE GRAPH VIEW ---------------- */
   let selectedSmScreenId = null;
   const humanizeSmAction = WorkspaceAdapter.humanizeSmAction;
+  const formatUsd = WorkspaceAdapter.formatUsd;
 
   function formatSmReliabilityWords(edge) {
     if (!edge) return "";
@@ -4846,11 +4902,11 @@
           </div>
           <div class="metric-item">
             <span class="metric-label">Spent</span>
-            <span class="metric-value">${an.cost_usd != null ? `$${Number(an.cost_usd).toFixed(4)}` : "—"}</span>
+            <span class="metric-value">${formatUsd(an.cost_usd)}</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Per task</span>
-            <span class="metric-value">${an.mean_cost_per_task != null ? `$${Number(an.mean_cost_per_task).toFixed(4)}` : "—"}</span>
+            <span class="metric-value">${formatUsd(an.mean_cost_per_task)}</span>
           </div>
           <div class="metric-item">
             <span class="metric-label">Works</span>
@@ -4878,7 +4934,9 @@
       .reverse();
     let spendChartHtml = "";
     if (tasksWithCost.length) {
-      const maxCost = Math.max(...tasksWithCost.map((g) => Number(g.cost.cost_usd || 0)), 0.0001);
+      const rawMaxCost = Math.max(...tasksWithCost.map((g) => Number(g.cost.cost_usd || 0)), 0);
+      const allZeroCost = rawMaxCost <= 0;
+      const maxCost = allZeroCost ? 0 : rawMaxCost;
       const chartH = 148;
       const topPad = 20;
       const bottomPad = 26;
@@ -4896,23 +4954,37 @@
       const barsSvg = tasksWithCost
         .map((g, i) => {
           const val = Number(g.cost.cost_usd || 0);
-          const h = Math.max(6, Math.round((val / maxCost) * plotH));
+          const h = allZeroCost ? 2 : (val > 0 ? Math.max(6, Math.round((val / maxCost) * plotH)) : 2);
           const stepW = plotW / count;
           const x = Math.round(leftPad + i * stepW + (stepW - barW) / 2);
           const y = baselineY - h;
           const shortGoal = String(g.goal || `Task ${i + 1}`).trim();
           const axisLabel = shortGoal.length > 14 ? shortGoal.slice(0, 13).trimEnd() + "…" : shortGoal;
+          const costLabel = formatUsd(val);
           return `
             <g>
               <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="#a6adbb" opacity="0.82">
-                <title>${escapeHtml(shortGoal)}: $${val.toFixed(4)}</title>
+                <title>${escapeHtml(shortGoal)}: ${escapeHtml(costLabel)}</title>
               </rect>
-              <text x="${x + barW / 2}" y="${Math.max(12, y - 5)}" text-anchor="middle" fill="#f2f4f8" font-size="11">$${val.toFixed(4)}</text>
+              <text x="${x + barW / 2}" y="${Math.max(12, y - 5)}" text-anchor="middle" fill="#f2f4f8" font-size="11">${escapeHtml(costLabel)}</text>
               <text x="${x + barW / 2}" y="${chartH - 6}" text-anchor="middle" fill="#a6adbb" font-size="11">${escapeHtml(axisLabel)}<title>${escapeHtml(shortGoal)}</title></text>
             </g>
           `;
         })
         .join("");
+      const axisGridSvg = allZeroCost
+        ? `
+            <line x1="${leftPad}" y1="${baselineY}" x2="${chartW - rightPad}" y2="${baselineY}" stroke="rgba(255,255,255,0.16)" />
+            <text x="${leftPad - 8}" y="${baselineY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$0</text>
+          `
+        : `
+            <line x1="${leftPad}" y1="${topPad}" x2="${chartW - rightPad}" y2="${topPad}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
+            <line x1="${leftPad}" y1="${midY}" x2="${chartW - rightPad}" y2="${midY}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
+            <line x1="${leftPad}" y1="${baselineY}" x2="${chartW - rightPad}" y2="${baselineY}" stroke="rgba(255,255,255,0.16)" />
+            <text x="${leftPad - 8}" y="${topPad + 4}" text-anchor="end" fill="#7d8495" font-size="11">${escapeHtml(formatUsd(maxCost))}</text>
+            <text x="${leftPad - 8}" y="${midY + 4}" text-anchor="end" fill="#7d8495" font-size="11">${escapeHtml(formatUsd(midCost))}</text>
+            <text x="${leftPad - 8}" y="${baselineY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$0</text>
+          `;
       spendChartHtml = `
         <div class="analytics-spark-wrap">
           <div class="section-header-row">
@@ -4920,12 +4992,7 @@
             <span class="section-subtitle">${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}</span>
           </div>
           <svg class="analytics-spark-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task">
-            <line x1="${leftPad}" y1="${topPad}" x2="${chartW - rightPad}" y2="${topPad}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
-            <line x1="${leftPad}" y1="${midY}" x2="${chartW - rightPad}" y2="${midY}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
-            <line x1="${leftPad}" y1="${baselineY}" x2="${chartW - rightPad}" y2="${baselineY}" stroke="rgba(255,255,255,0.16)" />
-            <text x="${leftPad - 8}" y="${topPad + 4}" text-anchor="end" fill="#7d8495" font-size="11">$${maxCost.toFixed(3)}</text>
-            <text x="${leftPad - 8}" y="${midY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$${midCost.toFixed(3)}</text>
-            <text x="${leftPad - 8}" y="${baselineY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$0</text>
+            ${axisGridSvg}
             ${barsSvg}
           </svg>
         </div>
@@ -4971,7 +5038,7 @@
                 <td class="num-col">${escapeHtml(c.agents ?? g.allNodes.length)}</td>
                 <td class="num-col">${escapeHtml(c.llm_calls)}</td>
                 <td class="num-col">${totalTokens.toLocaleString()} (${Number(c.prompt_tokens || 0).toLocaleString()} in / ${Number(c.completion_tokens || 0).toLocaleString()} out)</td>
-                <td class="num-col">${c.cost_usd != null ? `$${Number(c.cost_usd).toFixed(4)}` : "—"}</td>
+                <td class="num-col">${formatUsd(c.cost_usd)}</td>
                 <td class="num-col">${escapeHtml(c.model_seconds ?? 0)}s</td>
                 <td class="num-col">${escapeHtml(g.elapsedText)}</td>
               </tr>
@@ -5011,7 +5078,7 @@
                 <tr>
                   <td>${escapeHtml(p.purpose || "general")}</td>
                   <td class="num-col">${escapeHtml(p.calls ?? 0)}</td>
-                  <td class="num-col">${p.cost_usd != null ? `$${Number(p.cost_usd).toFixed(4)} (${share})` : "—"}</td>
+                  <td class="num-col">${p.cost_usd != null ? `${formatUsd(p.cost_usd)} (${share})` : "—"}</td>
                   <td class="num-col">${p.mean_ms != null ? `${Math.round(Number(p.mean_ms))}ms` : "—"}</td>
                 </tr>
               `;
@@ -5870,7 +5937,7 @@
       : filteredRows.length
       ? filteredRows
           .map((row) => {
-            const costText = row.costUsd !== null ? `$${row.costUsd.toFixed(4)}` : "—";
+            const costText = formatUsd(row.costUsd);
             const appsText = row.apps.length ? row.apps.join(", ") : "General";
             return `
               <div class="history-row-2line">

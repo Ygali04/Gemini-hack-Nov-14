@@ -1781,10 +1781,18 @@ select:focus-visible,
 .analytics-disclosure-summary-left {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
+  flex: 1 1 auto;
   gap: 8px;
   min-width: 0;
   margin-right: auto;
   text-align: left;
+}
+
+.analytics-disclosure-summary > .section-subtitle {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
 }
 
 .analytics-disclosure-summary::-webkit-details-marker {
