@@ -122,12 +122,18 @@ def open_app(agent, name, method="auto", lane=None, timeout=30):
         try:
             win, waited = wait_ready(app, slice_s)
         except TimeoutError:
-            _osa(["tell application (item 1 of argv) to reopen"], app)  # running app with zero windows
+            try:
+                _osa(["tell application (item 1 of argv) to reopen"], app)  # running app with zero windows
+            except subprocess.TimeoutExpired:
+                pass
             used = "reopen"
             try:
                 win, waited = wait_ready(app, min(slice_s, max(0.5, deadline - time.time())))
             except TimeoutError:
-                _osa(["tell application (item 1 of argv) to quit"], app)
+                try:
+                    _osa(["tell application (item 1 of argv) to quit"], app)
+                except subprocess.TimeoutExpired:
+                    pass
                 if deadline - time.time() > 1:
                     time.sleep(0.5)
                 subprocess.run(["open", "-g", path], check=False, timeout=30)
@@ -187,6 +193,14 @@ def selftest():
         res = open_app(None, "Calculator")
         assert res["method"] == "reopen", res
         assert not any("activate" in ln.lower() for kind, lines, *_ in seen if kind == "osa" for ln in lines), seen
+
+        state["win"] = False
+        _osa = lambda lines, *args, **kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired(["osascript"], 20))
+        try:
+            open_app(None, "Calculator")
+            assert False, "expected TimeoutError"
+        except TimeoutError as e:
+            assert "Calculator did not open a usable window within 30s" == str(e), str(e)
     finally:
         windows, wait_ready, _osa, subprocess.run = orig
     print("apps selftest OK")
