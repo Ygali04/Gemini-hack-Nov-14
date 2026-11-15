@@ -948,13 +948,29 @@
           isVerified: verified,
         };
       }
+      const reasonRaw = String(result?.error || result?.summary || result?.message || "").trim();
+      const reasonLow = reasonRaw.toLowerCase();
+      let incompleteLabel = "Couldn't finish";
+      if (reasonLow.includes("cancel")) incompleteLabel = "Cancelled by you";
+      else if (reasonLow.includes("stopped") || reasonLow.includes("stop")) incompleteLabel = "Stopped by you";
+      else if (reasonLow.includes("denied") || reasonLow.includes("declined") || reasonLow.includes("said no")) {
+        incompleteLabel = "You said no";
+      } else if (reasonLow.includes("timed out") || reasonLow.includes("timeout")) {
+        incompleteLabel = "Timed out waiting for you";
+      } else if (reasonRaw) {
+        const cleaned = reasonRaw.replace(/^×\s*failed\s*·?\s*/i, "").replace(/^failed\s*·?\s*/i, "").trim();
+        if (cleaned) {
+          const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0].trim();
+          incompleteLabel = firstSentence.length > 72 ? firstSentence.slice(0, 69).trimEnd() + "…" : firstSentence;
+        }
+      }
       return {
         filterKey: "failed",
-        word: "Failed",
-        symbol: "×",
-        symbolWord: "× Failed",
-        shortSymbolWord: "× Failed",
-        colorClass: "state-danger",
+        word: incompleteLabel,
+        symbol: "",
+        symbolWord: incompleteLabel,
+        shortSymbolWord: incompleteLabel,
+        colorClass: "state-neutral",
         isVerified: false,
       };
     }
@@ -1425,9 +1441,9 @@
         let statusClass = "state-success";
         let strokeColor = "#32d583";
         if (e.failures > 0 && e.successes === 0) {
-          statusSymbolWord = "× Failed";
-          statusClass = "state-danger";
-          strokeColor = "#ff5c6c";
+          statusSymbolWord = "Couldn't finish";
+          statusClass = "state-neutral";
+          strokeColor = "#767d8e";
         } else if (e.denied > 0 && e.successes === 0) {
           statusSymbolWord = "⊘ Denied";
           statusClass = "state-danger";
