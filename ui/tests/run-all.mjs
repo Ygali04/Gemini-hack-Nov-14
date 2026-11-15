@@ -23,6 +23,8 @@ const CHECKS = [
   { name: "bridge-check", file: "bridge-check.mjs" },
   { name: "cleanup-check", file: "cleanup-check.mjs" },
   { name: "replay-check", file: "replay-check.mjs" },
+  { name: "screen-words-check", file: "screen-words-check.mjs" },
+  { name: "static-bundle-check", file: "static-bundle-check.mjs" },
 ];
 
 const A11Y_FILES = [
