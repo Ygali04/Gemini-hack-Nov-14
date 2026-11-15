@@ -26,6 +26,25 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 //   Response: { type: "settingsPaneOpened", id: String, pane: String, ok: Bool, error: String }
 //   Shell maps each allowed pane name to its System Settings URL; unknown names return ok: false and open nothing.
 //
+// Bridge contract for `getPermissions` (page -> shell -> page):
+//   Request:  { type: "getPermissions", id: String }
+//   Response: { type: "permissions", id: String, permissions: { accessibility: State, screenRecording: State, microphone: State, speechRecognition: State } }
+//   where State is "granted" | "denied" | "notAsked". Never prompts the person.
+//   (accessibility via AXIsProcessTrusted(), screenRecording via CGPreflightScreenCaptureAccess(),
+//   microphone via AVCaptureDevice.authorizationStatus(for: .audio), speechRecognition via SFSpeechRecognizer.authorizationStatus().)
+//
+// Bridge contract for `listVoices` and `speak` (page -> shell -> page):
+//   Request:  { type: "listVoices", id: String }
+//   Response: { type: "voices", id: String, voices: [{ id: String, name: String, language: String }] }
+//   Lists on-device AVSpeechSynthesisVoice entries whose language starts with "en".
+//   `handleSpeak` reads `voice_id` from CA_HOME/profile.json (default ~/.computeranything/profile.json):
+//   uses that voice when it names an installed voice; "none" means do not speak.
+//
+// Bridge contract for `primaryAgentUpdated` (page -> shell -> all web views):
+//   Request:   { type: "primaryAgentUpdated", alias: String|null, swatch: String|Object|null }
+//   Broadcast: { type: "primaryAgentUpdated", alias: ..., swatch: ... }
+//   Re-broadcast via window.__notchBridgeReceive to every web view the shell owns (notch, notes card, workspace).
+//
 // Surface & bridge contract (A14 — four surfaces):
 // The notch screen is the first screen with `safeAreaInsets.top > 0`, falling back to
 // `NSScreen.main ?? NSScreen.screens.first`. Surfaces animate with 180 ms ease-out motion
@@ -945,11 +964,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             stopDictationInternal(silent: false)
         case "speak":
             let text = (body["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            handleSpeak(text)
+            let overrideVoice = (body["voice_id"] as? String) ?? (body["voiceId"] as? String)
+            handleSpeak(text, voiceId: overrideVoice)
         case "stopSpeaking":
             handleStopSpeaking()
+        case "listVoices":
+            handleListVoices(body, to: senderWebView)
+        case "getPermissions":
+            handleGetPermissions(body, to: senderWebView)
         case "openSettingsPane":
             handleOpenSettingsPane(body, to: senderWebView)
+        case "primaryAgentUpdated":
+            broadcastToWeb([
+                "type": "primaryAgentUpdated",
+                "alias": body["alias"] ?? NSNull(),
+                "swatch": body["swatch"] ?? NSNull()
+            ])
         case "setConnection":
             let rawURL = body["url"] as? String ?? ""
             let result = applyConnectionString(rawURL)
@@ -1030,6 +1060,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             "pane": pane,
             "ok": opened,
             "error": opened ? "" : "Could not open System Settings pane for \"\(pane)\"."
+        ], to: senderWebView)
+    }
+
+    private func permissionState(for micStatus: AVAuthorizationStatus) -> String {
+        switch micStatus {
+        case .authorized: return "granted"
+        case .denied, .restricted: return "denied"
+        case .notDetermined: return "notAsked"
+        @unknown default: return "notAsked"
+        }
+    }
+
+    private func permissionState(for speechStatus: SFSpeechRecognizerAuthorizationStatus) -> String {
+        switch speechStatus {
+        case .authorized: return "granted"
+        case .denied, .restricted: return "denied"
+        case .notDetermined: return "notAsked"
+        @unknown default: return "notAsked"
+        }
+    }
+
+    private func handleGetPermissions(_ body: [String: Any], to senderWebView: WKWebView?) {
+        let reqId = body["id"] as? String ?? ""
+        let accessibilityState = AXIsProcessTrusted() ? "granted" : "notAsked"
+        let screenState = CGPreflightScreenCaptureAccess() ? "granted" : "notAsked"
+        let micState = permissionState(for: AVCaptureDevice.authorizationStatus(for: .audio))
+        let speechState = permissionState(for: SFSpeechRecognizer.authorizationStatus())
+        postToWeb([
+            "type": "permissions",
+            "id": reqId,
+            "permissions": [
+                "accessibility": accessibilityState,
+                "screenRecording": screenState,
+                "microphone": micState,
+                "speechRecognition": speechState
+            ]
+        ], to: senderWebView)
+    }
+
+    private func handleListVoices(_ body: [String: Any], to senderWebView: WKWebView?) {
+        let reqId = body["id"] as? String ?? ""
+        var seen = Set<String>()
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.lowercased().hasPrefix("en") }
+            .sorted {
+                if $0.name != $1.name { return $0.name < $1.name }
+                if $0.language != $1.language { return $0.language < $1.language }
+                return $0.identifier < $1.identifier
+            }
+            .compactMap { voice -> [String: String]? in
+                guard !seen.contains(voice.identifier) else { return nil }
+                seen.insert(voice.identifier)
+                return [
+                    "id": voice.identifier,
+                    "name": voice.name,
+                    "language": voice.language
+                ]
+            }
+        postToWeb([
+            "type": "voices",
+            "id": reqId,
+            "voices": voices
         ], to: senderWebView)
     }
 
@@ -2213,13 +2305,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    private func handleSpeak(_ text: String) {
+    private func readProfileVoiceId() -> String {
+        let rawHome = ProcessInfo.processInfo.environment["CA_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let home = (rawHome?.isEmpty == false ? rawHome! : "~/.computeranything")
+        let expanded = (home as NSString).expandingTildeInPath
+        let profileURL = URL(fileURLWithPath: expanded).appendingPathComponent("profile.json")
+        guard let data = try? Data(contentsOf: profileURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let voiceId = obj["voice_id"] as? String else {
+            return ""
+        }
+        return voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func handleSpeak(_ text: String, voiceId overrideVoiceId: String? = nil) {
         guard !text.isEmpty else { return }
+        let savedVoiceId = (overrideVoiceId ?? readProfileVoiceId()).trimmingCharacters(in: .whitespacesAndNewlines)
+        if savedVoiceId == "none" {
+            return
+        }
         if speechSynthesizer.isSpeaking {
             speechSynthesizer.stopSpeaking(at: .immediate)
         }
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier)
+        let installedVoice = !savedVoiceId.isEmpty
+            ? AVSpeechSynthesisVoice.speechVoices().first(where: { $0.identifier == savedVoiceId })
+            : nil
+        utterance.voice = installedVoice
+            ?? AVSpeechSynthesisVoice(language: Locale.current.identifier)
             ?? AVSpeechSynthesisVoice(language: "en-US")
         currentSpeakText = text
         isSpeaking = true

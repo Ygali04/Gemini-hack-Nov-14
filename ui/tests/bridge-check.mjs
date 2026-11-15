@@ -22,6 +22,20 @@
  *   Response: { type: "settingsPaneOpened", id: string, pane: string, ok: boolean, error: string }
  *   Shell maps each allowed pane name to its System Settings URL itself; unknown names return ok: false with an error and open nothing.
  *
+ * Page -> shell `getPermissions` contract (kept in sync with notch/NotchApp.swift):
+ *   Request:  { type: "getPermissions", id: string }
+ *   Response: { type: "permissions", id: string, permissions: { accessibility: "granted"|"denied"|"notAsked", screenRecording: "granted"|"denied"|"notAsked", microphone: "granted"|"denied"|"notAsked", speechRecognition: "granted"|"denied"|"notAsked" } }
+ *   Reads current macOS permission state without prompting the user.
+ *
+ * Page -> shell `listVoices` contract (kept in sync with notch/NotchApp.swift):
+ *   Request:  { type: "listVoices", id: string }
+ *   Response: { type: "voices", id: string, voices: Array<{ id: string, name: string, language: string }> }
+ *   Returns on-device English voices; `speak` uses profile `voice_id` ("none" = mute).
+ *
+ * Page -> shell -> all web views `primaryAgentUpdated` contract (kept in sync with notch/NotchApp.swift):
+ *   Request:   { type: "primaryAgentUpdated", alias: string|null, swatch: string|object|null }
+ *   Broadcast: { type: "primaryAgentUpdated", alias, swatch } via window.__notchBridgeReceive to notch, notes, and workspace web views.
+ *
  * Page -> shell `openNotch` contract (kept in sync with notch/NotchApp.swift):
  *   Request:  { type: "openNotch", id?: string, thread?: string }
  *   Response: { type: "notchOpened", id?: string, ok: boolean }
@@ -40,7 +54,14 @@ const SWIFT_FILE = "notch/NotchApp.swift";
 // Shell-handled message types whose page caller is being wired concurrently
 // or kept behind a legacy constant in NotchApp.swift (e.g. openChat under A14);
 // still required to be handled in NotchApp.swift.
-const PENDING_PAGE_TYPES = new Set(["openSettingsPane", "openChat", "openNotch"]);
+const PENDING_PAGE_TYPES = new Set([
+  "openSettingsPane",
+  "openChat",
+  "openNotch",
+  "primaryAgentUpdated",
+  "getPermissions",
+  "listVoices",
+]);
 
 function parseArgs(argv) {
   let root = process.env.BRIDGE_CHECK_ROOT || DEFAULT_ROOT;
