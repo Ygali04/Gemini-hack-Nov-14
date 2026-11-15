@@ -119,6 +119,10 @@ def _safe_name(name):
 STARTED = time.time()
 DISMISSED = set()
 RUNS_LIMIT = 200
+_RUN_COLS = (
+    "r.id, r.parent, r.role, r.goal, r.state, r.started, r.ended, r.ok, r.summary, "
+    "(SELECT COUNT(*) FROM events e WHERE e.run=r.id)"
+)
 
 
 def _stored_view(row, events=None):
@@ -141,7 +145,7 @@ def _stored_view(row, events=None):
 
 
 def _list_runs(limit=RUNS_LIMIT):
-    """Live runs plus finished root runs from SQLite so chats survive a backend restart."""
+    """Live runs plus finished root runs and their stored children so chats keep their agents across restarts."""
     from ..core import store
 
     live = sorted(list(runs.RUNS.values()), key=lambda r: r.started, reverse=True)
@@ -155,15 +159,24 @@ def _list_runs(limit=RUNS_LIMIT):
     db = store.db()
     with store._lock:
         rows = db.execute(
-            "SELECT r.id, r.parent, r.role, r.goal, r.state, r.started, r.ended, r.ok, r.summary, "
-            "(SELECT COUNT(*) FROM events e WHERE e.run=r.id) "
-            "FROM runs r WHERE r.parent IS NULL AND r.state IN ('done','failed') "
+            f"SELECT {_RUN_COLS} FROM runs r WHERE r.parent IS NULL AND r.state IN ('done','failed') "
             "ORDER BY r.started DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    for row in rows:
-        if row[0] not in seen:
-            items.append((row[5] or 0, _stored_view(row)))
+        for row in rows:
+            if row[0] not in seen:
+                items.append((row[5] or 0, _stored_view(row)))
+                seen.add(row[0])
+        root_ids = [v["id"] for _, v in items if not v.get("parent")][:limit]
+        if root_ids:
+            marks = ",".join("?" for _ in root_ids)
+            for row in db.execute(
+                f"SELECT {_RUN_COLS} FROM runs r WHERE r.parent IN ({marks}) ORDER BY r.started DESC LIMIT ?",
+                (*root_ids, limit),
+            ).fetchall():
+                if row[0] not in seen:
+                    items.append((row[5] or 0, _stored_view(row)))
+                    seen.add(row[0])
     items.sort(key=lambda pair: pair[0], reverse=True)
     return [v for _, v in items[:limit]]
 
@@ -174,12 +187,7 @@ def _stored_run(rid, since=0):
 
     db = store.db()
     with store._lock:
-        row = db.execute(
-            "SELECT r.id, r.parent, r.role, r.goal, r.state, r.started, r.ended, r.ok, r.summary, "
-            "(SELECT COUNT(*) FROM events e WHERE e.run=r.id) "
-            "FROM runs r WHERE r.id=?",
-            (rid,),
-        ).fetchone()
+        row = db.execute(f"SELECT {_RUN_COLS} FROM runs r WHERE r.id=?", (rid,)).fetchone()
         if not row:
             return None
         ev_rows = db.execute(
@@ -557,8 +565,11 @@ def selftest():
             runs.RUNS[live.id] = live
             listed = _list_runs()
             ids = [r["id"] for r in listed]
-            assert ids == ["r-live", "r-old"], ids
-            old = listed[1]
+            assert ids == ["r-live", "r-child", "r-old"], ids
+            child = listed[1]
+            assert set(child) == {"id", "goal", "role", "parent", "state", "elapsed", "n_events", "result"}, child
+            assert child["parent"] == "r-old" and child["elapsed"] == 3.0
+            old = listed[2]
             assert set(old) == {"id", "goal", "role", "parent", "state", "elapsed", "n_events", "result"}, old
             assert old["elapsed"] == 5.5 and old["n_events"] == 1
             assert old["result"] == {"ok": True, "summary": "done ok"}
