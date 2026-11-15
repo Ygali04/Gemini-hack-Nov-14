@@ -136,6 +136,31 @@
         sessionToken = "shell-session";
         pollAll();
       }
+      if (msg.type === "primaryAgentUpdated") {
+        const nextAlias = typeof msg.alias === "string" ? msg.alias : "";
+        const nextSwatchKey = typeof msg.swatch === "string" ? msg.swatch : msg.swatch?.key;
+        const activeId = document.activeElement?.id || "";
+        const editingAlias = activeId === "settings-agent-name" || activeId === "onboarding-agent-name";
+        const aliasEchoOnly = editingAlias && nextAlias === String(OnboardingState.agentName || "").trim();
+        if (!aliasEchoOnly) {
+          OnboardingState.agentName = nextAlias;
+        }
+        if (nextSwatchKey) {
+          const idx = AGENT_SWATCHES.findIndex((s) => s.key === nextSwatchKey);
+          if (idx >= 0) OnboardingState.swatchIndex = idx;
+        }
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(
+              PRIMARY_AGENT_STORAGE_KEY,
+              JSON.stringify({ alias: OnboardingState.agentName, swatch: getPrimaryAgentSwatch().key })
+            );
+          }
+        } catch {
+          // Ignore storage errors
+        }
+        if (!aliasEchoOnly && typeof renderNow === "function") renderNow();
+      }
       window.dispatchEvent(new CustomEvent("shell-event", { detail: msg }));
     };
 
@@ -163,7 +188,7 @@
     function parseBackendAddress(raw) {
       const trimmed = String(raw || "").trim();
       if (!trimmed) {
-        return { ok: false, error: "Paste the address the backend printed" };
+        return { ok: false, error: "Paste the address ComputerAnything printed" };
       }
       let parsed;
       try {
@@ -655,6 +680,39 @@
       }
     }
 
+    async function getPermissions() {
+      if (!hasShellBridge()) return null;
+      try {
+        const res = await callShell("getPermissions", {});
+        return res?.permissions && typeof res.permissions === "object" ? res.permissions : null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function listVoices() {
+      if (!hasShellBridge()) return null;
+      try {
+        const res = await callShell("listVoices", {});
+        return Array.isArray(res?.voices) ? res.voices : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function postPrimaryAgentUpdated(alias, swatch) {
+      if (!hasShellBridge()) return;
+      try {
+        window.webkit.messageHandlers.shell.postMessage({
+          type: "primaryAgentUpdated",
+          alias: alias || null,
+          swatch: swatch || null,
+        });
+      } catch {
+        // Ignore shell bridge errors
+      }
+    }
+
     function getSampleLabel() {
       return fixtureState?.sampleLabel || (activeFixtureName ? "Sample data" : "");
     }
@@ -668,6 +726,9 @@
       request,
       pickFiles,
       openSettingsPane,
+      getPermissions,
+      listVoices,
+      postPrimaryAgentUpdated,
       getSampleLabel,
       getFixtureWorkspaceState: () => fixtureState?.workspaceState || null,
     };
@@ -884,19 +945,22 @@
   }
 
   function savePrimaryAgentChoice() {
+    const sw = getPrimaryAgentSwatch();
+    const alias = String(OnboardingState.agentName || "").trim();
     try {
-      if (typeof localStorage === "undefined") return;
-      const sw = getPrimaryAgentSwatch();
-      localStorage.setItem(
-        PRIMARY_AGENT_STORAGE_KEY,
-        JSON.stringify({
-          alias: String(OnboardingState.agentName || "").trim(),
-          swatch: sw.key,
-        })
-      );
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(
+          PRIMARY_AGENT_STORAGE_KEY,
+          JSON.stringify({
+            alias,
+            swatch: sw.key,
+          })
+        );
+      }
     } catch {
       // Ignore storage errors
     }
+    Transport.postPrimaryAgentUpdated(alias || null, sw.key);
   }
 
   loadPrimaryAgentChoice();
@@ -2072,7 +2136,7 @@
                 kindLabel: "Commit",
                 statusObj: ok
                   ? { symbolWord: "✓ Committed", colorClass: "state-success" }
-                  : { symbolWord: "✕ Failed", colorClass: "state-danger" },
+                  : { symbolWord: "✕ Commit failed", colorClass: "state-danger" },
                 agentName: n.agentName,
                 agentPalette: n.palette,
                 taskId: g.id,
@@ -2428,6 +2492,8 @@
     memoryLive: false,
     liveMemories: [],
     memoryError: "",
+    shellPermissions: null,
+    shellVoices: null,
     memories: [
       {
         id: "mem-1",
@@ -2743,7 +2809,7 @@
         <div class="view-status-row" role="status">
           <div class="filter-group">
             <span class="state-text state-warning">&#9684; May be out of date</span>
-            <span class="section-subtitle">Disconnected from backend for ${escapeHtml(ageSec)}s since last refresh.</span>
+            <span class="section-subtitle">Disconnected from ComputerAnything for ${escapeHtml(ageSec)}s since last refresh.</span>
           </div>
           <button type="button" class="btn" data-action="retry-poll">Retry</button>
         </div>
@@ -5120,8 +5186,25 @@
   /* ---------------- B4: ONBOARDING VIEW ---------------- */
   const ONBOARDING_VOICES = [
     { id: "", name: "System voice", note: "Default macOS spoken voice" },
-    { id: "off", name: "No voice", note: "Mute spoken replies" },
+    { id: "none", name: "No voice", note: "Mute spoken replies" },
   ];
+
+  function getAvailableVoiceChoices() {
+    const base = [...ONBOARDING_VOICES];
+    if (Array.isArray(HistorySettingsState.shellVoices)) {
+      for (const v of HistorySettingsState.shellVoices) {
+        if (!v || !v.id) continue;
+        if (!base.some((b) => b.id === v.id)) {
+          base.push({
+            id: String(v.id),
+            name: String(v.name || v.id),
+            note: v.language ? `On-device (${v.language})` : "On-device voice",
+          });
+        }
+      }
+    }
+    return base;
+  }
 
   function renderOnboardingView(vm) {
     const container = document.getElementById("b4-content");
@@ -5180,7 +5263,7 @@
         return `Call me: ${who} · Agent: ${alias} (${chosenSwatch.name})`;
       }
       if (sNum === 2) {
-        const v = ONBOARDING_VOICES.find((item) => item.id === OnboardingState.voiceId);
+        const v = getAvailableVoiceChoices().find((item) => item.id === OnboardingState.voiceId);
         return v ? `Voice: ${v.name}` : "Voice: System voice";
       }
       if (sNum === 3) {
@@ -5308,7 +5391,7 @@
         </div>
       `;
     } else if (step === 2) {
-      const voicesHtml = ONBOARDING_VOICES.map((v) => {
+      const voicesHtml = getAvailableVoiceChoices().map((v) => {
         const active = OnboardingState.voiceId === v.id;
         return `
           <div class="starter-prompt-row">
@@ -6025,10 +6108,10 @@
       ? `<span class="state-text state-neutral">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
       : "";
 
-    const voiceOptions = [
-      { value: "", label: "System voice" },
-      { value: "off", label: "No voice" },
-    ];
+    const voiceOptions = getAvailableVoiceChoices().map((v) => ({
+      value: v.id,
+      label: v.name,
+    }));
     if (draft.voice_id && !voiceOptions.some((o) => o.value === draft.voice_id)) {
       voiceOptions.push({ value: draft.voice_id, label: "Custom voice" });
     }
@@ -6103,12 +6186,28 @@
           <p class="section-subtitle">Open System Settings to grant or review each permission the app uses.</p>
         </div>
       </div>
-      <div class="filter-group">
+      <div class="starter-prompts-list">
         ${permButtons
-          .map(
-            (p) =>
-              `<button type="button" class="btn" data-action="open-settings-pane" data-pane="${escapeHtml(p.pane)}">${escapeHtml(p.label)}</button>`
-          )
+          .map((p) => {
+            const st = HistorySettingsState.shellPermissions?.[p.pane];
+            let stateHtml = "";
+            if (st === "granted") {
+              stateHtml = `<span class="state-text state-success">✓ Granted</span>`;
+            } else if (st === "denied") {
+              stateHtml = `<span class="state-text state-neutral">✕ Not granted</span>`;
+            } else if (st === "notAsked") {
+              stateHtml = `<span class="state-text state-neutral">○ Not asked yet</span>`;
+            }
+            return `
+              <div class="starter-prompt-row">
+                <span class="starter-prompt-text">${escapeHtml(p.label)}</span>
+                <div class="filter-group">
+                  ${stateHtml}
+                  <button type="button" class="btn" data-action="open-settings-pane" data-pane="${escapeHtml(p.pane)}">Open System Settings</button>
+                </div>
+              </div>
+            `;
+          })
           .join("")}
       </div>
       ${
@@ -6362,6 +6461,25 @@
     }, 180);
   }
 
+  async function refreshShellAppSettingsData() {
+    const [perms, voices] = await Promise.all([
+      Transport.getPermissions(),
+      Transport.listVoices(),
+    ]);
+    let changed = false;
+    if (perms) {
+      HistorySettingsState.shellPermissions = perms;
+      changed = true;
+    }
+    if (voices) {
+      HistorySettingsState.shellVoices = voices;
+      changed = true;
+    }
+    if (changed && (currentView === "app-settings" || currentView === "onboarding")) {
+      renderNow();
+    }
+  }
+
   function setView(viewName) {
     const normalized = normalizeViewName(viewName);
     currentView = normalized;
@@ -6373,6 +6491,9 @@
       window.location.hash = normalized;
     }
     renderNow();
+    if (normalized === "app-settings" || normalized === "onboarding") {
+      refreshShellAppSettingsData();
+    }
   }
 
   async function handleConnectSubmit() {
@@ -6588,7 +6709,7 @@
       HistorySettingsState.profileSaveStatus = "✓ Saved";
       HistorySettingsState.savedRow = savedRowKey || (onlyKeys && onlyKeys[0]) || "all";
       OnboardingState.callMe = next.call_me;
-      if (next.voice_id) OnboardingState.voiceId = next.voice_id;
+      OnboardingState.voiceId = next.voice_id;
     } catch (err) {
       HistorySettingsState.profileSaveError = err.message || "Could not save settings";
     } finally {
@@ -7405,6 +7526,7 @@
               ? `Opened ${pane} in System Settings.`
               : res?.error || "Open System Settings from the Mac app.";
             renderNow();
+            refreshShellAppSettingsData();
           }
           break;
         }
@@ -7450,8 +7572,9 @@
 
         case "preview-onboarding-voice": {
           const vid = actionEl.dataset.voiceId ?? "";
-          const voiceObj = ONBOARDING_VOICES.find((v) => v.id === vid) || ONBOARDING_VOICES[0];
-          if (vid === "off") {
+          const available = getAvailableVoiceChoices();
+          const voiceObj = available.find((v) => v.id === vid) || available[0];
+          if (vid === "none") {
             OnboardingState.voicePreviewStatus = "Spoken replies are muted (No voice).";
             renderNow();
             break;
@@ -7768,6 +7891,9 @@
     window.addEventListener("focus", () => {
       loadPrimaryAgentChoice();
       renderNow();
+      if (currentView === "app-settings" || currentView === "onboarding") {
+        refreshShellAppSettingsData();
+      }
     });
 
     /* Keyboard accessibility:
@@ -7879,6 +8005,9 @@
   async function boot() {
     setupEventListeners();
     renderNow();
+    if (currentView === "app-settings" || currentView === "onboarding") {
+      refreshShellAppSettingsData();
+    }
     try {
       const state = await Transport.init();
       isSampleData = state.isSampleData;
