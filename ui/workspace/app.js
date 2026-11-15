@@ -958,17 +958,22 @@
       if (!ev || typeof ev !== "object") return null;
       const tText = ev.t != null ? `${Number(ev.t).toFixed(1)}s` : "";
       switch (ev.kind) {
-        case "decide":
+        case "decide": {
+          let thought = ev.thought ? sentenceCase(ev.thought) : "";
+          if (/^Split task into (\d+) parallel agents:/i.test(thought)) {
+            thought = thought.replace(/^Split task into (\d+) parallel agents:/i, "Split the task between $1 agents:");
+          }
           return {
             kind: "decide",
             label: "Decide",
-            summary: ev.thought
-              ? sentenceCase(ev.thought)
+            summary: thought
+              ? thought
               : ev.action
                 ? `Selected action ${ev.action}`
                 : "Planned next step",
             timeText: tText,
           };
+        }
         case "act":
           return {
             kind: "act",
@@ -987,13 +992,16 @@
               : `Not verified yet: ${ev.evidence || "Check did not pass"}`,
             timeText: tText,
           };
-        case "help":
+        case "help": {
+          const q = String(ev.question || "").trim();
+          const qText = q ? q.charAt(0).toLowerCase() + q.slice(1) : "needs confirmation";
           return {
             kind: "help",
             label: "Help",
-            summary: `Asked approval (${ev.help_kind || "confirm"}): ${ev.question || "Needs confirmation"}`,
+            summary: `Waiting for you: ${qText}`,
             timeText: tText,
           };
+        }
         case "help_answer":
           return {
             kind: "help",
@@ -1005,16 +1013,24 @@
           return {
             kind: "result",
             label: "Result",
-            summary: `${ev.ok ? "✓ Verified" : "× Failed"} · ${sentenceCase(ev.summary || "")}`,
+            summary: `${ev.ok ? "✓ Verified" : "Did not finish"} · ${sentenceCase(ev.summary || "")}`,
             timeText: tText,
           };
-        case "route":
+        case "route": {
+          const who = ev.agent || roleLabel(ev.role);
+          const goalRaw = String(ev.goal || "").trim();
+          const goalText = goalRaw
+            ? goalRaw.charAt(0).toLowerCase() + goalRaw.slice(1)
+            : ev.app
+              ? `work in ${ev.app}`
+              : "help";
           return {
             kind: "decide",
             label: "Route",
-            summary: `Dispatched ${ev.agent || roleLabel(ev.role)}${ev.app ? ` on ${ev.app}` : ""}: ${ev.goal || ""}`,
+            summary: `Asked ${who} to ${goalText}`,
             timeText: tText,
           };
+        }
         case "bug_report": {
           const bugs = Array.isArray(ev.bugs) ? ev.bugs : [];
           return {
@@ -2903,7 +2919,11 @@
                     data-action="select-task-run"
                     data-run-id="${escapeHtml(g.id)}"
                   >
-                    <span>${escapeHtml(g.overallStatus.symbol)} Run ${vm.taskGroups.length - i}</span>
+                    <span>${
+                      g.overallStatus.filterKey === "failed"
+                        ? `Run ${vm.taskGroups.length - i}`
+                        : `${escapeHtml(g.overallStatus.symbol)} Run ${vm.taskGroups.length - i}`
+                    }</span>
                   </button>
                 `
               )
@@ -2988,7 +3008,6 @@
           .map(
             (st) => `
               <div class="agent-step-row">
-                <span class="agent-step-kind">${escapeHtml(st.label)}</span>
                 <span class="agent-step-summary">${escapeHtml(st.summary)}</span>
                 <span class="agent-step-time">${escapeHtml(st.timeText)}</span>
               </div>
