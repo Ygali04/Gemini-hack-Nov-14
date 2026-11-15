@@ -25,7 +25,8 @@ const __dirname = path.dirname(__filename);
 const UI_DIR = path.resolve(__dirname, "..");
 
 const WIDTHS = [560, 720, 900, 1280];
-const FIXTURES = ["workspace-state-loop", "workspace-demo"];
+const FIXTURES = ["workspace-state-loop", "workspace-demo", "workspace-state-branches"];
+const NEGATIVE_CONTROL = process.argv.includes("--negative-control");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -154,11 +155,13 @@ const CHECK_EXPR = `(() => {
 
   const nodes = Array.from(document.querySelectorAll(".sm-node-rect")).map((el, i) => ({
     kind: "node",
+    id: el.getAttribute("data-node-id") || ("node-" + i),
     name: el.closest("g")?.querySelector("title")?.textContent || ("node-" + i),
     r: el.getBoundingClientRect(),
   }));
   const labels = Array.from(document.querySelectorAll(".sm-edge-pill")).map((el, i) => ({
     kind: "label",
+    edgeId: el.closest("g")?.getAttribute("data-edge-id") || ("edge-" + i),
     name: el.closest("g")?.getAttribute("aria-label") || ("label-" + i),
     r: el.getBoundingClientRect(),
   }));
@@ -167,9 +170,20 @@ const CHECK_EXPR = `(() => {
     name: el.closest("g")?.getAttribute("aria-label") || ("loop-" + i),
     r: el.getBoundingClientRect(),
   }));
+  const edges = Array.from(document.querySelectorAll(".sm-edge-group")).map((g, i) => ({
+    edgeId: g.getAttribute("data-edge-id") || ("edge-" + i),
+    fromId: g.getAttribute("data-from-id") || "",
+    toId: g.getAttribute("data-to-id") || "",
+    name: g.getAttribute("aria-label") || ("edge-" + i),
+    path: g.querySelector(".sm-edge-path"),
+  })).filter((e) => e.path);
 
   function rectsIntersect(a, b) {
     return a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;
+  }
+
+  function pointInRect(x, y, r, margin = 1) {
+    return x > r.left + margin && x < r.right - margin && y > r.top + margin && y < r.bottom - margin;
   }
 
   const intersections = [];
@@ -198,6 +212,34 @@ const CHECK_EXPR = `(() => {
     for (const lp of loops) {
       if (rectsIntersect(lbl.r, lp.r)) {
         intersections.push(["label-self-loop", lbl.name, lp.name]);
+      }
+    }
+  }
+
+  for (const ed of edges) {
+    const ctm = ed.path.getScreenCTM();
+    const totalLen = ed.path.getTotalLength();
+    if (!ctm || !(totalLen > 16)) continue;
+    const samples = 28;
+    for (let s = 1; s < samples; s++) {
+      const dist = (totalLen * s) / samples;
+      if (dist < 6 || dist > totalLen - 6) continue;
+      const pt = ed.path.getPointAtLength(dist);
+      const cx = pt.x * ctm.a + pt.y * ctm.c + ctm.e;
+      const cy = pt.x * ctm.b + pt.y * ctm.d + ctm.f;
+      for (const nd of nodes) {
+        if (nd.id === ed.fromId || nd.id === ed.toId) continue;
+        if (pointInRect(cx, cy, nd.r, 1)) {
+          intersections.push(["edge-node", ed.name, nd.name]);
+          break;
+        }
+      }
+      for (const lbl of labels) {
+        if (lbl.edgeId === ed.edgeId) continue;
+        if (pointInRect(cx, cy, lbl.r, 1)) {
+          intersections.push(["edge-label", ed.name, lbl.name]);
+          break;
+        }
       }
     }
   }
@@ -261,6 +303,18 @@ async function main() {
         if (readyRes.result.value) break;
       }
       await sleep(100);
+      if (NEGATIVE_CONTROL) {
+        await pageCdp.send("Runtime.evaluate", {
+          expression: `(() => {
+            const node = document.querySelector(".sm-node-rect");
+            const pill = document.querySelector(".sm-edge-pill");
+            if (node && pill) {
+              pill.setAttribute("x", node.getAttribute("x"));
+              pill.setAttribute("y", node.getAttribute("y"));
+            }
+          })()`,
+        });
+      }
       const evalRes = await pageCdp.send("Runtime.evaluate", {
         expression: CHECK_EXPR,
         returnByValue: true,
@@ -285,7 +339,8 @@ async function main() {
     console.log("B1b-L CHECK FAIL");
     process.exit(1);
   }
-  console.log("B1b-L CHECK PASS (8/8 fixture x width checks)");
+  const totalChecks = FIXTURES.length * WIDTHS.length;
+  console.log(`B1b-L CHECK PASS (${totalChecks}/${totalChecks} fixture x width checks)`);
   process.exit(0);
 }
 

@@ -2274,14 +2274,13 @@
   };
 
   const VIEW_DEFINITIONS = [
-    { id: "graph", label: "Agent graph", desc: "Live agents, status, and step timeline", key: "1" },
-    { id: "state-machine", label: "State machine", desc: "Screens visited and actions between them", key: "2" },
-    { id: "logs", label: "Transcript", desc: "Past and current task runs, history, and search", key: "3" },
-    { id: "analytics", label: "Analytics", desc: "Token usage, cost, and app reliability", key: "4" },
-    { id: "artifacts", label: "Artifacts", desc: "Files and outputs created by agents", key: "5" },
-    { id: "memory", label: "Memory", desc: "Saved facts agents remember across runs", key: "6" },
-    { id: "settings", label: "Settings", desc: "Profile, primary agent, approvals, and spend cap", key: "7" },
-    { id: "onboarding", label: "Onboarding", desc: "First-run agent setup and approval rules", key: "8" },
+    { id: "graph", label: "Agent graph", desc: "Who is working on what, parent to child", key: "1" },
+    { id: "state-machine", label: "State machine", desc: "Screens and actions per app, success and failure", key: "2" },
+    { id: "logs", label: "Transcript and history", desc: "Every chat, searchable, filter by state", key: "3" },
+    { id: "analytics", label: "Analytics", desc: "Cost per task and app, reliability per app", key: "4" },
+    { id: "artifacts", label: "Artifacts and marketing", desc: "Files, patches and briefs the agents made", key: "5" },
+    { id: "memory", label: "Memory", desc: "What the agents remember about you, with Forget", key: "6" },
+    { id: "settings", label: "Settings", desc: "Your agent's name and color, voice, model, approvals, app permissions, daily cap", key: "7" },
   ];
 
   let viewMenuOpen = false;
@@ -2291,6 +2290,7 @@
     const low = raw.toLowerCase();
     if (low.includes("cancel")) return "Cancelled by you";
     if (low.includes("stopped") || low.includes("stop")) return "Stopped by you";
+    if (low.includes("denied") || low.includes("declined") || low.includes("said no")) return "You said no";
     if (low.includes("timed out") || low.includes("timeout")) return "Timed out waiting for you";
     if (raw) {
       const cleaned = raw.replace(/^×\s*failed\s*·?\s*/i, "").replace(/^failed\s*·?\s*/i, "").trim();
@@ -2299,7 +2299,7 @@
         return firstSentence.length > 72 ? firstSentence.slice(0, 69).trimEnd() + "…" : firstSentence;
       }
     }
-    return "Did not finish";
+    return "Couldn't finish";
   }
 
   function formatUiStatusDisplay(status, summaryText) {
@@ -2402,7 +2402,9 @@
       }
     }
 
-    const activeDef = VIEW_DEFINITIONS.find((v) => v.id === currentView) || VIEW_DEFINITIONS[0];
+    const menuViewId =
+      currentView === "history" ? "logs" : currentView === "marketing" ? "artifacts" : currentView;
+    const activeDef = VIEW_DEFINITIONS.find((v) => v.id === menuViewId) || VIEW_DEFINITIONS[0];
     const menuLabelEl = document.getElementById("view-menu-label");
     if (menuLabelEl) {
       menuLabelEl.textContent = activeDef.label;
@@ -2416,7 +2418,7 @@
     if (menuDrop) {
       menuDrop.classList.toggle("hidden", !viewMenuOpen);
       menuDrop.innerHTML = VIEW_DEFINITIONS.map((v) => {
-        const isCurrent = v.id === currentView;
+        const isCurrent = v.id === menuViewId;
         const shortcutText = v.key >= "1" && v.key <= "8" ? `⌘${v.key}` : "";
         return `
           <button
@@ -3092,6 +3094,48 @@
   }
 
   /* ---------------- B1b: STATE MACHINE GRAPH VIEW ---------------- */
+  let selectedSmScreenId = null;
+
+  function humanizeSmAction(rawAction, appName) {
+    const raw = String(rawAction || "").trim();
+    if (!raw) return "Performed action";
+    const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
+    const verb = (parts[0] || "").toLowerCase();
+    const target = parts.slice(1).filter((p) => !["button", "menuitem", "textfield", "checkbox", "link", "tab"].includes(p.toLowerCase())).join(" ").trim();
+    if (verb === "open_app" || verb === "open") {
+      return `Opened ${target || appName || "app"}`;
+    }
+    if (verb === "click") {
+      return `Clicked ${target || "control"}`;
+    }
+    if (verb === "type" || verb === "input") {
+      return `Typed ${target || "text"}`;
+    }
+    if (verb === "key" || verb === "press" || verb === "hotkey") {
+      return `Pressed ${target || "key"}`;
+    }
+    if (verb === "scroll") {
+      return `Scrolled ${target || "page"}`;
+    }
+    if (verb === "verify" || verb === "done_verified") {
+      return `Checked ${target || appName || "screen"}`;
+    }
+    const clean = raw.replace(/[:_]+/g, " ").replace(/\s+/g, " ").trim();
+    return clean.charAt(0).toUpperCase() + clean.slice(1);
+  }
+
+  function formatSmReliabilityWords(edge) {
+    if (!edge) return "";
+    if (edge.isDestructive) return "Needs approval";
+    const tries = Number(edge.tries || 0);
+    const ok = Number(edge.successes || 0);
+    if (tries <= 0) return "Not tried yet";
+    if (tries === 1) {
+      return ok >= 1 ? "Worked" : "Did not finish";
+    }
+    return `Worked ${ok} of ${tries} times`;
+  }
+
   function renderStateMachineView(vm) {
     const container = document.getElementById("b1b-content");
     if (!container) return;
@@ -3146,27 +3190,17 @@
     const selectedEdge =
       sm.edges.find((e) => e.id === selectedSmEdgeId) || null;
 
-    const agentPillsHtml = [
-      `<button type="button" class="agent-trail-pill ${!smAgentFilter ? "active" : ""}" data-action="set-sm-agent" data-agent="">All agents</button>`,
-      ...sm.allAgents.map((ag) => {
-        const active = smAgentFilter === ag;
-        const matchNode = vm.activeGroup?.allNodes.find((n) => n.agentName === ag);
-        const dotColor = matchNode?.palette?.body || "#767d8e";
-        return `
-          <button type="button" class="agent-trail-pill ${active ? "active" : ""}" data-action="set-sm-agent" data-agent="${escapeHtml(ag)}">
-            <span class="agent-color-dot" style="background:${escapeHtml(dotColor)};"></span>
-            <span>${escapeHtml(ag)}</span>
-          </button>
-        `;
-      }),
+    const agentOptionsHtml = [
+      `<option value="" ${!smAgentFilter ? "selected" : ""}>All agents</option>`,
+      ...sm.allAgents.map(
+        (ag) => `<option value="${escapeHtml(ag)}" ${smAgentFilter === ag ? "selected" : ""}>${escapeHtml(ag)}</option>`
+      ),
     ].join("");
 
-    const appFilterHtml = [
-      `<button type="button" class="btn ${selectedAppFilter === "all" ? "btn-active" : ""}" data-action="set-sm-app" data-app="all">All apps</button>`,
+    const appOptionsHtml = [
+      `<option value="all" ${selectedAppFilter === "all" ? "selected" : ""}>All apps</option>`,
       ...sm.allApps.map(
-        (app) => `
-          <button type="button" class="btn ${selectedAppFilter === app ? "btn-active" : ""}" data-action="set-sm-app" data-app="${escapeHtml(app)}">${escapeHtml(app)}</button>
-        `
+        (app) => `<option value="${escapeHtml(app)}" ${selectedAppFilter === app ? "selected" : ""}>${escapeHtml(app)}</option>`
       ),
     ].join("");
 
@@ -3354,16 +3388,30 @@
         );
       }
 
-      /* Reserve all node boxes first, then self-loop boxes, then place label boxes */
-      const occupiedBoxes = [];
-      for (const pos of nodeLayout.values()) {
-        occupiedBoxes.push({ x: pos.x, y: pos.y, w: wNode, h: hNode });
+      /* Separate self-loops (attached to their screen node) from inter-screen edges */
+      const selfLoopsByNode = new Map();
+      const transitionEdges = [];
+      for (const edge of sm.edges) {
+        if (edge.from === edge.to) {
+          if (!selfLoopsByNode.has(edge.from)) selfLoopsByNode.set(edge.from, []);
+          selfLoopsByNode.get(edge.from).push(edge);
+        } else {
+          transitionEdges.push(edge);
+        }
       }
 
-      /* Precompute edge geometry + self-loop curves so self-loop boxes are reserved before placing any label */
+      /* Reserve all node boxes (including attached self-loop footer height) before placing any label */
+      const occupiedBoxes = [];
+      for (const [nid, pos] of nodeLayout.entries()) {
+        const hasAttached = (selfLoopsByNode.get(nid) || []).length > 0;
+        occupiedBoxes.push({ x: pos.x, y: pos.y, w: wNode, h: hNode + (hasAttached ? 26 : 0) });
+      }
+
+      /* Precompute edge geometry */
       const edgeGeoms = [];
       let backEdgeSeq = 0;
-      for (const edge of sm.edges) {
+      let skipEdgeSeq = 0;
+      for (const edge of transitionEdges) {
         const fromPos = nodeLayout.get(edge.from);
         const toPos = nodeLayout.get(edge.to);
         if (!fromPos || !toPos) continue;
@@ -3373,7 +3421,13 @@
             ? "#32d583"
             : edge.statusClass === "state-warning"
               ? "#f5a623"
-              : "#ff5c6c";
+              : "#a6adbb";
+        const statusSymbol =
+          edge.statusClass === "state-success"
+            ? "✓"
+            : edge.statusClass === "state-warning"
+              ? "◔"
+              : "○";
         const isSelectedEdge = selectedEdge && selectedEdge.id === edge.id;
         const isReplayHit =
           activeReplayStep &&
@@ -3388,119 +3442,163 @@
         const edgeWidth = isSelectedEdge || isReplayHit ? Math.max(3, edge.strokeWidth || 2.2) : edge.strokeWidth || 2.2;
         const dashAttr = edge.isDestructive ? 'stroke-dasharray="6 4"' : "";
 
-        const reliabilityBadge = edge.isDestructive
-          ? "⊘ Destructive · gated"
-          : edge.reliabilityP != null
-            ? `P=${edge.reliabilityP} · ${edge.tries} ${edge.tries === 1 ? "try" : "tries"}`
-            : "gated";
-        const metaText = `${reliabilityBadge}${
-          edge.meanMs ? ` · ${edge.meanMs}ms` : ""
-        } · ${edge.sourceLabel}`;
-        const shortAction = truncateWord(edge.actionClean, 22);
+        const plainAction = humanizeSmAction(edge.action, edge.app);
+        const shortAction = truncateWord(plainAction, 26);
+        const metaText = formatSmReliabilityWords(edge);
 
         let pathD = "";
         let labelX = 0;
         let labelY = 0;
         let arrowHtml = "";
-        let isSelfLoop = false;
+        let bezierPts = null;
 
-        if (edge.from === edge.to) {
-          /* Self-loop arching to the right of the node */
-          isSelfLoop = true;
-          const x1 = fromPos.x + wNode;
-          const y1 = fromPos.y + 12;
-          const x2 = fromPos.x + wNode;
-          const y2 = fromPos.y + hNode - 12;
-          const loopOut = 48;
-          const cx1 = x1 + loopOut;
-          const cy1 = y1 - 6;
-          const cx2 = x2 + loopOut;
-          const cy2 = y2 + 6;
-          pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-          arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
-          /* Reserve self-loop arrow bounding box */
-          occupiedBoxes.push({
-            x: fromPos.x + wNode + 1,
-            y: fromPos.y + 4,
-            w: loopOut,
-            h: hNode - 8,
-          });
-          labelX = fromPos.x + wNode + loopOut + 12 + pillW / 2;
-          labelY = fromPos.y + hNode / 2;
-        } else if (toPos.row <= fromPos.row) {
-          /* Backward / loop edge: route cleanly down the right side */
+        if (toPos.row <= fromPos.row) {
+          /* Backward / loop edge: route cleanly down the right side (or left if another node sits to the right of toPos) */
           backEdgeSeq += 1;
+          const hasNodeRightOfFrom = Array.from(nodeLayout.values()).some(
+            (p) => p.row === fromPos.row && p.x > fromPos.x
+          );
+          const hasNodeRightOfTo = Array.from(nodeLayout.values()).some(
+            (p) => p.row === toPos.row && p.x > toPos.x
+          );
+          if (hasNodeRightOfFrom || hasNodeRightOfTo) {
+            /* Route down the left side */
+            const x1 = fromPos.x;
+            const y1 = fromPos.y + hNode / 2;
+            const x2 = toPos.x;
+            const y2 = toPos.y + hNode / 2;
+            const laneX = Math.max(8, Math.min(fromPos.x, toPos.x) - 34 - (backEdgeSeq - 1) * 28);
+            const cx1 = laneX;
+            const cy1 = y1;
+            const cx2 = laneX;
+            const cy2 = y2;
+            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+            bezierPts = [x1, y1, cx1, cy1, cx2, cy2, x2, y2];
+            labelX = Math.max(pillW / 2 + 8, Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2) - pillW / 2 - 8);
+            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          } else {
+            const x1 = fromPos.x + wNode;
+            const y1 = fromPos.y + hNode / 2;
+            const x2 = toPos.x + wNode;
+            const y2 = toPos.y + hNode / 2;
+            const laneX = Math.max(fromPos.compRightX, toPos.compRightX) + 34 + (backEdgeSeq - 1) * 28;
+            const cx1 = laneX;
+            const cy1 = y1;
+            const cx2 = laneX;
+            const cy2 = y2;
+            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+            bezierPts = [x1, y1, cx1, cy1, cx2, cy2, x2, y2];
+            labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2) + pillW / 2 + 8;
+            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          }
+        } else if (toPos.row - fromPos.row > 1) {
+          /* Forward skip-layer edge: route around intermediate rows via right lane so it never crosses a node */
+          skipEdgeSeq += 1;
           const x1 = fromPos.x + wNode;
           const y1 = fromPos.y + hNode / 2;
           const x2 = toPos.x + wNode;
           const y2 = toPos.y + hNode / 2;
-          const laneX = Math.max(fromPos.compRightX, toPos.compRightX) + 34 + (backEdgeSeq - 1) * 28;
-          const cx1 = laneX;
-          const cy1 = y1;
-          const cx2 = laneX;
-          const cy2 = y2;
-          pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-          labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2) + pillW / 2 + 8;
-          labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
-          arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          const laneX = Math.max(fromPos.compRightX, toPos.compRightX) + 34 + (backEdgeSeq + skipEdgeSeq - 1) * 28;
+          pathD = `M ${x1} ${y1} C ${laneX} ${y1}, ${laneX} ${y2}, ${x2} ${y2}`;
+          bezierPts = [x1, y1, laneX, y1, laneX, y2, x2, y2];
+          labelX = Math.round(0.125 * x1 + 0.375 * laneX + 0.375 * laneX + 0.125 * x2) + pillW / 2 + 8;
+          labelY = Math.round(0.125 * y1 + 0.375 * y1 + 0.375 * y2 + 0.125 * y2);
+          arrowHtml = arrowPolygon(x2, y2, laneX, y2, edgeStroke);
         } else {
-          /* Forward edge: top-to-bottom cubic Bezier */
+          /* Adjacent-layer forward edge: top-to-bottom cubic Bezier */
           const pairInfo = edgeIndexInPair.get(edge.id) || { idx: 0, count: 1 };
           const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 44;
+          const fromHasAttached = (selfLoopsByNode.get(edge.from) || []).length > 0;
           const x1 = fromPos.x + wNode / 2;
-          const y1 = fromPos.y + hNode;
+          const y1 = fromPos.y + hNode + (fromHasAttached ? 22 : 0);
           const x2 = toPos.x + wNode / 2;
           const y2 = toPos.y;
-          const dy = Math.max(40, (y2 - y1) * 0.45);
+          const dy = Math.max(36, (y2 - y1) * 0.45);
           const cx1 = x1 + offset;
           const cy1 = y1 + dy;
           const cx2 = x2 + offset;
           const cy2 = y2 - dy;
           pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+          bezierPts = [x1, y1, cx1, cy1, cx2, cy2, x2, y2];
           labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2);
           labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
           arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
         }
 
+        const sampledPts = [];
+        if (bezierPts) {
+          const [bx0, by0, bx1, by1, bx2, by2, bx3, by3] = bezierPts;
+          for (let s = 1; s < 20; s++) {
+            const t = s / 20;
+            const u = 1 - t;
+            const px = u * u * u * bx0 + 3 * u * u * t * bx1 + 3 * u * t * t * bx2 + t * t * t * bx3;
+            const py = u * u * u * by0 + 3 * u * u * t * by1 + 3 * u * t * t * by2 + t * t * t * by3;
+            sampledPts.push({ x: px, y: py });
+          }
+        }
+
         edgeGeoms.push({
           edge,
           statusFill,
+          statusSymbol,
           isSelectedEdge,
           edgeStroke,
           edgeWidth,
           dashAttr,
           metaText,
+          plainAction,
           shortAction,
           pathD,
+          sampledPts,
           labelX,
           labelY,
           arrowHtml,
-          isSelfLoop,
         });
       }
 
       let maxEdgeBottom = svgHeight;
       let maxEdgeRight = svgWidth;
       const edgesSvg = edgeGeoms
-        .map((g) => {
+        .map((g, gIdx) => {
           const baseX = Math.max(8, g.labelX - pillW / 2);
           const baseY = Math.max(8, g.labelY - pillH / 2);
 
-          /* Place label box so it never intersects any node, self-loop, or other label */
+          function boxHitsOtherEdgePath(box) {
+            for (let j = 0; j < edgeGeoms.length; j++) {
+              if (j === gIdx) continue;
+              for (const pt of edgeGeoms[j].sampledPts) {
+                if (
+                  pt.x >= box.x - 4 &&
+                  pt.x <= box.x + box.w + 4 &&
+                  pt.y >= box.y - 4 &&
+                  pt.y <= box.y + box.h + 4
+                ) {
+                  return true;
+                }
+              }
+            }
+            return false;
+          }
+
+          /* Place label box so it never intersects any node, other label, or other edge path */
           let pillX = baseX;
           let pillY = baseY;
           const candidates = [{ x: baseX, y: baseY }];
-          for (let step = 1; step <= 24; step++) {
+          for (let step = 1; step <= 28; step++) {
             const dy = step * 16;
-            const dx = step * 24;
+            const dx = step * 28;
             candidates.push({ x: baseX, y: baseY + dy });
             if (baseY - dy >= 8) candidates.push({ x: baseX, y: baseY - dy });
             candidates.push({ x: baseX + dx, y: baseY });
+            if (baseX - dx >= 8) candidates.push({ x: baseX - dx, y: baseY });
             candidates.push({ x: baseX + dx, y: baseY + dy });
+            if (baseY - dy >= 8) candidates.push({ x: baseX + dx, y: baseY - dy });
           }
           for (const cand of candidates) {
             const box = { x: cand.x, y: cand.y, w: pillW, h: pillH };
-            if (!occupiedBoxes.some((occ) => boxesOverlap(box, occ, 6))) {
+            if (!occupiedBoxes.some((occ) => boxesOverlap(box, occ, 6)) && !boxHitsOtherEdgePath(box)) {
               pillX = cand.x;
               pillY = cand.y;
               break;
@@ -3512,18 +3610,18 @@
           const textCenterX = pillX + pillW / 2;
 
           return `
-            <g class="sm-edge-group ${g.isSelectedEdge ? "is-selected" : ""}" data-action="select-sm-edge" data-edge-id="${escapeHtml(g.edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(g.edge.actionClean)} from ${escapeHtml(g.edge.fromTitle)} to ${escapeHtml(g.edge.toTitle)} (${escapeHtml(g.edge.statusSymbolWord)})">
-              <title>${escapeHtml(g.edge.fromTitle)} → ${escapeHtml(g.edge.toTitle)}: ${escapeHtml(g.edge.actionClean)} (${escapeHtml(g.metaText)})</title>
-              <path class="${g.isSelfLoop ? "sm-self-loop" : "sm-edge-path"}" d="${g.pathD}" fill="none" stroke="${escapeHtml(g.edgeStroke)}" stroke-width="${g.edgeWidth}" ${g.dashAttr} />
+            <g class="sm-edge-group ${g.isSelectedEdge ? "is-selected" : ""}" data-action="select-sm-edge" data-edge-id="${escapeHtml(g.edge.id)}" data-from-id="${escapeHtml(g.edge.from)}" data-to-id="${escapeHtml(g.edge.to)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(g.plainAction)} from ${escapeHtml(g.edge.fromTitle)} to ${escapeHtml(g.edge.toTitle)} (${escapeHtml(g.metaText)})">
+              <title>${escapeHtml(g.edge.fromTitle)} → ${escapeHtml(g.edge.toTitle)}: ${escapeHtml(g.plainAction)} (${escapeHtml(g.metaText)})</title>
+              <path class="sm-edge-path" d="${g.pathD}" fill="none" stroke="${escapeHtml(g.edgeStroke)}" stroke-width="${g.edgeWidth}" ${g.dashAttr} />
               ${g.arrowHtml}
               <rect class="sm-edge-pill" x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="6" fill="#0c0d10" stroke="${g.isSelectedEdge ? "#f2f4f8" : "rgba(255,255,255,0.08)"}" stroke-width="1" />
               <text x="${textCenterX}" y="${pillY + 15}" text-anchor="middle" font-size="12" font-weight="600">
-                <tspan fill="${g.statusFill}">${escapeHtml(g.edge.statusSymbolWord)}</tspan>
-                <tspan fill="#f2f4f8"> · ${escapeHtml(g.shortAction)}</tspan>
+                <tspan fill="${g.statusFill}">${escapeHtml(g.statusSymbol)}</tspan>
+                <tspan fill="#f2f4f8"> ${escapeHtml(g.shortAction)}</tspan>
               </text>
               <circle cx="${pillX + 12}" cy="${pillY + 28}" r="4" fill="${escapeHtml(g.edge.trailColor)}" />
               <text x="${textCenterX + 4}" y="${pillY + 32}" text-anchor="middle" fill="#a6adbb" font-size="12">
-                ${escapeHtml(truncateWord(g.edge.agents.join(", "), 12))} · ${escapeHtml(truncateWord(g.metaText, 20))}
+                ${escapeHtml(truncateWord(g.metaText, 28))}
               </text>
             </g>
           `;
@@ -3540,8 +3638,8 @@
             activeReplayStep &&
             (activeReplayStep.fromId === node.id || activeReplayStep.toId === node.id);
           const isSelectedNode =
-            selectedEdge &&
-            (selectedEdge.from === node.id || selectedEdge.to === node.id);
+            (selectedEdge && (selectedEdge.from === node.id || selectedEdge.to === node.id)) ||
+            selectedSmScreenId === node.id;
           const nodeStroke = isReplayNode
             ? "#f5a623"
             : isSelectedNode
@@ -3550,13 +3648,24 @@
           const nodeStrokeWidth = isReplayNode || isSelectedNode ? "2" : "1";
           const shortApp = truncateWord(node.app, 22);
           const shortTitle = truncateWord(node.title, 22);
+          const nodeSelfLoops = selfLoopsByNode.get(node.id) || [];
+          const totalSelfTries = nodeSelfLoops.reduce((acc, e) => acc + Number(e.tries || 1), 0);
+          const attachedHtml = nodeSelfLoops.length
+            ? `
+              <g class="sm-attached-actions" data-action="select-sm-screen-actions" data-screen-id="${escapeHtml(node.id)}" role="button" tabindex="0" aria-label="${totalSelfTries} actions on ${escapeHtml(node.title)}">
+                <rect x="${pos.x + 8}" y="${pos.y + hNode + 2}" width="${wNode - 16}" height="20" rx="5" fill="#16181d" stroke="${selectedSmScreenId === node.id ? "#f2f4f8" : "rgba(255,255,255,0.12)"}" stroke-width="1" />
+                <text x="${pos.x + wNode / 2}" y="${pos.y + hNode + 16}" text-anchor="middle" fill="#a6adbb" font-size="12">${totalSelfTries} ${totalSelfTries === 1 ? "action" : "actions"} on this screen &#9656;</text>
+              </g>
+            `
+            : "";
 
           return `
             <g class="sm-node-group">
               <title>${escapeHtml(node.app)}: ${escapeHtml(node.title)}</title>
-              <rect class="sm-node-rect" x="${pos.x}" y="${pos.y}" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
+              <rect class="sm-node-rect" data-node-id="${escapeHtml(node.id)}" x="${pos.x}" y="${pos.y}" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
               <text x="${pos.x + 12}" y="${pos.y + 21}" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(shortApp)}</text>
               <text x="${pos.x + 12}" y="${pos.y + 41}" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(shortTitle)}</text>
+              ${attachedHtml}
             </g>
           `;
         })
@@ -3572,7 +3681,7 @@
       `;
     }
 
-    /* Clicked edge action log rows */
+    /* Clicked edge or attached screen actions detail */
     let edgeLogHtml = "";
     if (selectedEdge) {
       const matchingRows = (vm.rawActions || []).filter(
@@ -3590,15 +3699,15 @@
                   ? "state-success"
                   : out === "help"
                     ? "state-warning"
-                    : "state-danger";
+                    : "state-neutral";
               const outSymbol =
                 out === "ok" || out === "done_verified"
-                  ? "✓ Success"
+                  ? "✓ Worked"
                   : out === "help"
                     ? "◔ Waiting"
                     : out === "denied"
-                      ? "⊘ Denied"
-                      : "× Failed";
+                      ? "Stopped by you"
+                      : "Did not finish";
               const timeStr = r.ts
                 ? new Date(r.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
                 : "—";
@@ -3608,21 +3717,19 @@
                   <td>${escapeHtml(r.agent || "Agent")}</td>
                   <td><span class="state-text ${outClass}">${outSymbol}</span></td>
                   <td class="num-col">${escapeHtml(r.ms ?? 0)}ms</td>
-                  <td>${escapeHtml(r.source || "model")}</td>
                 </tr>
               `;
             })
             .join("")
-        : `<tr><td colspan="5" class="section-subtitle">No individual action rows recorded for this edge.</td></tr>`;
+        : `<tr><td colspan="4" class="section-subtitle">No individual action rows recorded for this transition.</td></tr>`;
 
       edgeLogHtml = `
         <div class="sm-edge-detail">
           <div class="section-header-row">
             <div>
-              <h3 class="section-title">Edge log: ${escapeHtml(selectedEdge.actionClean)}</h3>
+              <h3 class="section-title">${escapeHtml(humanizeSmAction(selectedEdge.action, selectedEdge.app))}</h3>
               <p class="section-subtitle">
-                ${escapeHtml(selectedEdge.fromTitle)} &rarr; ${escapeHtml(selectedEdge.toTitle)}
-                ${selectedEdge.isDestructive ? " · Destructive action (never suggested as a path)" : ""}
+                ${escapeHtml(selectedEdge.fromTitle)} &rarr; ${escapeHtml(selectedEdge.toTitle)} &middot; ${escapeHtml(formatSmReliabilityWords(selectedEdge))}
               </p>
             </div>
             <button type="button" class="btn" data-action="close-sm-edge">Close</button>
@@ -3634,8 +3741,7 @@
                   <th>Time</th>
                   <th>Agent</th>
                   <th>Outcome</th>
-                  <th class="num-col">Latency</th>
-                  <th>Source</th>
+                  <th class="num-col">Duration</th>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
@@ -3643,109 +3749,69 @@
           </div>
         </div>
       `;
+    } else if (selectedSmScreenId) {
+      const screenNode = sm.screens.find((s) => s.id === selectedSmScreenId);
+      const screenSelfLoops = sm.edges.filter((e) => e.from === selectedSmScreenId && e.to === selectedSmScreenId);
+      if (screenNode && screenSelfLoops.length) {
+        const listHtml = screenSelfLoops
+          .map(
+            (e) => `
+              <div class="history-row-2line">
+                <div class="history-row-goal">${escapeHtml(humanizeSmAction(e.action, e.app))}</div>
+                <div class="history-row-meta">
+                  <span>${escapeHtml(formatSmReliabilityWords(e))}</span>
+                  <span>&middot;</span>
+                  <span>${escapeHtml(e.agents.join(", ") || "Agent")}</span>
+                </div>
+              </div>
+            `
+          )
+          .join("");
+        edgeLogHtml = `
+          <div class="sm-edge-detail">
+            <div class="section-header-row">
+              <div>
+                <h3 class="section-title">Actions on ${escapeHtml(screenNode.title)}</h3>
+                <p class="section-subtitle">${escapeHtml(screenNode.app)}</p>
+              </div>
+              <button type="button" class="btn" data-action="close-sm-screen-actions">Close</button>
+            </div>
+            <div class="history-list">${listHtml}</div>
+          </div>
+        `;
+      }
     }
 
-    /* Agent replay section (Issue #1 #5) */
-    let replayHtml = "";
-    if (replayRuns.length) {
-      const runOptionsHtml = replayRuns
-        .map(
-          (rr) =>
-            `<option value="${escapeHtml(rr.id)}" ${rr.id === activeReplayRun?.id ? "selected" : ""}>${escapeHtml(
-              `${rr.agentName}: ${rr.goal.slice(0, 64)}`
-            )}</option>`
-        )
-        .join("");
-
-      const stepDetailHtml = activeReplayStep
-        ? `
-          <div class="replay-step-bar">
-            <span class="state-text ${activeReplayStep.ok ? "state-success" : "state-danger"}">
-              ${activeReplayStep.ok ? "✓ Success" : "× Failed"}
-            </span>
-            <span class="replay-action-name">${escapeHtml(String(activeReplayStep.action || "").replace(/:/g, " · "))}</span>
-            <span class="section-subtitle">
-              Screen hit: ${escapeHtml(activeReplayStep.app)} · ${escapeHtml(activeReplayStep.fromTitle)} &rarr; ${escapeHtml(activeReplayStep.toTitle)}
-              ${activeReplayStep.ms ? ` (${escapeHtml(activeReplayStep.ms)}ms)` : ""}
-            </span>
-          </div>
-        `
-        : `<p class="section-subtitle">No act steps recorded for this run.</p>`;
-
-      replayHtml = `
-        <div class="sm-replay-section">
-          <div class="section-header-row">
-            <div>
-              <h3 class="section-title">Agent replay</h3>
-              <p class="section-subtitle">Pick a run and step through its act events to see which screen node each one hit</p>
-            </div>
-            <div class="filter-group">
-              <button type="button" class="btn" data-action="replay-prev" ${clampedStepIdx <= 0 ? "disabled" : ""}>Previous</button>
-              <span class="section-subtitle">Step ${replaySteps.length ? clampedStepIdx + 1 : 0} of ${replaySteps.length}</span>
-              <button type="button" class="btn" data-action="replay-next" ${clampedStepIdx >= replaySteps.length - 1 ? "disabled" : ""}>Next</button>
-            </div>
-          </div>
-          <div class="filter-bar">
-            <label for="replay-run-select" class="filter-label">Run:</label>
-            <select id="replay-run-select" class="inline-text-input replay-select" data-action="select-replay-run">
-              ${runOptionsHtml}
-            </select>
-          </div>
-          ${stepDetailHtml}
-        </div>
-      `;
+    const screenCount = stats.screens ?? sm.screens.length;
+    const actionCount = sm.totalFilteredActions ?? sm.edges.length;
+    const skillCount = stats.skills ?? 0;
+    const summaryParts = [
+      `${screenCount} ${screenCount === 1 ? "screen" : "screens"}`,
+      `${actionCount} ${actionCount === 1 ? "action" : "actions"}`,
+    ];
+    if (stats.mean_edge_p != null) {
+      summaryParts.push(`works ${Math.round(Number(stats.mean_edge_p) * 100)}% of the time`);
     }
-
-    const reliabilityText =
-      stats.mean_edge_p != null ? `${Math.round(Number(stats.mean_edge_p) * 100)}% (P=${stats.mean_edge_p})` : "No scored edges yet";
+    summaryParts.push(`${skillCount} saved ${skillCount === 1 ? "shortcut" : "shortcuts"}`);
 
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
-      <div class="section-header-row">
-        <div>
-          <h2 class="section-title">State machine graph</h2>
-          <p class="section-subtitle">
-            Screens as nodes and actions as directed edges. Width shows tries; color shows reliability; dashed lines mark destructive edges. Click an edge for its action log.
-          </p>
-        </div>
+      <div class="sm-compact-controls">
+        <span class="sm-summary-line">${escapeHtml(summaryParts.join(" · "))}</span>
         <div class="filter-group">
-          ${appFilterHtml}
-        </div>
-      </div>
-
-      <div class="metrics-strip">
-        <div class="metric-item">
-          <span class="metric-label">Screens mapped</span>
-          <span class="metric-value">${escapeHtml(stats.screens ?? sm.screens.length)}</span>
-          <span class="metric-note">App + window title + elements</span>
-        </div>
-        <div class="metric-item">
-          <span class="metric-label">Action transitions</span>
-          <span class="metric-value">${escapeHtml(stats.transitions ?? sm.edges.length)}</span>
-          <span class="metric-note">${escapeHtml(sm.totalFilteredActions)} logged action rows</span>
-        </div>
-        <div class="metric-item">
-          <span class="metric-label">Saved replay skills</span>
-          <span class="metric-value">${escapeHtml(stats.skills ?? 0)}</span>
-          <span class="metric-note">Macro paths replayed without model</span>
-        </div>
-        <div class="metric-item">
-          <span class="metric-label">Mean edge reliability</span>
-          <span class="metric-value">${escapeHtml(reliabilityText)}</span>
-          <span class="metric-note">Posterior mean across tries</span>
-        </div>
-      </div>
-
-      <div class="sm-legend-row">
-        <div class="filter-group">
-          <span class="filter-label">Agent trail filter:</span>
-          ${agentPillsHtml}
+          <label for="sm-app-select" class="visually-hidden">Filter by app</label>
+          <select id="sm-app-select" class="sm-filter-select" data-action="set-sm-app-select">
+            ${appOptionsHtml}
+          </select>
+          <label for="sm-agent-select" class="visually-hidden">Filter by agent</label>
+          <select id="sm-agent-select" class="sm-filter-select" data-action="set-sm-agent-select">
+            ${agentOptionsHtml}
+          </select>
         </div>
       </div>
 
       ${svgGraphHtml}
       ${edgeLogHtml}
-      ${replayHtml}
     `;
   }
 
@@ -3912,6 +3978,10 @@
             }
           </p>
         </div>
+        <div class="filter-group" role="group" aria-label="Transcript or history view">
+          <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="logs">Transcript</button>
+          <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="history">History</button>
+        </div>
       </div>
 
       <div class="log-controls-row">
@@ -3988,6 +4058,10 @@
           <div>
             <h2 class="section-title">Artifacts</h2>
             <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
+          </div>
+          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
+            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
+            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
           </div>
         </div>
         ${renderEmptyViewHtml({
@@ -4153,6 +4227,10 @@
           <h2 class="section-title">Artifacts</h2>
           <p class="section-subtitle">Bug reports, patches, commits, and marketing briefs from run events</p>
         </div>
+        <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
+          <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
+          <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
+        </div>
       </div>
       <div class="artifact-list">
         ${rowsHtml}
@@ -4188,6 +4266,10 @@
           <div>
             <h2 class="section-title">Marketing</h2>
             <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
+          </div>
+          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
+            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
+            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
           </div>
         </div>
         ${renderEmptyViewHtml({
@@ -4346,6 +4428,10 @@
         <div class="filter-group">
           ${copyBriefBtn}
           ${selectorHtml}
+          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
+            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
+            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
+          </div>
         </div>
       </div>
 
@@ -5516,6 +5602,10 @@
               : "Past tasks, outcomes, apps used, and cost."
           }</p>
         </div>
+        <div class="filter-group" role="group" aria-label="Transcript or history view">
+          <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="logs">Transcript</button>
+          <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="history">History</button>
+        </div>
       </div>
 
       <div class="filter-bar">
@@ -5613,6 +5703,7 @@
           <h2 class="section-title">Settings</h2>
           <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
         </div>
+        <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Run setup again</button>
       </div>
 
       <form id="workspace-settings-form" class="settings-form-grid">
@@ -6848,8 +6939,26 @@
           break;
 
         case "select-sm-edge":
+          selectedSmScreenId = null;
           selectedSmEdgeId =
             selectedSmEdgeId === actionEl.dataset.edgeId ? null : actionEl.dataset.edgeId || null;
+          renderNow();
+          break;
+
+        case "close-sm-edge":
+          selectedSmEdgeId = null;
+          renderNow();
+          break;
+
+        case "select-sm-screen-actions":
+          selectedSmEdgeId = null;
+          selectedSmScreenId =
+            selectedSmScreenId === actionEl.dataset.screenId ? null : actionEl.dataset.screenId || null;
+          renderNow();
+          break;
+
+        case "close-sm-screen-actions":
+          selectedSmScreenId = null;
           renderNow();
           break;
 
@@ -7221,7 +7330,7 @@
       });
     }
 
-    document.addEventListener("change", (e) => {
+    document.addEventListener("change", async (e) => {
       const target = e.target;
       if (target && target.matches('[data-action="select-replay-run"]')) {
         replayRunId = target.value || null;
@@ -7238,6 +7347,16 @@
       } else if (target && target.matches('[data-action="set-history-cost"]')) {
         HistorySettingsState.costFilter = target.value || "all";
         renderNow();
+      } else if (target && target.matches('[data-action="set-sm-app-select"]')) {
+        selectedAppFilter = target.value || "all";
+        selectedSmEdgeId = null;
+        selectedSmScreenId = null;
+        renderNow();
+      } else if (target && target.matches('[data-action="set-sm-agent-select"]')) {
+        smAgentFilter = target.value || "";
+        selectedSmEdgeId = null;
+        selectedSmScreenId = null;
+        await pollAll();
       }
     });
 

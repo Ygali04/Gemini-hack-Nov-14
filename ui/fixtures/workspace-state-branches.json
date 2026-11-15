@@ -1,0 +1,121 @@
+{
+  "agents": {
+    "r-br-2": {
+      "name": "Sam",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C",
+      "greeted": true
+    },
+    "r-br-3": {
+      "name": "Mira",
+      "color": "#E1CDE8",
+      "edge": "#FBE8F7",
+      "ink": "#71388B",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r-br-1",
+      "goal": "Compute 23 times 19 in Calculator and export summary",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 12.4,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Calculator shows 437"
+      }
+    },
+    {
+      "id": "r-br-2",
+      "goal": "Compute 23 times 19 in Calculator",
+      "role": "cu",
+      "parent": "r-br-1",
+      "state": "done",
+      "elapsed": 6.2,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "437"
+      }
+    },
+    {
+      "id": "r-br-3",
+      "goal": "Save Calculator output to Notes",
+      "role": "cu",
+      "parent": "r-br-1",
+      "state": "failed",
+      "elapsed": 6.2,
+      "n_events": 2,
+      "result": {
+        "ok": false,
+        "summary": "Timed out waiting for Notes permission"
+      }
+    }
+  ],
+  "details": {
+    "r-br-1": {
+      "id": "r-br-1",
+      "goal": "Compute 23 times 19 in Calculator and export summary",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 12.4,
+      "n_events": 2,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 12.4, "kind": "result", "ok": true, "summary": "Calculator shows 437" }
+      ],
+      "result": { "ok": true, "summary": "Calculator shows 437" }
+    },
+    "r-br-2": {
+      "id": "r-br-2",
+      "goal": "Compute 23 times 19 in Calculator",
+      "role": "cu",
+      "parent": "r-br-1",
+      "state": "done",
+      "elapsed": 6.2,
+      "n_events": 3,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "acting" },
+        { "t": 4.0, "kind": "act", "app": "Calculator", "action": "click:button:=", "ok": true },
+        { "t": 6.2, "kind": "result", "ok": true, "summary": "437" }
+      ],
+      "result": { "ok": true, "summary": "437" }
+    },
+    "r-br-3": {
+      "id": "r-br-3",
+      "goal": "Save Calculator output to Notes",
+      "role": "cu",
+      "parent": "r-br-1",
+      "state": "failed",
+      "elapsed": 6.2,
+      "n_events": 2,
+      "events": [
+        { "t": 6.4, "kind": "state", "state": "acting" },
+        { "t": 12.4, "kind": "result", "ok": false, "summary": "Timed out waiting for Notes permission" }
+      ],
+      "result": { "ok": false, "summary": "Timed out waiting for Notes permission" }
+    }
+  },
+  "actions": {
+    "total": 9,
+    "actions": [
+      { "ts": 1763140001, "run": "r-br-2", "agent": "Sam", "app": "Calculator", "from": "Desktop:ready", "action": "open_app:Calculator", "to": "Calculator:main", "outcome": "ok", "ms": 340, "source": "model" },
+      { "ts": 1763140002, "run": "r-br-2", "agent": "Sam", "app": "Calculator", "from": "Calculator:main", "action": "click:button:2", "to": "Calculator:main", "outcome": "ok", "ms": 95, "source": "model" },
+      { "ts": 1763140003, "run": "r-br-2", "agent": "Sam", "app": "Calculator", "from": "Calculator:main", "action": "click:button:3", "to": "Calculator:main", "outcome": "ok", "ms": 92, "source": "model" },
+      { "ts": 1763140004, "run": "r-br-2", "agent": "Sam", "app": "Calculator", "from": "Calculator:main", "action": "click:button:=", "to": "Calculator:result", "outcome": "done_verified", "ms": 110, "source": "skill" },
+      { "ts": 1763140005, "run": "r-br-3", "agent": "Mira", "app": "Calculator", "from": "Calculator:main", "action": "open_app:Notes", "to": "Notes:prompt", "outcome": "help", "ms": 420, "source": "model" },
+      { "ts": 1763140006, "run": "r-br-3", "agent": "Mira", "app": "Notes", "from": "Notes:prompt", "action": "click:button:Allow", "to": "Notes:timeout", "outcome": "error", "ms": 5000, "source": "model" }
+    ]
+  },
+  "graph": {
+    "screens": 5,
+    "transitions": 5,
+    "skills": 1,
+    "mean_edge_p": 0.72
+  }
+}

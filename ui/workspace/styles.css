@@ -94,15 +94,14 @@ select:focus-visible,
   gap: 0;
 }
 
-/* Top strip: <= 36px, draggable dark header with view menu on left, Stop all on right */
+/* Top strip: <= 36px, draggable dark header matching content color (--bg-app), no divider line, menu at x 78 */
 .workspace-header {
   height: 36px;
   min-height: 36px;
   max-height: 36px;
-  padding: 0 12px;
+  padding: 0 12px 0 78px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--line-divider);
   background: var(--bg-app);
   flex-shrink: 0;
   -webkit-app-region: drag;
