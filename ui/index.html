@@ -1804,6 +1804,29 @@
       gap: 8px;
       min-width: 0;
     }
+    .agent-name-input {
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+      background: #121418;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 6px 10px;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 20px;
+      user-select: text;
+    }
+    .agent-name-input::placeholder {
+      color: var(--text-muted);
+    }
+    .agent-name-input:focus,
+    .agent-name-input:focus-visible {
+      outline: none;
+      border-color: var(--focus-ring);
+      box-shadow: 0 0 0 1px var(--focus-ring);
+    }
     .agent-swatch-row {
       display: flex;
       align-items: center;
@@ -4715,16 +4738,7 @@
             const sortTs = Math.max(rawTs, lastTsFromTranscript);
             const startTs = rawStartTs || sortTs;
             const listClockText = formatShortClock(sortTs);
-            const plainFactForPreview =
-              stateFact && !/^Finished\.?$/i.test(String(stateFact).trim()) ? stateFact : "";
-            const lastLinePreview =
-              (meaningfulTranscriptRow && meaningfulTranscriptRow.text) ||
-              (activePendingHelp[0]?.question) ||
-              (state === "failed" ? stateSymbolWord : plainFactForPreview) ||
-              parent.goal ||
-              "Untitled chat";
-
-            return {
+            const mappedRun = {
               id: parent.id,
               parent: parent.parent || null,
               rootId,
@@ -4762,9 +4776,10 @@
               approvalHistory,
               startTs,
               sortTs,
-              lastLinePreview,
               activePendingHelpCountdown,
             };
+            mappedRun.lastLinePreview = buildTaskCompactLine(mappedRun);
+            return mappedRun;
           });
 
           const waitingRuns = mappedRuns.filter((r) => r.pendingHelp.some((h) => !h.isExpired));
@@ -4825,26 +4840,79 @@
           return /^Finished\.?$/i.test(String(text || "").trim());
         }
 
+        function isMockText(text) {
+          return /\bmock\b/i.test(String(text || "").trim());
+        }
+
+        function sanitizeCompactLineText(text) {
+          const clean = String(text || "").trim();
+          if (!clean || isFinishedNoise(clean) || isMockText(clean)) return "";
+          return clean;
+        }
+
+        function buildTaskCompactLine(runVm, opts = {}) {
+          const waitingTask = opts.waitingTask || null;
+          const activeWaitingQ = waitingTask?.pendingHelp?.find((h) => !h.isExpired)?.question;
+          if (waitingTask) {
+            return (
+              sanitizeCompactLineText(activeWaitingQ) ||
+              sanitizeCompactLineText(waitingTask.stateFact) ||
+              "Waiting for your answer"
+            );
+          }
+          if (!runVm) return "No tasks yet";
+
+          if (runVm.state === "waiting") {
+            const activeQ = runVm.pendingHelp?.find((h) => !h.isExpired)?.question || runVm.pendingHelp?.[0]?.question;
+            return (
+              sanitizeCompactLineText(activeQ) ||
+              sanitizeCompactLineText(runVm.stateFact) ||
+              "Waiting for your answer"
+            );
+          }
+
+          if (runVm.state === "working") {
+            return "● Working";
+          }
+
+          if (runVm.state === "verified") {
+            return (
+              sanitizeCompactLineText(runVm.evidenceText) ||
+              sanitizeCompactLineText(runVm.stateFact) ||
+              "Done"
+            );
+          }
+
+          if (runVm.state === "failed") {
+            if (runVm.pipelineError?.plainText) {
+              return sanitizeCompactLineText(runVm.pipelineError.plainText) || "Couldn't finish.";
+            }
+            const stopNotice = !runVm.isRealFailure ? sanitizeCompactLineText(opts.stopNoticeText) : "";
+            return (
+              stopNotice ||
+              sanitizeCompactLineText(runVm.failureLineText) ||
+              sanitizeCompactLineText(runVm.stateSymbolWord) ||
+              "Couldn't finish."
+            );
+          }
+
+          if (runVm.isMock) {
+            return (
+              sanitizeCompactLineText(runVm.stateFact) ||
+              sanitizeCompactLineText(runVm.stateSymbolWord) ||
+              "Finished · sample run, not verified"
+            );
+          }
+
+          return (
+            sanitizeCompactLineText(runVm.stateFact) ||
+            sanitizeCompactLineText(runVm.stateSymbolWord) ||
+            "Finished"
+          );
+        }
+
         function pickConversationLastLine(latestTask, waitingTask) {
-          if (!latestTask) return "No tasks yet";
-          const activeQ = waitingTask?.pendingHelp?.find((h) => !h.isExpired)?.question;
-          if (activeQ && !isFinishedNoise(activeQ)) return activeQ;
-          if (latestTask.isFinished && latestTask.state !== "failed") {
-            if (latestTask.stateFact && !isFinishedNoise(latestTask.stateFact)) return latestTask.stateFact;
-            if (latestTask.speakText && !isFinishedNoise(latestTask.speakText)) return latestTask.speakText;
-          }
-          if (latestTask.state === "failed" && latestTask.stateSymbolWord && !isFinishedNoise(latestTask.stateSymbolWord)) {
-            return latestTask.stateSymbolWord;
-          }
-          const rows = Array.isArray(latestTask.transcriptRows) ? latestTask.transcriptRows : [];
-          for (let i = rows.length - 1; i >= 0; i -= 1) {
-            const txt = String(rows[i]?.text || "").trim();
-            if (txt && !isFinishedNoise(txt)) return txt;
-          }
-          if (latestTask.lastLinePreview && !isFinishedNoise(latestTask.lastLinePreview)) {
-            return latestTask.lastLinePreview;
-          }
-          return latestTask.goal || "No tasks yet";
+          return buildTaskCompactLine(latestTask, { waitingTask });
         }
 
         function buildAgentConversations(vm, opts = {}) {
@@ -5009,6 +5077,7 @@
           normalizeAgentSwatch,
           suggestAgentName,
           suggestAgentSwatch,
+          buildTaskCompactLine,
           buildAgentConversations,
           deriveStoppedLabel,
           getApprovalKindWarning,
@@ -5632,7 +5701,7 @@
               <input
                 type="text"
                 id="agent-name-input"
-                class="inline-text-input"
+                class="agent-name-input"
                 value="${escapeHtml(agentFormState.name || "")}"
                 placeholder="Agent name"
                 aria-label="Agent name"
@@ -7567,9 +7636,10 @@
                 const errKey = `${activeRun.id}:run`;
                 const isErrOpen = openErrorDetailIds.has(errKey);
                 const rawErr = activeRun.pipelineError.rawText || "";
+                const errCopy = WorkspaceAdapter.buildTaskCompactLine(activeRun);
                 failureHtml = `
                   <div class="chat-failure-event">
-                    <span class="chat-failure-copy">${escapeHtml(activeRun.pipelineError.plainText)}</span>
+                    <span class="chat-failure-copy">${escapeHtml(errCopy)}</span>
                     ${
                       rawErr
                         ? `<button type="button" class="btn" data-action="toggle-error-details" data-error-key="${escapeHtml(errKey)}" aria-expanded="${isErrOpen ? "true" : "false"}">${isErrOpen ? "Hide details" : "Details"}</button>`
@@ -7580,9 +7650,7 @@
                 `;
               }
             } else {
-              const noticeCopy = activeRun.isRealFailure
-                ? activeRun.failureLineText
-                : stopNoticeText || activeRun.failureLineText;
+              const noticeCopy = WorkspaceAdapter.buildTaskCompactLine(activeRun, { stopNoticeText });
               const retryBtnHtml = activeRun.isRealFailure
                 ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}" data-agent-id="${escapeHtml(conv?.id || "__primary__")}">Try again</button>`
                 : "";
@@ -7595,9 +7663,7 @@
             }
           } else {
             const isVerified = activeRun.state === "verified";
-            const compactFact = isVerified
-              ? activeRun.evidenceText || activeRun.stateFact || "Done"
-              : activeRun.stateFact || activeRun.stateSymbolWord || "Finished";
+            const compactFact = WorkspaceAdapter.buildTaskCompactLine(activeRun);
             const detailSentence =
               activeRun.stateFact &&
               activeRun.stateFact.toLowerCase() !== compactFact.toLowerCase() &&
@@ -7801,7 +7867,26 @@
         const convs = getConversationsForVm(vm);
 
         if (viewMode === "list") {
-          lastPanelStructureKey = buildPanelStructureKey(vm, null);
+          const nextListKey = buildPanelStructureKey(vm, null);
+          const existingFormEl = document.getElementById("agent-inline-form");
+          if (agentFormState && existingFormEl && nextListKey === lastPanelStructureKey) {
+            syncSizeAndBridge();
+            return;
+          }
+          const existingNameInp = document.getElementById("agent-name-input");
+          const savedNameDraft =
+            agentFormState && existingNameInp
+              ? {
+                  value: existingNameInp.value,
+                  wasFocused: document.activeElement === existingNameInp,
+                  selStart: existingNameInp.selectionStart,
+                  selEnd: existingNameInp.selectionEnd,
+                }
+              : null;
+          if (savedNameDraft && agentFormState) {
+            agentFormState.name = savedNameDraft.value;
+          }
+          lastPanelStructureKey = nextListKey;
           destroyAllAgentChips();
           const workingCount = convs.list.filter((c) => c.hasWorking).length;
           setPanelHeaderHtml(`
@@ -7827,6 +7912,15 @@
           blocks.push(renderChatListHtml(vm));
           timelineScroll.innerHTML = blocks.join("");
           mountAllAgentChips();
+          if (savedNameDraft && savedNameDraft.wasFocused) {
+            const nextInp = document.getElementById("agent-name-input");
+            if (nextInp) {
+              nextInp.focus();
+              if (savedNameDraft.selStart != null && savedNameDraft.selEnd != null) {
+                nextInp.setSelectionRange(savedNameDraft.selStart, savedNameDraft.selEnd);
+              }
+            }
+          }
           syncSizeAndBridge();
           return;
         }
@@ -8018,9 +8112,14 @@
               error: "",
             };
             renderNow();
+            const syncNameFocus = document.getElementById("agent-name-input");
+            if (syncNameFocus) {
+              syncNameFocus.focus();
+              syncNameFocus.select();
+            }
             requestAnimationFrame(() => {
               const nameInp = document.getElementById("agent-name-input");
-              if (nameInp) {
+              if (nameInp && document.activeElement !== nameInp) {
                 nameInp.focus();
                 nameInp.select();
               }
@@ -8068,9 +8167,14 @@
               error: "",
             };
             renderNow();
+            const syncNameFocus = document.getElementById("agent-name-input");
+            if (syncNameFocus) {
+              syncNameFocus.focus();
+              syncNameFocus.select();
+            }
             requestAnimationFrame(() => {
               const nameInp = document.getElementById("agent-name-input");
-              if (nameInp) {
+              if (nameInp && document.activeElement !== nameInp) {
                 nameInp.focus();
                 nameInp.select();
               }
@@ -8557,6 +8661,20 @@
               openRowMenuKey = rowKey;
               confirmDeleteRunId = "";
               renderNow();
+            }
+          }
+          return;
+        }
+        if (e.target && e.target.id === "agent-name-input" && agentFormState) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            const form = document.getElementById("agent-inline-form");
+            if (form) {
+              if (typeof form.requestSubmit === "function") {
+                form.requestSubmit();
+              } else {
+                form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+              }
             }
           }
           return;
