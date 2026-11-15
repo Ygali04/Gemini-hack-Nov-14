@@ -126,16 +126,20 @@ function runChecks() {
     assert.equal(vmOut.runs.length, 1, "failed: expected 1 parent run group");
     const run = vmOut.runs[0];
     assert.equal(run.state, "failed", "failed: state must be failed");
-    assert.equal(run.stateSymbolWord, "× Failed", "failed: symbol+word must be '× Failed'");
+    assert.ok(run.stateSymbolWord.length > 0, "failed: stateSymbolWord must be non-empty plain words");
+    assert.ok(!run.stateSymbolWord.includes("Failed"), "failed: must NOT contain 'Failed'");
+    assert.ok(!run.stateSymbolWord.includes("×"), "failed: must NOT contain '×'");
     assert.ok(!run.stateSymbolWord.includes("✓"), "failed: must NOT show check mark");
-    assert.equal(run.stateColorClass, "state-danger", "failed: color class must be state-danger");
+    assert.equal(run.stateColorClass, "state-neutral", "failed: color class must be state-neutral");
     assert.ok(
       run.stateFact.endsWith("· Nothing was changed."),
       "failed: unapplied patch must append '· Nothing was changed.'"
     );
     for (const step of run.steps) {
       assert.ok(!step.stateSymbolWord.includes("✓"), `failed: child step ${step.id} must NOT have ✓`);
-      assert.equal(step.stateSymbolWord, "× Failed", `failed: child step ${step.id} must be '× Failed'`);
+      assert.ok(!step.stateSymbolWord.includes("Failed"), `failed: child step ${step.id} must NOT contain 'Failed'`);
+      assert.ok(!step.stateSymbolWord.includes("×"), `failed: child step ${step.id} must NOT contain '×'`);
+      assert.equal(step.stateColorClass, "state-neutral", `failed: child step ${step.id} must use state-neutral`);
     }
   }
 
@@ -349,7 +353,7 @@ function runChecks() {
       parentState: "done",
       result: { ok: false, summary: "verifier rejected" },
       expectState: "failed",
-      expectSymbolWord: "× Failed",
+      expectSymbolWord: "Verifier rejected",
       expectCheck: false,
     },
     {
@@ -365,7 +369,7 @@ function runChecks() {
       parentState: "failed",
       result: { ok: false, summary: "failed run" },
       expectState: "failed",
-      expectSymbolWord: "× Failed",
+      expectSymbolWord: "Stopped before finishing",
       expectCheck: false,
     },
     {

@@ -57,7 +57,7 @@
       font-weight: 400;
       color: var(--text-primary);
       -webkit-font-smoothing: antialiased;
-      user-select: none;
+      user-select: text;
     }
 
     body {
@@ -115,7 +115,7 @@
       width: min(480px, 100vw);
       max-width: 100%;
       height: var(--panel-height, 220px);
-      max-height: 600px;
+      max-height: var(--max-panel-height, 60vh);
       border-radius: 0 0 16px 16px;
     }
 
@@ -146,6 +146,7 @@
       font-size: 12px;
       line-height: 16px;
       cursor: pointer;
+      user-select: none;
     }
 
     .pill-bar:hover {
@@ -166,9 +167,10 @@
     }
 
     .pill-status-line {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 6px;
+      width: 100%;
       max-width: 256px;
       white-space: nowrap;
       overflow: hidden;
@@ -180,14 +182,14 @@
     .pill-dots {
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
       flex-shrink: 0;
     }
 
     .pill-agent-dot,
     .agent-dot {
-      width: 8px;
-      height: 8px;
+      width: 9px;
+      height: 9px;
       border-radius: 999px;
       flex-shrink: 0;
       background: var(--dot-bg, #5c6b7a);
@@ -202,7 +204,18 @@
       white-space: nowrap;
     }
 
+    .pill-need {
+      margin-left: auto;
+      color: var(--state-warning);
+      font-weight: 600;
+      font-size: 12px;
+      line-height: 16px;
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
     .pill-idle {
+      margin: 0 auto;
       color: var(--text-primary);
       font-weight: 400;
     }
@@ -211,11 +224,12 @@
     .panel-view {
       width: 100%;
       max-width: 480px;
-      max-height: 600px;
+      max-height: var(--max-panel-height, 60vh);
       display: flex;
       flex-direction: column;
-      padding: 12px 16px 16px;
-      gap: 16px;
+      padding: 12px 16px 14px;
+      gap: 10px;
+      overflow: hidden;
     }
 
     body[data-state="collapsed"] .panel-view {
@@ -255,6 +269,7 @@
       cursor: pointer;
       white-space: nowrap;
       flex-shrink: 0;
+      user-select: none;
     }
 
     .btn:hover:not(:disabled) {
@@ -293,19 +308,67 @@
       color: var(--ink-text);
     }
 
+    .btn-danger {
+      background: transparent;
+      color: var(--state-danger);
+      border: 1px solid rgba(255, 92, 108, 0.5);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(255, 92, 108, 0.12);
+      color: var(--state-danger);
+    }
+
+    .btn-money {
+      background: var(--state-warning);
+      color: #111317;
+      font-weight: 600;
+    }
+
+    .btn-money:hover:not(:disabled) {
+      background: #ffba42;
+      color: #111317;
+    }
+
     /* ---------------- PROMPT SURFACE ---------------- */
     .prompt-section {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
       position: relative;
+      flex-shrink: 0;
+    }
+
+    .composer-frame {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: #121418;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 6px 8px;
+    }
+
+    .composer-frame:focus-within {
+      border-color: var(--focus-ring);
+      box-shadow: 0 0 0 1px var(--focus-ring);
+    }
+
+    .composer-frame .attachments-list,
+    .composer-frame .attachments-notice {
+      padding: 0 2px;
+    }
+
+    .composer-frame .attachment-token,
+    .composer-frame .attachment-notice-row {
+      background: var(--bg-app);
     }
 
     .prompt-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      min-height: 32px;
+      gap: 6px;
+      min-height: 28px;
     }
 
     .attach-wrapper {
@@ -326,6 +389,11 @@
       display: none;
       flex-direction: column;
       min-width: 140px;
+    }
+
+    .panel-view .attach-menu {
+      top: auto;
+      bottom: 36px;
     }
 
     .attach-menu.open {
@@ -360,10 +428,10 @@
     .prompt-field-wrap {
       flex: 1;
       min-width: 0;
-      min-height: 32px;
-      background: var(--bg-raised);
-      border-radius: 8px;
-      padding: 6px 8px;
+      min-height: 28px;
+      background: transparent;
+      border-radius: 0;
+      padding: 4px 2px;
       display: flex;
       align-items: center;
     }
@@ -381,7 +449,7 @@
       font-family: var(--font-sans);
       font-size: 13px;
       line-height: 20px;
-      border-radius: 4px;
+      border-radius: 0;
       overflow-y: auto;
       scrollbar-color: var(--bg-raised) var(--bg-raised);
       user-select: text;
@@ -403,8 +471,8 @@
 
     .prompt-textarea:focus,
     .prompt-textarea:focus-visible {
-      outline: 1.5px solid var(--focus-ring);
-      outline-offset: 2px;
+      outline: 1px solid transparent;
+      outline-offset: 0;
     }
 
     .prompt-textarea::placeholder {
@@ -597,12 +665,14 @@
 
     /* ---------------- CONVERSATION TIMELINE ---------------- */
     .timeline-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      padding: 6px 0;
+      gap: 10px;
+      padding: 2px 0;
       overflow-y: auto;
-      max-height: 460px;
+      max-height: none;
       scrollbar-color: var(--bg-app) var(--bg-app);
     }
 
@@ -1251,25 +1321,351 @@
     .file-hit-where { font-size: 12px; line-height: 16px; color: var(--text-muted); }
     .panel-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line-divider); }
     .footer-kbd-hint { font-size: 12px; line-height: 16px; color: var(--text-muted); margin-left: auto; text-align: right; }
-    .live-status-line { font-size: 12px; line-height: 16px; color: var(--text-secondary); min-height: 16px; }
-    .live-status-line:empty { display: none; }
-    .thread-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 16px; color: var(--text-secondary); padding: 2px 4px; }
-    .thread-mode-bar.hidden { display: none; }
-    .thread-mode-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .global-stop-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line-divider); }
-    .global-stop-copy { font-size: 12px; line-height: 16px; color: var(--text-secondary); min-width: 0; flex: 1; }
-    .starter-section { display: flex; flex-direction: column; gap: 4px; }
-    .starter-list { display: flex; flex-direction: column; gap: 2px; }
-    .starter-btn { width: 100%; height: auto; min-height: 32px; justify-content: flex-start; text-align: left; padding: 6px 8px; white-space: normal; color: var(--text-primary); }
+    .live-status-line,
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ---------------- CHAT APP CONVERSATION & TALK LIST ---------------- */
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 30px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line-divider);
+      flex-shrink: 0;
+    }
+    .panel-header.hidden {
+      display: none;
+    }
+    .chat-nav-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+    .chat-nav-title {
+      font-size: 12px;
+      line-height: 18px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .list-nav-title {
+      font-size: 13px;
+      line-height: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .panel-header-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .chat-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .chat-msg-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .chat-msg-row.is-user {
+      align-items: flex-end;
+    }
+    .chat-msg-row.is-agent {
+      align-items: flex-start;
+    }
+    .chat-msg-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chat-bubble {
+      max-width: 88%;
+      padding: 6px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 19px;
+      color: var(--text-primary);
+      background: var(--bg-raised);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      user-select: text;
+    }
+    .chat-bubble.is-user {
+      background: #2a3140;
+      border-bottom-right-radius: 2px;
+      max-width: 82%;
+    }
+    .chat-bubble.is-agent {
+      background: var(--bg-raised);
+      border-bottom-left-radius: 2px;
+      max-width: 90%;
+    }
+    .work-divider-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      margin-top: 2px;
+    }
+    .work-divider-btn {
+      width: 100%;
+      min-height: 28px;
+      padding: 2px 4px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      line-height: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .work-divider-btn::before,
+    .work-divider-btn::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line-divider);
+      min-width: 12px;
+    }
+    .work-divider-btn:hover {
+      color: var(--text-primary);
+      background: var(--btn-hover);
+    }
+    .work-divider-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .work-toggle-word {
+      color: var(--text-primary);
+      border-bottom: 1px dotted var(--text-secondary);
+    }
+    .work-steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 4px 10px 6px;
+      border-left: 1px solid var(--line-divider);
+      margin-left: 6px;
+      user-select: text;
+    }
+    .work-step-line {
+      font-size: 12px;
+      line-height: 17px;
+      color: var(--text-secondary);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .chat-approval-history {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 2px 0;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+    .chat-result-card {
+      background: var(--bg-raised);
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .chat-result-card.is-verified {
+      border-left: 2px solid var(--state-success);
+    }
+    .chat-result-main {
+      font-size: 13px;
+      line-height: 19px;
+      color: var(--text-primary);
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+    .chat-result-meta {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      user-select: text;
+    }
+    .chat-result-acts {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .chat-failure-event {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 2px;
+      font-size: 12px;
+      line-height: 17px;
+      color: var(--text-secondary);
+    }
+    .chat-failure-copy {
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
+      user-select: text;
+    }
+    .chat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .chat-list-row {
+      width: 100%;
+      min-height: 48px;
+      padding: 8px 6px;
+      border: none;
+      border-bottom: 1px solid var(--line-divider);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .chat-list-row:hover {
+      background: var(--btn-hover);
+    }
+    .chat-list-row:active {
+      background: var(--btn-pressed);
+    }
+    .chat-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+      line-height: 1;
+      flex: none;
+      background: var(--av-bg, #2b2f38);
+      color: var(--av-ink, var(--text-primary));
+      border: 1px solid var(--av-edge, rgba(255, 255, 255, 0.16));
+    }
+    .chat-list-mid {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .chat-list-name-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .chat-list-name {
+      font-size: 13px;
+      line-height: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .chat-list-role {
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 400;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .chat-list-rt {
+      text-align: right;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      font-size: 12px;
+      line-height: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+    .chat-list-time {
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 16px;
+    }
+    .chat-list-preview {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+    }
+    .chat-empty-note {
+      font-size: 12px;
+      line-height: 18px;
+      color: var(--text-secondary);
+      padding: 2px 2px 4px;
+    }
+    .starter-section { display: flex; flex-direction: column; gap: 6px; }
+    .starter-list { display: flex; flex-direction: column; gap: 6px; }
+    .starter-btn {
+      width: 100%;
+      height: auto;
+      min-height: 32px;
+      justify-content: flex-start;
+      text-align: left;
+      padding: 7px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background: transparent;
+      white-space: normal;
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 18px;
+    }
     .permission-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
     .permission-copy { font-size: 12px; line-height: 16px; color: var(--state-warning); flex: 1; min-width: 180px; }
     .outputs-section { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line-divider); }
     .output-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
     .output-title { font-size: 12px; line-height: 16px; color: var(--text-primary); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .output-actions { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
-    .thread-chat-section { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line-divider); }
-    .thread-msg-row { font-size: 13px; line-height: 18px; color: var(--text-primary); overflow-wrap: anywhere; }
-    .thread-msg-who { font-weight: 600; margin-right: 6px; color: var(--text-secondary); }
     .help-block.is-focused { background: var(--bg-raised); border-radius: 8px; padding: 6px 8px; }
     .side-view { display: flex; flex-direction: column; gap: 12px; }
     .side-head { display: flex; align-items: center; justify-content: space-between; }
@@ -1281,35 +1677,22 @@
     .settings-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
     .settings-actions { display: flex; align-items: center; gap: 8px; }
 
-    /* ---------------- CHAT WINDOW (?shell=chat) and NOTIFICATIONS (?shell=notes) ---------------- */
+    /* ---------------- CHAT WINDOW (?shell=chat) and APPROVAL CARD (?shell=notes) ---------------- */
     body[data-mode="chat"] .notch-shell, body[data-mode="notes"] .notch-shell { display: none; }
     body[data-mode="chat"], body[data-mode="notes"] { background: transparent; user-select: text; }
     .chat { height: 100vh; display: flex; flex-direction: column; background: var(--bg-app); border-radius: 14px;
             border: 1px solid var(--line-divider); overflow: hidden; }
-    .chat.drag-over { background: var(--bg-raised); }
     .chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-divider); }
     .chat-title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
-                scrollbar-color: var(--bg-app) var(--bg-app); }
-    .chat-log::-webkit-scrollbar { width: 4px; height: 4px; }
-    .chat-log::-webkit-scrollbar-track { background: var(--bg-app); }
-    .chat-log::-webkit-scrollbar-thumb { background: var(--bg-app); border-radius: 4px; }
-    .chat-steps-group { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-    .chat-steps-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
-    .msg, .msg-step, .note > span { overflow-wrap: anywhere; min-width: 0; }
-    .msg-who { font-weight: 600; margin-right: 6px; }
-    .msg-step { font-size: 12px; line-height: 16px; color: var(--text-muted); }
-    .msg-step .msg-who { font-weight: 500; }
-    .chat-composer { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line-divider); flex-shrink: 0; }
-    .chat-composer .attach-menu { top: auto; bottom: 32px; }
-    .chat-reply { display: flex; align-items: center; gap: 8px; }
     .notes { display: flex; flex-direction: column; gap: 8px; padding: 2px; width: 100%; overflow-x: clip; }
-    .note { background: var(--bg-app); border: 1px solid var(--line-divider); border-radius: 12px; padding: 10px 12px;
+    .note { background: var(--bg-raised); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; padding: 12px 14px;
             display: flex; flex-direction: column; gap: 6px; }
-    .note-title { font-size: 12px; line-height: 16px; font-weight: 600; }
-    .note-detail { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-secondary); white-space: pre-wrap;
-                   max-height: 96px; overflow-y: auto; }
-    .note-actions { display: flex; gap: 4px; justify-content: flex-end; }
+    .note.is-money { border: 1px solid rgba(245, 166, 35, 0.65); }
+    .note-q { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin-top: 2px; overflow-wrap: anywhere; }
+    .note-d { font-size: 12px; line-height: 17px; color: var(--text-secondary); overflow-wrap: anywhere; }
+    .note-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .note-timer { color: var(--state-warning); font-variant-numeric: tabular-nums; flex: 1; font-size: 12px; line-height: 16px; }
+    .note-actions { display: flex; gap: 6px; justify-content: flex-end; flex-shrink: 0; }
 
     /* ---------------- ON-DEVICE VOICE (STT mic + AVSpeechSynthesizer) ---------------- */
     .btn-icon.hidden { display: none; }
@@ -1357,80 +1740,21 @@
 
     <!-- EXPANDED PANEL -->
     <div id="panel-view" class="panel-view">
-      <form id="prompt-form" class="prompt-section">
-        <div class="prompt-row">
-          <div class="attach-wrapper">
-            <button
-              type="button"
-              id="attach-btn"
-              class="btn btn-icon"
-              aria-label="Add attachment"
-              aria-haspopup="menu"
-              aria-expanded="false"
-              title="Add attachment"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M8 3.2V12.8M3.2 8H12.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-              </svg>
-            </button>
-            <div id="attach-menu" class="attach-menu" role="menu" aria-label="Attachment options">
-              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="photo">Photo…</button>
-              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="video">Video…</button>
-              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="files">Files…</button>
-              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="link">Link…</button>
-              <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="search">Search files…</button>
-            </div>
-          </div>
+      <div id="panel-header" class="panel-header hidden"></div>
 
-          <input type="file" id="file-input" multiple hidden />
+      <div id="sample-banner" class="timeline-row" style="display:none;">
+        <span class="sample-tag">Sample data &mdash; mock verification is not real evidence</span>
+      </div>
 
-          <div id="prompt-field-wrap" class="prompt-field-wrap">
-            <textarea
-              id="prompt-input"
-              class="prompt-textarea"
-              rows="1"
-              placeholder="Ask your agents…"
-              aria-label="Ask your agents"
-            ></textarea>
-          </div>
-
-          <button
-            type="button"
-            id="mic-btn"
-            class="btn btn-icon hidden"
-            aria-label="Dictate prompt with microphone"
-            aria-pressed="false"
-            title="Dictate prompt"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect x="6" y="2.25" width="4" height="7" rx="2" stroke="currentColor" stroke-width="1.4"/>
-              <path d="M3.75 7.5A4.25 4.25 0 0 0 12.25 7.5M8 11.75V13.75M5.75 13.75H10.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-            </svg>
-          </button>
-
-          <button type="submit" id="send-btn" class="btn btn-primary" aria-label="Send to agents">
-            <span>Send</span>
-          </button>
-
-          <button
-            type="button"
-            id="open-workspace-btn"
-            class="btn btn-icon"
-            aria-label="Open workspace"
-            title="Open workspace"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" stroke="currentColor" stroke-width="1.4"/>
-              <path d="M6.5 3V13" stroke="currentColor" stroke-width="1.4"/>
-            </svg>
-          </button>
-
-          <button type="button" id="collapse-btn" class="btn" aria-label="Collapse workspace">
-            <span>Esc</span>
-          </button>
+      <div id="timeline-scroll" class="timeline-scroll" role="log" aria-live="polite">
+        <div class="timeline-row">
+          <span class="state-text state-working">&hellip; Loading</span>
+          <div class="skeleton-line" style="flex: 1; max-width: 240px;"></div>
         </div>
+      </div>
 
-        <div id="thread-mode-bar" class="thread-mode-bar hidden"></div>
+      <form id="prompt-form" class="prompt-section">
+        <div id="voice-status-bar" class="voice-status-bar hidden" role="status" aria-live="polite"></div>
 
         <div id="link-input-row" class="inline-input-row hidden">
           <input
@@ -1455,33 +1779,80 @@
           <div id="file-search-results" class="file-search-results" role="listbox" aria-label="Matching files"></div>
         </div>
 
-        <div id="voice-status-bar" class="voice-status-bar hidden" role="status" aria-live="polite"></div>
+        <div class="composer-frame">
+          <div id="attachments-notice" class="attachments-notice" role="status" aria-live="polite"></div>
+          <div id="attachments-list" class="attachments-list"></div>
+          <div class="prompt-row">
+            <div class="attach-wrapper">
+              <button
+                type="button"
+                id="attach-btn"
+                class="btn btn-icon"
+                aria-label="Add attachment"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                title="Add attachment"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3.2V12.8M3.2 8H12.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <div id="attach-menu" class="attach-menu" role="menu" aria-label="Attachment options">
+                <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="photo">Photo…</button>
+                <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="video">Video…</button>
+                <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="files">Files…</button>
+                <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="link">Link…</button>
+                <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="search">Search files…</button>
+              </div>
+            </div>
 
-        <div id="attachments-notice" class="attachments-notice" role="status" aria-live="polite"></div>
+            <input type="file" id="file-input" multiple hidden />
 
-        <div id="attachments-list" class="attachments-list"></div>
+            <div id="prompt-field-wrap" class="prompt-field-wrap">
+              <textarea
+                id="prompt-input"
+                class="prompt-textarea"
+                rows="1"
+                placeholder="Ask your agents…"
+                aria-label="Ask your agents"
+              ></textarea>
+            </div>
+
+            <button
+              type="button"
+              id="mic-btn"
+              class="btn btn-icon hidden"
+              aria-label="Dictate prompt with microphone"
+              aria-pressed="false"
+              title="Dictate prompt"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="6" y="2.25" width="4" height="7" rx="2" stroke="currentColor" stroke-width="1.4"/>
+                <path d="M3.75 7.5A4.25 4.25 0 0 0 12.25 7.5M8 11.75V13.75M5.75 13.75H10.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+
+            <button type="submit" id="send-btn" class="btn btn-primary" aria-label="Send to agents">
+              <span>Send</span>
+            </button>
+
+            <button
+              type="button"
+              id="open-workspace-btn"
+              class="btn btn-icon"
+              aria-label="Open workspace"
+              title="Open workspace"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="2" stroke="currentColor" stroke-width="1.4"/>
+                <path d="M6.5 3V13" stroke="currentColor" stroke-width="1.4"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </form>
 
-      <div id="sample-banner" class="timeline-row" style="display:none;">
-        <span class="sample-tag">Sample data &mdash; mock verification is not real evidence</span>
-      </div>
-
-      <div id="side-view" class="side-view hidden" aria-live="polite"></div>
-
-      <div id="timeline-scroll" class="timeline-scroll" role="log" aria-live="polite">
-        <div class="timeline-row">
-          <span class="state-text state-working">&hellip; Loading</span>
-          <div class="skeleton-line" style="flex: 1; max-width: 240px;"></div>
-        </div>
-      </div>
-
-      <div id="panel-live-status" class="live-status-line" role="status" aria-live="polite"></div>
-
-      <div class="panel-footer">
-        <button type="button" class="btn" data-side="analytics">Analytics</button>
-        <button type="button" class="btn" id="open-settings-btn" data-open-settings="1">Settings</button>
-        <span class="footer-kbd-hint">Option-Space opens &middot; Enter sends &middot; Esc closes</span>
-      </div>
+      <div id="panel-live-status" class="sr-only" role="status" aria-live="polite"></div>
     </div>
   </div>
 
@@ -1587,6 +1958,7 @@
               connected: true,
               isSampleData: true,
               initialDroppedFiles: fixtureState?.droppedFiles || [],
+              seenFailedRunIds: fixtureState?.seenFailedRunIds || [],
             };
           }
           if (hasShellBridge()) {
@@ -1679,6 +2051,7 @@
             memory: Array.isArray(parsed.memory) ? parsed.memory : [],
             transcripts: parsed.transcripts && typeof parsed.transcripts === "object" ? parsed.transcripts : {},
             droppedFiles: Array.isArray(parsed.droppedFiles) ? parsed.droppedFiles : [],
+            seenFailedRunIds: Array.isArray(parsed.seenFailedRunIds) ? parsed.seenFailedRunIds : [],
           };
         }
 
@@ -2476,7 +2849,7 @@
             case "memory":
               return ev.msg ? sentenceCase(ev.msg) : "Replaying saved steps";
             case "decide":
-              return ev.thought ? sentenceCase(ev.thought) : (ev.action === "done" ? "Checking if done" : "Deciding next step");
+              return "";
             case "act":
               return ev.action ? sentenceCase(summarizeActPlain(ev)) : "Performed action";
             case "verify": {
@@ -2487,12 +2860,12 @@
                 return plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
               }
               const plainFail = cleanPlainSummary(rawEv, "", "");
-              return plainFail ? `Not verified yet: ${plainFail}` : "Verification check failed";
+              return plainFail ? `Not verified yet: ${plainFail}` : "Verification check did not pass";
             }
             case "tests":
               return ev.exit === 0
                 ? `Tests passed (round ${ev.round || 1})`
-                : `Tests failed (round ${ev.round || 1})`;
+                : `Tests did not pass (round ${ev.round || 1})`;
             case "ui_check":
               return ev.summary ? sentenceCase(ev.summary) : (ev.ok ? "UI check passed" : "UI check found issues");
             case "bug_report": {
@@ -2809,13 +3182,16 @@
         function normalizeTranscriptRows(rawRows) {
           if (!Array.isArray(rawRows)) return [];
           return rawRows
-            .filter((row) => row && String(row.text || "").trim())
+            .filter((row) => row && row.role !== "step" && row.kind !== "decide" && row.msg_kind !== "thought" && String(row.text || "").trim())
             .map((row, idx) => {
-              const role = row.role === "user" ? "user" : row.role === "step" ? "step" : "agent";
+              const role = row.role === "user" ? "user" : "agent";
               const rawName = role === "user" ? "You" : String(row.agent || row.role || "Agent").trim();
               const resolved = role === "agent" ? resolvePrimaryAgentDisplay(rawName, row.color || row.body) : null;
               return {
                 id: String(row.id || `msg-${idx}`),
+                ts: row.ts != null ? Number(row.ts) : row.t != null ? Number(row.t) : null,
+                run: row.run ? String(row.run) : "",
+                msgKind: row.msg_kind ? String(row.msg_kind) : "",
                 role,
                 who: resolved ? resolved.name : rawName,
                 text: String(row.text || "").trim(),
@@ -2918,7 +3294,141 @@
           const text = pluralizeUnits(String(rawSummary || "").trim());
           if (!text) return "Stopped before finishing";
           const withoutRepo = text.replace(/^QA\s+\S+:\s*/i, "");
-          return sentenceCase(withoutRepo);
+          const cleaned = withoutRepo
+            .replace(/^failed(?:\s*[:·-]\s*|\s+to\s+)/i, (m) => (/to\s+/i.test(m) ? "Could not " : ""))
+            .replace(/\bfailed\b/gi, "did not finish")
+            .replace(/\s*[×✕✗]\s*/g, " ")
+            .trim();
+          return sentenceCase(cleaned || "Stopped before finishing");
+        }
+
+        function classifyStoppedOutcome(rawSummary, events) {
+          const rawStr = String(rawSummary || "").trim();
+          const evList = Array.isArray(events) ? events : [];
+          const helpAnswers = evList.filter((e) => e && e.kind === "help_answer");
+          const isGenericStopText = /^$|^stopped\b|^did not finish|^cancelled\b|^canceled\b|^denied\b/i.test(rawStr);
+          const timedOutEv = helpAnswers.some((e) => e.timed_out === true);
+          if (/timed?\s*out|no answer received within|approval expired/i.test(rawStr) || (isGenericStopText && timedOutEv)) {
+            return { kind: "user_timeout", label: "Timed out waiting for you" };
+          }
+          const deniedEv = helpAnswers.some(
+            (e) =>
+              e.timed_out !== true &&
+              /^(no|deny|denied|decline|declined|reject|rejected|cancel)$/i.test(String(e.answer || "").trim())
+          );
+          if (/\byou said no\b|denied by user|^stopped\s*:\s*denied/i.test(rawStr) || (isGenericStopText && deniedEv)) {
+            return { kind: "user_denied", label: "You said no" };
+          }
+          if (/declined.*question|clarify.*declined/i.test(rawStr)) {
+            return { kind: "user_declined", label: "Cancelled by you" };
+          }
+          if (/cancelled|canceled|declined by user/i.test(rawStr)) {
+            return { kind: "user_cancelled", label: "Cancelled by you" };
+          }
+          if (/^stopped(\s+by\s+(user|you))?(?:\s*·\s*nothing was changed\.?)?$|^user stopped/i.test(rawStr)) {
+            return { kind: "user_stopped", label: "Stopped by you" };
+          }
+          const cleaned = cleanFailureFact(rawStr);
+          if (
+            !cleaned ||
+            /^stopped before finishing$/i.test(cleaned) ||
+            /^did not finish run$/i.test(cleaned) ||
+            /^run did not finish$/i.test(cleaned)
+          ) {
+            return { kind: "real_failure", label: "Stopped before finishing" };
+          }
+          const firstSentence = (cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned).replace(/[.]+$/, "").trim();
+          if (firstSentence.length <= 56) {
+            return { kind: "real_failure", label: sentenceCase(firstSentence) };
+          }
+          const cut = firstSentence.slice(0, 55);
+          const sp = cut.lastIndexOf(" ");
+          return {
+            kind: "real_failure",
+            label: sentenceCase((sp > 20 ? cut.slice(0, sp) : cut).trim()),
+          };
+        }
+
+        function deriveStoppedLabel(rawSummary, events) {
+          return classifyStoppedOutcome(rawSummary, events).label;
+        }
+
+        function formatShortClock(ts) {
+          const num = Number(ts);
+          if (!Number.isFinite(num) || num < 1000000000) return "";
+          try {
+            return new Date(num * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          } catch {
+            return "";
+          }
+        }
+
+        function buildWorkStepsForRun(childRun, detail, appName) {
+          const events = Array.isArray(detail?.events) ? detail.events : [];
+          const lines = [];
+          let actCount = 0;
+          for (const ev of events) {
+            if (!ev || ev.kind === "decide" || ev.kind === "state" || ev.kind === "llm") continue;
+            if (ev.kind === "msg" || ev.kind === "speak" || ev.kind === "route") continue;
+            let line = "";
+            if (ev.kind === "act") {
+              actCount += 1;
+              line = ev.action ? sentenceCase(summarizeActPlain(ev)) : "";
+            } else if (ev.kind === "verify" && ev.achieved) {
+              const rawEv = String(ev.evidence || "").trim();
+              if (/^mock$/i.test(rawEv)) {
+                line = "Sample run check (not verified)";
+              } else {
+                const plainEv = formatEvidencePlain(rawEv, appName || "", childRun?.result?.summary || "");
+                line = plainEv ? `Verified ${plainEv}` : "Verified goal on screen";
+              }
+            } else {
+              line = summarizeEventPlain(ev);
+            }
+            if (line && line !== "Working" && line !== "Finished" && line !== "Stopped") {
+              lines.push(line);
+            }
+          }
+          return {
+            lines,
+            stepCount: actCount > 0 ? actCount : Number(childRun?.result?.steps) || lines.length,
+          };
+        }
+
+        function buildApprovalHistoryForGroup(groupRuns, detailsById) {
+          const asksById = new Map();
+          const history = [];
+          for (const r of groupRuns) {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            for (const ev of evs) {
+              if (!ev) continue;
+              if (ev.kind === "help" && ev.id) {
+                asksById.set(ev.id, ev.question ? String(ev.question).trim() : "Approval needed");
+              } else if (ev.kind === "help_answer") {
+                const question = (ev.id && asksById.get(ev.id)) || ev.question || "Approval requested";
+                const rawAns = String(ev.answer || "").trim();
+                let prefix = "Answered";
+                if (ev.timed_out) {
+                  prefix = "Timed out waiting for you";
+                } else if (/^(no|deny|denied|decline|declined|reject|rejected|cancel|cancelled|canceled)$/i.test(rawAns)) {
+                  prefix = "You said no";
+                } else if (/^(yes|approve|approved|allow|allowed|ok|continue)$/i.test(rawAns)) {
+                  prefix = "You approved";
+                } else if (rawAns) {
+                  prefix = sentenceCase(rawAns);
+                }
+                const clockText = formatShortClock(ev.ts || ev.t);
+                history.push({
+                  id: String(ev.id || `ans-${history.length}`),
+                  question,
+                  choiceText: prefix,
+                  clockText,
+                  lineText: `${prefix}: ${question}${clockText ? ` · ${clockText}` : ""}`,
+                });
+              }
+            }
+          }
+          return history;
         }
 
         function buildPillFact(cleanText, isVerified) {
@@ -2993,8 +3503,8 @@
               stateColorClass = "state-success";
             }
           } else if (childRun.state === "failed" || childRun.result?.ok === false) {
-            stateSymbolWord = "× Failed";
-            stateColorClass = "state-danger";
+            stateSymbolWord = deriveStoppedLabel(childRun.result?.summary || "", events);
+            stateColorClass = "state-neutral";
           } else {
             stateSymbolWord = "◔ Finished, not verified";
             stateColorClass = "state-warning";
@@ -3042,9 +3552,12 @@
           }
 
           const detailLines = formatStepDetails(childRun, events, app);
+          const workData = buildWorkStepsForRun(childRun, detail, app);
 
           return {
             id: childRun.id,
+            goal: childRun.goal ? String(childRun.goal) : "",
+            elapsedText: formatSeconds(childRun.elapsed),
             app,
             actorLabel,
             agentIdentity,
@@ -3052,6 +3565,8 @@
             stateColorClass,
             latestSummary,
             detailLines,
+            workSteps: workData.lines,
+            workStepCount: workData.stepCount,
             hasDetails: detailLines.length > 0 || isWorking,
             isWorking,
           };
@@ -3446,6 +3961,7 @@
             let stateFact = "";
             let pillFact = "";
             let stateColorClass = "state-working";
+            let stopKind = "";
 
             if (activePendingHelp.length > 0 || parent.state === "awaiting_human" || rawChildren.some((c) => c.state === "awaiting_human")) {
               state = "waiting";
@@ -3476,13 +3992,21 @@
               }
             } else if (parent.state === "failed" || parent.result?.ok === false) {
               state = "failed";
-              stateSymbolWord = "× Failed";
               const baseSummary = cleanFailureFact(plainResultSummary || parent.result?.summary || parent.result?.digest?.summary);
+              const allGroupEvents = groupRuns.flatMap((gr) =>
+                Array.isArray(detailsById[gr.id]?.events) ? detailsById[gr.id].events : []
+              );
+              const outcome = classifyStoppedOutcome(
+                parent.result?.summary || parent.result?.digest?.summary || speakText || baseSummary,
+                allGroupEvents
+              );
+              stopKind = outcome.kind;
+              stateSymbolWord = outcome.label;
               stateFact = unappliedPatch
                 ? `${baseSummary} · Nothing was changed.`
                 : baseSummary;
-              pillFact = buildPillFact(baseSummary, false);
-              stateColorClass = "state-danger";
+              pillFact = buildPillFact(stateSymbolWord || baseSummary, false);
+              stateColorClass = "state-neutral";
             } else if (parent.state === "done") {
               state = "unverified";
               stateSymbolWord = "◔ Finished, not verified";
@@ -3492,13 +4016,22 @@
               stateColorClass = "state-warning";
             } else {
               state = "failed";
-              stateSymbolWord = "× Failed";
-              stateFact = "Run stopped without a verified result";
+              stopKind = "real_failure";
+              stateSymbolWord = "Stopped before finishing";
+              stateFact = "Run stopped before finishing";
               pillFact = buildPillFact(stateFact, false);
-              stateColorClass = "state-danger";
+              stateColorClass = "state-neutral";
             }
 
             const isFinished = state === "verified" || state === "failed" || state === "unverified";
+            const isRealFailure = state === "failed" && stopKind === "real_failure";
+            const primaryStep = steps[0] || null;
+            const failureAgentName = primaryStep?.agentIdentity?.name || primaryStep?.actorLabel || "Agent";
+            const rawFailureMsg =
+              stateSymbolWord === "Stopped before finishing"
+                ? "Couldn't finish"
+                : stateSymbolWord || stateFact || "Couldn't finish";
+            const failureLineText = /[.!?]$/.test(rawFailureMsg) ? rawFailureMsg : `${rawFailureMsg}.`;
             const liveStep = !isFinished
               ? buildLiveStepForRun(parent, rawChildren.length ? rawChildren : [parent], detailsById, stepById)
               : null;
@@ -3513,7 +4046,20 @@
               outputs: producedOutputs,
             });
             const transcriptRows = normalizeTranscriptRows(meta.transcriptsById?.[parent.id]);
+            const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById);
             const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
+            const lastTranscriptRow = transcriptRows.length ? transcriptRows[transcriptRows.length - 1] : null;
+            const lastTsFromTranscript =
+              lastTranscriptRow && lastTranscriptRow.ts != null ? Number(lastTranscriptRow.ts) : 0;
+            const rawTs = Number(parent.ts || parent.updated || parent.created || parent.started || 0);
+            const sortTs = Math.max(rawTs, lastTsFromTranscript);
+            const listClockText = formatShortClock(sortTs);
+            const lastLinePreview =
+              (lastTranscriptRow && lastTranscriptRow.text) ||
+              (activePendingHelp[0]?.question) ||
+              (state === "failed" ? stateSymbolWord : stateFact) ||
+              parent.goal ||
+              "Untitled chat";
 
             return {
               id: parent.id,
@@ -3521,7 +4067,12 @@
               apps,
               appLabel: apps.join(", "),
               elapsedText: formatSeconds(parent.elapsed),
+              listClockText,
               state,
+              stopKind,
+              isRealFailure,
+              failureAgentName,
+              failureLineText,
               isFinished,
               isMock: isMockRun,
               mockNote: isSampleContext
@@ -3543,6 +4094,9 @@
               producedOutputs,
               copyResultText,
               transcriptRows,
+              approvalHistory,
+              sortTs,
+              lastLinePreview,
               activePendingHelpCountdown,
             };
           });
@@ -3559,7 +4113,7 @@
           };
         }
 
-        return { mapRuns };
+        return { mapRuns, deriveStoppedLabel };
       })();
 
       /* ============================================================================
@@ -3569,8 +4123,8 @@
       const pillTrigger = document.getElementById("pill-trigger");
       const pillStatusLine = document.getElementById("pill-status-line");
       const panelView = document.getElementById("panel-view");
+      const panelHeader = document.getElementById("panel-header");
       const openWorkspaceBtn = document.getElementById("open-workspace-btn");
-      const collapseBtn = document.getElementById("collapse-btn");
       const promptForm = document.getElementById("prompt-form");
       const promptFieldWrap = document.getElementById("prompt-field-wrap");
       const promptInput = document.getElementById("prompt-input");
@@ -3587,14 +4141,7 @@
       const timelineScroll = document.getElementById("timeline-scroll");
       const micBtn = document.getElementById("mic-btn");
       const voiceStatusBar = document.getElementById("voice-status-bar");
-      const threadModeBar = document.getElementById("thread-mode-bar");
       const panelLiveStatus = document.getElementById("panel-live-status");
-
-      const STARTER_PROMPTS = [
-        "Open Calculator and verify that 8 units at $31 equals 248",
-        "Confirm Display Settings resolution is set to Default on Built-in Display",
-        "Open Safari and check the local workspace summary",
-      ];
 
       /* Attachment limits mirrored from backend/computeranything/core/attach.py (MAX_IMAGES = 3)
          and backend/computeranything/api/server.py (MAX_FILE = 50 * 1024 * 1024). */
@@ -3664,7 +4211,114 @@
       const pendingStopIds = new Set();
       let isStoppingAll = false;
       let globalStopSummary = "";
-      let composerThreadId = null;
+      const openWorkKeys = new Set();
+      let viewMode = "chat"; // "chat" | "list"
+      let isComposingNewChat = false;
+      let lastScrolledRunKey = "";
+      const LAST_THREAD_STORAGE_KEY = "ca.lastThreadId";
+      const SEEN_FAILED_STORAGE_KEY = "ca.seenFailedRuns";
+      const STARTER_PROMPTS = [
+        "Compute 23 × 19 in Calculator",
+        "Find the PDF I downloaded today",
+        "Write a launch post for my app",
+      ];
+      let hasInitializedFailureBaseline = false;
+      let pillFailureToast = null; // { runId, text, expiresAt }
+      let pillFailureTimer = null;
+
+      function readSeenFailedRuns() {
+        if (fixtureParam) {
+          return new Set(Array.isArray(fixtureSeenFailedIds) ? fixtureSeenFailedIds : []);
+        }
+        try {
+          if (typeof localStorage === "undefined") return new Set();
+          const raw = localStorage.getItem(SEEN_FAILED_STORAGE_KEY);
+          if (!raw) return new Set();
+          const arr = JSON.parse(raw);
+          return new Set(Array.isArray(arr) ? arr.map(String) : []);
+        } catch {
+          return new Set();
+        }
+      }
+
+      let fixtureSeenFailedIds = [];
+      let seenFailedRuns = readSeenFailedRuns();
+
+      function persistSeenFailedRuns() {
+        if (fixtureParam) return;
+        try {
+          if (typeof localStorage === "undefined") return;
+          const tail = Array.from(seenFailedRuns).slice(-200);
+          localStorage.setItem(SEEN_FAILED_STORAGE_KEY, JSON.stringify(tail));
+        } catch {
+          // Ignore storage errors
+        }
+      }
+
+      function isFailedRunSeen(runId) {
+        return Boolean(runId && seenFailedRuns.has(String(runId)));
+      }
+
+      function markFailedRunSeen(runId) {
+        const cleanId = String(runId || "").trim();
+        if (!cleanId) return false;
+        let changed = false;
+        if (!seenFailedRuns.has(cleanId)) {
+          seenFailedRuns.add(cleanId);
+          persistSeenFailedRuns();
+          changed = true;
+        }
+        if (pillFailureToast && pillFailureToast.runId === cleanId) {
+          pillFailureToast = null;
+          if (pillFailureTimer) {
+            clearTimeout(pillFailureTimer);
+            pillFailureTimer = null;
+          }
+          changed = true;
+        }
+        return changed;
+      }
+
+      function triggerPillFailureNotice(run) {
+        if (!run || !run.id || !run.isRealFailure) return;
+        const agentName = run.failureAgentName || "Agent";
+        const msg = `${agentName} couldn't finish`;
+        pillFailureToast = {
+          runId: run.id,
+          text: msg,
+          expiresAt: Date.now() + 4500,
+        };
+        if (pillFailureTimer) clearTimeout(pillFailureTimer);
+        pillFailureTimer = setTimeout(() => {
+          pillFailureToast = null;
+          pillFailureTimer = null;
+          if (lastViewModel) renderPill(lastViewModel);
+        }, 4600);
+      }
+
+      function readStoredLastThreadId() {
+        if (fixtureParam) return "";
+        try {
+          if (typeof localStorage === "undefined") return "";
+          return String(localStorage.getItem(LAST_THREAD_STORAGE_KEY) || "").trim();
+        } catch {
+          return "";
+        }
+      }
+
+      function saveLastThreadId(threadId) {
+        if (fixtureParam) return;
+        try {
+          if (typeof localStorage === "undefined") return;
+          if (threadId && !String(threadId).startsWith("optimistic-")) {
+            localStorage.setItem(LAST_THREAD_STORAGE_KEY, String(threadId));
+          } else {
+            localStorage.removeItem(LAST_THREAD_STORAGE_KEY);
+          }
+        } catch {
+          // Ignore storage errors
+        }
+      }
       const openOutputPreviewIds = new Set();
       const copiedItemIds = new Set();
       const dirtyTranscriptRunIds = new Set();
@@ -3765,32 +4419,33 @@
       }
 
       function syncThreadModeBar() {
-        if (!threadModeBar) return;
-        const activeRun = composerThreadId
-          ? (lastViewModel?.runs || []).find((r) => r.id === composerThreadId)
-          : null;
-        if (!composerThreadId || !activeRun) {
-          if (composerThreadId && !activeRun && hasLoadedOnce) {
-            composerThreadId = null;
+        if (!promptInput) return;
+        let label = "Ask your agents…";
+        if (viewMode === "list" || isComposingNewChat || !lastViewModel?.runs?.length) {
+          const primary = getPrimaryAgentRowIdentity();
+          if (primary?.name && primary.name !== "ComputerAnything") {
+            label = `Ask ${primary.name}…`;
+          } else if (primary?.name) {
+            label = `Ask ${primary.name}…`;
           }
-          threadModeBar.classList.add("hidden");
-          threadModeBar.innerHTML = "";
-          if (promptInput) promptInput.placeholder = "Ask your agents…";
-          return;
+        } else if (lastViewModel?.runs?.length) {
+          const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
+          const firstStepName = activeRun?.steps?.[0]?.agentIdentity?.name;
+          if (firstStepName) {
+            label = `Ask ${firstStepName}…`;
+          }
         }
-        threadModeBar.classList.remove("hidden");
-        threadModeBar.innerHTML = `
-          <span class="thread-mode-label">Follow-up in: ${escapeHtml(activeRun.goal)}</span>
-          <button type="button" class="btn" id="clear-followup-btn">New task</button>
-        `;
-        if (promptInput) promptInput.placeholder = "Follow up on this task…";
+        promptInput.placeholder = label;
       }
 
       function focusPendingApprovalInPanel(targetRunId) {
         const preferredRunId = targetRunId || lastViewModel?.pendingHelpRunId || "";
         if (!preferredRunId) return false;
-        if (selectedRunId !== preferredRunId) {
+        if (selectedRunId !== preferredRunId || viewMode !== "chat" || isComposingNewChat) {
           selectedRunId = preferredRunId;
+          viewMode = "chat";
+          isComposingNewChat = false;
+          saveLastThreadId(preferredRunId);
           stopStepReplay();
           renderNow();
         }
@@ -3816,7 +4471,9 @@
           lastHandledFocusTs = parsed.ts;
           if (parsed.run) {
             selectedRunId = String(parsed.run);
-            composerThreadId = String(parsed.run);
+            viewMode = "chat";
+            isComposingNewChat = false;
+            saveLastThreadId(selectedRunId);
           }
           setState("expanded", { instant: true, focusRunId: parsed.run ? String(parsed.run) : "" });
         } catch {
@@ -3832,7 +4489,6 @@
         pendingStopIds.clear();
         isStoppingAll = false;
         globalStopSummary = "";
-        composerThreadId = null;
         openOutputPreviewIds.clear();
         copiedItemIds.clear();
         dirtyTranscriptRunIds.clear();
@@ -3932,7 +4588,7 @@
         if (getCurrentState() !== "expanded") return;
         const shared = getSharedAgentGlass();
         if (!shared) return;
-        const nodes = timelineScroll.querySelectorAll("[data-agent-chip]");
+        const nodes = panelView.querySelectorAll("[data-agent-chip]");
         nodes.forEach((el) => {
           const stepId = el.dataset.agentChip || "";
           if (!stepId || mountedAgentChips.has(stepId)) return;
@@ -3984,8 +4640,19 @@
 
         if (state === "expanded") {
           width = hasShellBridge() ? 480 : Math.min(480, Math.max(320, window.innerWidth || 480));
-          const naturalHeight = panelView.scrollHeight;
-          height = Math.min(600, Math.max(150, Math.ceil(naturalHeight)));
+          const screenH = (typeof window !== "undefined" && (window.screen?.availHeight || window.screen?.height)) || 900;
+          const maxPanelHeight = Math.max(240, Math.round(screenH * 0.6));
+          notchShell.style.setProperty("--max-panel-height", `${maxPanelHeight}px`);
+          const headerVisible = panelHeader && !panelHeader.classList.contains("hidden");
+          const sampleVisible = sampleBanner && sampleBanner.style.display !== "none";
+          const contentNaturalHeight =
+            26 +
+            (headerVisible ? panelHeader.offsetHeight + 10 : 0) +
+            (sampleVisible ? sampleBanner.offsetHeight + 10 : 0) +
+            (timelineScroll ? timelineScroll.scrollHeight : 0) +
+            (promptForm ? promptForm.offsetHeight + 10 : 0);
+          const naturalHeight = Math.max(panelView.scrollHeight, contentNaturalHeight);
+          height = Math.min(maxPanelHeight, Math.max(88, Math.ceil(naturalHeight)));
           notchShell.style.setProperty("--panel-height", `${height}px`);
         }
 
@@ -4029,7 +4696,22 @@
           const targetPendingId = focusRunId || lastViewModel?.pendingHelpRunId || "";
           if (targetPendingId) {
             selectedRunId = targetPendingId;
+            viewMode = "chat";
+            isComposingNewChat = false;
+            saveLastThreadId(targetPendingId);
             if (lastViewModel) renderNow();
+          } else if (pillFailureToast && pillFailureToast.runId) {
+            selectedRunId = pillFailureToast.runId;
+            viewMode = "chat";
+            isComposingNewChat = false;
+            saveLastThreadId(selectedRunId);
+            markFailedRunSeen(selectedRunId);
+            if (lastViewModel) renderNow();
+          } else if (lastViewModel && viewMode === "chat") {
+            const openRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
+            if (openRun?.isRealFailure && markFailedRunSeen(openRun.id)) {
+              renderNow();
+            }
           }
           requestAnimationFrame(() => {
             mountAllAgentChips();
@@ -4042,8 +4724,8 @@
                 promptInput.focus();
               }
             }
-            if (prevState !== "expanded") {
-              announceStatus(landedOnApproval ? "Workspace opened · Approval needed" : "Workspace opened");
+            if (prevState !== "expanded" && landedOnApproval) {
+              announceStatus("Approval needed");
             }
             syncSizeAndBridge(false, instant);
           });
@@ -4051,9 +4733,6 @@
           destroyAllAgentChips();
           if (voiceState === "listening") {
             Transport.post("stopDictation");
-          }
-          if (prevState !== "collapsed") {
-            announceStatus("Workspace closed");
           }
         }
       }
@@ -4182,10 +4861,6 @@
 
       openWorkspaceBtn.addEventListener("click", () => {
         Transport.openWorkspace(fixtureParam || "");
-      });
-
-      collapseBtn.addEventListener("click", (e) => {
-        setState("collapsed", { instant: e.detail === 0 });
       });
 
       window.addEventListener("keydown", (e) => {
@@ -4800,22 +5475,16 @@
       }
 
       /* ---------------- SUBMIT PROMPT ---------------- */
-      if (threadModeBar) {
-        threadModeBar.addEventListener("click", (e) => {
-          if (e.target.closest("#clear-followup-btn")) {
-            composerThreadId = null;
-            syncThreadModeBar();
-            promptInput.focus();
-            announceStatus("Ready for a new task");
-          }
-        });
-      }
-
       async function submitTask(rawPrompt, attachedItems, options = {}) {
         sendErrorText = "";
         globalStopSummary = "";
 
-        const explicitThread = options.thread !== undefined ? options.thread : composerThreadId;
+        const explicitThread =
+          options.thread !== undefined
+            ? options.thread
+            : isComposingNewChat
+            ? ""
+            : selectedRunId;
         const threadTarget =
           explicitThread && !String(explicitThread).startsWith("optimistic-") ? String(explicitThread) : "";
 
@@ -4836,11 +5505,14 @@
             },
           ];
           selectedRunId = threadTarget;
+          viewMode = "chat";
+          isComposingNewChat = false;
+          saveLastThreadId(threadTarget);
           dirtyTranscriptRunIds.add(threadTarget);
           renderNow();
           try {
             await submitTaskRequest({ rawPrompt, attachedItems, thread: threadTarget });
-            announceStatus("Follow-up sent");
+            announceStatus("Message sent");
             await pollAll();
           } catch (err) {
             if (err.code === "AUTH") {
@@ -4850,7 +5522,7 @@
               connectionStatus = "disconnected";
               connectionError = "Token rejected · Paste the address again";
             } else {
-              sendErrorText = err.message || "Could not send follow-up";
+              sendErrorText = err.message || "Could not send message";
               announceStatus(sendErrorText);
             }
             renderNow();
@@ -4870,7 +5542,8 @@
           result: null,
         });
         selectedRunId = tempId;
-        composerThreadId = null;
+        viewMode = "chat";
+        isComposingNewChat = false;
         renderNow();
 
         try {
@@ -4879,7 +5552,9 @@
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
           if (created?.run) {
             selectedRunId = created.run;
-            composerThreadId = created.thread || created.run;
+            viewMode = "chat";
+            isComposingNewChat = false;
+            saveLastThreadId(created.run);
             dirtyTranscriptRunIds.add(created.run);
           }
           announceStatus("Task sent");
@@ -4960,62 +5635,55 @@
           : vm.runs.find((r) => r.pendingHelp.some((h) => !h.isExpired)) || null;
         if (pendingRun) {
           const activeHelp = pendingRun.pendingHelp.find((h) => !h.isExpired);
-          const pendingAgents = pendingRun.steps
-            .filter((s) => s.agentIdentity?.hasAgentColor)
-            .map((s) => s.agentIdentity)
-            .slice(0, 3);
-          const pendingDotsHtml = pendingAgents.length
-            ? `<span class="pill-agent-dots">${pendingAgents
+          const pillAgents = vm.liveAgents.length
+            ? vm.liveAgents.slice(0, 4)
+            : pendingRun.steps
+                .filter((s) => s.agentIdentity?.hasAgentColor)
+                .map((s) => s.agentIdentity)
+                .slice(0, 4);
+          const dotsHtml = pillAgents.length
+            ? `<span class="pill-dots">${pillAgents
                 .map(
                   (a) =>
-                    `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
+                    `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge || "rgba(255,255,255,0.25)")};"></span>`
                 )
                 .join("")}</span>`
             : "";
-          const countdownSuffix = activeHelp?.countdownText
-            ? `<span class="pill-sub">&middot; ${escapeHtml(activeHelp.countdownText)}</span>`
-            : "";
+          const countdownText = activeHelp?.countdownText ? `Needs you ${activeHelp.countdownText}` : "Needs you";
           setPillHtml(`
-            ${pendingDotsHtml}
-            <span class="state-text state-warning">! Needs you</span>
-            ${countdownSuffix}
+            ${dotsHtml}
+            <span class="pill-need">${escapeHtml(countdownText)}</span>
           `);
           return;
         }
 
-        const latest = vm.runs[0] || null;
-        if (!latest) {
-          setPillHtml(`<span class="pill-idle">Ask your agents</span>`);
+        if (pillFailureToast && Date.now() < pillFailureToast.expiresAt && !isFailedRunSeen(pillFailureToast.runId)) {
+          setPillHtml(`<span class="pill-idle">${escapeHtml(pillFailureToast.text)}</span>`);
           return;
         }
 
-        const dotsHtml = vm.liveAgents.length
-          ? `<span class="pill-dots" aria-label="${escapeHtml(String(vm.liveAgents.length))} active agent${vm.liveAgents.length === 1 ? "" : "s"}">${vm.liveAgents
-              .map(
-                (a) =>
-                  `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
-              )
-              .join("")}</span>`
-          : "";
+        if (vm.liveAgents.length) {
+          const dotsHtml = `<span class="pill-dots" aria-label="${escapeHtml(String(vm.liveAgents.length))} running agent${vm.liveAgents.length === 1 ? "" : "s"}">${vm.liveAgents
+            .slice(0, 5)
+            .map(
+              (a) =>
+                `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
+            )
+            .join("")}</span>`;
+          setPillHtml(`
+            ${dotsHtml}
+            <span class="pill-sub">${escapeHtml(String(vm.liveAgents.length))} working</span>
+          `);
+          return;
+        }
 
-        /* F2 & F3: No fake "Run again" action in pill; only symbol + word get state color */
-        const pillDetail = latest.pillFact || latest.stateFact;
-        const fact = pillDetail ? `<span class="pill-sub">&middot; ${escapeHtml(pillDetail)}</span>` : "";
-        setPillHtml(`
-          ${dotsHtml}
-          <span class="state-text ${escapeHtml(latest.stateColorClass)}">${escapeHtml(latest.stateSymbolWord)}</span>
-          ${fact}
-        `);
+        setPillHtml(`<span class="pill-idle">Ask your agents</span>`);
       }
 
       function updateLiveTicksInPlace(vm) {
+        if (viewMode !== "chat" || isComposingNewChat) return false;
         const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
         if (!activeRun) return false;
-
-        const elapsedEl = timelineScroll.querySelector(`[data-run-elapsed="${CSS.escape(activeRun.id)}"]`);
-        if (elapsedEl) {
-          elapsedEl.textContent = activeRun.elapsedText;
-        }
 
         let expiryCrossed = false;
         for (const h of activeRun.pendingHelp) {
@@ -5036,58 +5704,51 @@
           }
         }
 
-        if (!activeRun.isFinished) {
-          const liveCostEl = timelineScroll.querySelector(`[data-run-live-cost="${CSS.escape(activeRun.id)}"]`);
-          if (liveCostEl) {
-            liveCostEl.textContent = `Cost ${activeRun.digest.liveCostText}`;
-          }
-        }
-
         return !expiryCrossed;
       }
 
       function buildPanelStructureKey(vm, activeRun) {
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) return "loading";
         if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}`;
-        if (!activeRun) return `empty:${vm.connectionStatus}:${sendErrorText}`;
+        const listSummaryKey = vm.runs
+          .map((r) => `${r.id}:${r.state}:${r.stateSymbolWord}:${isFailedRunSeen(r.id) ? 1 : 0}:${r.lastLinePreview}:${r.elapsedText}`)
+          .join("|");
+        if (viewMode === "list") {
+          return `list:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${listSummaryKey}`;
+        }
+        if (isComposingNewChat || !activeRun) {
+          return `new:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}`;
+        }
 
         const helpKey = activeRun.pendingHelp
           .map((h) => `${h.id}:${h.isExpired ? "exp" : "act"}:${h.kindWarning}`)
           .join(",");
+        const historyKey = (activeRun.approvalHistory || [])
+          .map((a) => `${a.id}:${a.lineText || a.choiceText}`)
+          .join(",");
         const stepsKey = activeRun.steps
           .map(
             (s) =>
-              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.app}:${s.latestSummary}:${expandedStepIds.has(s.id) ? 1 : 0}:${s.detailLines.length}`
+              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.elapsedText}:${s.workStepCount}:${s.workSteps.length}:${openWorkKeys.has(`${activeRun.id}:${s.id}`) ? 1 : 0}`
           )
           .join("|");
-        const runStepsOpen = openRunStepsIds.has(activeRun.id) ? 1 : 0;
-        const replayOpen = openReplayRunIds.has(activeRun.id) ? 1 : 0;
-        const replayIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
         const memoryKey = getVisibleMemoriesForRun(activeRun)
           .map((m) => `${m.id}:${m.text || ""}:${pendingUndoMemoryIds.has(m.id) ? 1 : 0}`)
           .join("|");
-        const otherKey = vm.runs
-          .filter((r) => r.id !== activeRun.id)
-          .map((r) => `${r.id}:${r.stateSymbolWord}:${r.goal}`)
-          .join("|");
-
         const outputKey = activeRun.producedOutputs
           .map((o) => `${o.id}:${openOutputPreviewIds.has(`${activeRun.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${activeRun.id}:${o.id}`) ? 1 : 0}`)
           .join("|");
         const transcriptKey = activeRun.transcriptRows
           .map((t) => `${t.id}:${t.role}:${t.who}:${t.text}`)
           .join("|");
-        const liveRunsCount = vm.runs.filter((r) => !r.isFinished).length;
 
         return [
+          "chat",
           vm.connectionStatus,
           vm.isSampleData ? 1 : 0,
+          vm.liveAgents.length,
           sendErrorText,
           stopRouteSupported ? 1 : 0,
-          isStoppingAll ? 1 : 0,
-          globalStopSummary,
-          liveRunsCount,
-          composerThreadId || "",
           pendingStopIds.has(activeRun.id) ? 1 : 0,
           stopNoticesByRunId.get(activeRun.id) || "",
           copiedItemIds.has(`result:${activeRun.id}`) ? 1 : 0,
@@ -5096,25 +5757,184 @@
           transcriptKey,
           activeRun.id,
           activeRun.goal,
-          activeRun.appLabel,
           activeRun.state,
+          activeRun.stopKind,
           activeRun.stateSymbolWord,
           activeRun.stateFact,
           activeRun.speakText,
           activeRun.evidenceText,
-          activeRun.liveStep ? activeRun.liveStep.fingerprint : "",
-          activeRun.digest.totalSteps,
-          activeRun.digest.memorySteps,
+          activeRun.elapsedText,
           activeRun.digest.costText,
-          activeRun.digest.liveCostText,
+          activeRun.liveStep ? activeRun.liveStep.fingerprint : "",
           helpKey,
+          historyKey,
           memoryKey,
           stepsKey,
-          runStepsOpen,
-          replayOpen,
-          replayIdx,
-          otherKey,
         ].join("::");
+      }
+
+      function renderAgentChipHtml(agentIdentity, chipId) {
+        const id = agentIdentity || { name: "Agent", color: "#5c6b7a", hasAgentColor: false, palette: { body: "rgba(92, 107, 122, 0.25)", edge: "#E0E3E6", ink: "#F2F4F8" } };
+        const pal = id.palette || { body: "rgba(92, 107, 122, 0.25)", edge: "#E0E3E6", ink: "#F2F4F8" };
+        return `<span class="agent-chip" style="--chip-bg: ${escapeHtml(pal.body)}; --chip-edge: ${escapeHtml(pal.edge)}; --chip-ink: ${escapeHtml(pal.ink)};" data-agent-chip="${escapeHtml(chipId)}" data-agent-has-color="${id.hasAgentColor ? "1" : "0"}" data-agent-name="${escapeHtml(id.name)}" data-agent-color="${escapeHtml(id.color)}" data-agent-edge="${escapeHtml(id.rawEdge || pal.edge)}" data-agent-ink="${escapeHtml(id.rawInk || pal.ink)}"><span class="agent-chip-label">${escapeHtml(id.name)}</span></span>`;
+      }
+
+      function getPrimaryAgentRowIdentity() {
+        const primary = resolvePrimaryAgentDisplay("ComputerAnything", "#B5D0EB");
+        const swatch =
+          PRIMARY_AGENT_SWATCHES.find((s) => s.color.toUpperCase() === String(primary.color || "").toUpperCase()) ||
+          PRIMARY_AGENT_SWATCHES[0];
+        return {
+          name: primary.name || "ComputerAnything",
+          color: primary.color || swatch.color,
+          hasAgentColor: true,
+          rawEdge: swatch.edge,
+          rawInk: swatch.ink,
+          palette: { body: swatch.color, edge: swatch.edge, ink: swatch.ink },
+        };
+      }
+
+      function renderAvatarHtml(identity, isPrimaryRow) {
+        const name = String(identity?.name || "A").trim();
+        const initial = name.charAt(0).toUpperCase() || "A";
+        if (isPrimaryRow) {
+          return `<div class="chat-avatar" style="--av-bg: #2b2f38; --av-ink: var(--text-primary); --av-edge: rgba(255, 255, 255, 0.16);">${escapeHtml(initial)}</div>`;
+        }
+        const pal = identity?.palette || { body: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" };
+        return `<div class="chat-avatar" style="--av-bg: ${escapeHtml(pal.body)}; --av-ink: ${escapeHtml(pal.ink)}; --av-edge: ${escapeHtml(pal.edge)};">${escapeHtml(initial)}</div>`;
+      }
+
+      function formatListStateBadge(r) {
+        if (r.state === "waiting") return { text: "! Needs you", cls: "state-warning" };
+        if (r.state === "working") return { text: "● Working", cls: "state-working" };
+        if (r.state === "verified") return { text: "✓ Done", cls: "state-success" };
+        if (r.state === "unverified") return { text: "Finished", cls: "state-neutral" };
+        if (r.stopKind && r.stopKind.startsWith("user_")) {
+          return { text: r.stateSymbolWord || "Cancelled by you", cls: "state-neutral" };
+        }
+        if (r.isRealFailure) {
+          return isFailedRunSeen(r.id) ? null : { text: "Couldn't finish", cls: "state-neutral" };
+        }
+        return null;
+      }
+
+      function renderChatListHtml(vm) {
+        const primary = getPrimaryAgentRowIdentity();
+        const primaryLabel = primary.name === "ComputerAnything" ? "Your agent" : primary.name;
+        const primaryRoleTag = primary.name === "ComputerAnything" ? "" : `<span class="chat-list-role">&middot; your agent</span>`;
+        const primaryRowHtml = `
+          <button type="button" class="chat-list-row" data-action="new-primary-chat">
+            ${renderAvatarHtml(primary, true)}
+            <div class="chat-list-mid">
+              <div class="chat-list-name-row">
+                <span class="chat-list-name">${escapeHtml(primaryLabel)}</span>
+                ${primaryRoleTag}
+              </div>
+              <div class="chat-list-preview">Type here to start a new chat</div>
+            </div>
+            <div class="chat-list-rt">&nbsp;</div>
+          </button>
+        `;
+
+        const indexed = vm.runs.map((r, idx) => ({ r, idx }));
+        indexed.sort((a, b) => {
+          const aNeeds = a.r.state === "waiting" ? 0 : 1;
+          const bNeeds = b.r.state === "waiting" ? 0 : 1;
+          if (aNeeds !== bNeeds) return aNeeds - bNeeds;
+          if (a.r.sortTs !== b.r.sortTs) return b.r.sortTs - a.r.sortTs;
+          return a.idx - b.idx;
+        });
+
+        const runRowsHtml = indexed
+          .map(({ r }) => {
+            const seenNames = new Set();
+            const rowIdentities = [];
+            for (const s of r.steps) {
+              const nm = s.agentIdentity?.name || "";
+              if (nm && !seenNames.has(nm)) {
+                seenNames.add(nm);
+                rowIdentities.push(s.agentIdentity);
+              }
+            }
+            const leadIdentity = rowIdentities[0] || primary;
+            const displayNames = rowIdentities.length
+              ? rowIdentities.map((id) => id.name).join(", ")
+              : primary.name;
+            const badge = formatListStateBadge(r);
+            const timeText = r.listClockText || (r.elapsedText && r.elapsedText !== "—" ? r.elapsedText : "");
+            return `
+              <button type="button" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}">
+                ${renderAvatarHtml(leadIdentity, false)}
+                <div class="chat-list-mid">
+                  <div class="chat-list-name-row">
+                    <span class="chat-list-name">${escapeHtml(displayNames)}</span>
+                  </div>
+                  <div class="chat-list-preview">${escapeHtml(r.lastLinePreview || r.goal)}</div>
+                </div>
+                <div class="chat-list-rt">
+                  ${badge ? `<span class="state-text ${escapeHtml(badge.cls)}">${escapeHtml(badge.text)}</span>` : ""}
+                  ${timeText ? `<span class="chat-list-time">${escapeHtml(timeText)}</span>` : ""}
+                </div>
+              </button>
+            `;
+          })
+          .join("");
+
+        return `<div class="chat-list">${primaryRowHtml}${runRowsHtml}</div>`;
+      }
+
+      function renderWorkDividerHtml(runId, step) {
+        if (!step || !Array.isArray(step.workSteps) || !step.workSteps.length) return "";
+        const workKey = `${runId}:${step.id}`;
+        const isOpen = openWorkKeys.has(workKey);
+        const count = step.workStepCount || step.workSteps.length;
+        const stepWord = count === 1 ? "step" : "steps";
+        const timeText = step.elapsedText || "";
+        const labelParts = ["Work", step.agentIdentity.name, `${count} ${stepWord}`];
+        if (timeText && timeText !== "—") labelParts.push(timeText);
+        const labelText = labelParts.join(" · ");
+        return `
+          <div class="work-divider-wrap">
+            <button
+              type="button"
+              class="work-divider-btn"
+              data-action="toggle-work"
+              data-work-key="${escapeHtml(workKey)}"
+              aria-expanded="${isOpen ? "true" : "false"}"
+            >
+              <span class="work-divider-label">${escapeHtml(labelText)} &middot; <span class="work-toggle-word">${isOpen ? "Hide" : "Show"}</span></span>
+            </button>
+            ${
+              isOpen
+                ? `<div class="work-steps-list">${step.workSteps
+                    .map((line) => `<div class="work-step-line">${escapeHtml(line)}</div>`)
+                    .join("")}</div>`
+                : ""
+            }
+          </div>
+        `;
+      }
+
+      function setPanelHeaderHtml(html) {
+        if (!panelHeader) return;
+        const trimmed = String(html || "").trim();
+        if (!trimmed) {
+          panelHeader.innerHTML = "";
+          panelHeader.classList.add("hidden");
+        } else {
+          panelHeader.innerHTML = trimmed;
+          panelHeader.classList.remove("hidden");
+        }
+      }
+
+      function renderStopAllButtonHtml(vm) {
+        const hasLiveRuns = Boolean(
+          stopRouteSupported &&
+            ((vm?.liveAgents && vm.liveAgents.length > 0) ||
+              (vm?.runs && vm.runs.some((r) => !r.isFinished)))
+        );
+        if (!hasLiveRuns) return "";
+        return `<button type="button" class="btn btn-danger" data-action="stop-all" ${isStoppingAll ? "disabled" : ""}>Stop all</button>`;
       }
 
       function renderPanel(vm) {
@@ -5125,6 +5945,7 @@
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
           lastPanelStructureKey = "loading";
           destroyAllAgentChips();
+          setPanelHeaderHtml("");
           timelineScroll.innerHTML = `
             <div class="timeline-row">
               <span class="state-text state-working">&hellip; Loading</span>
@@ -5138,6 +5959,7 @@
         if (vm.connectionStatus === "disconnected") {
           lastPanelStructureKey = `disconnected:${vm.connectionError}`;
           destroyAllAgentChips();
+          setPanelHeaderHtml("");
           const prevInput = document.getElementById("connect-url-input")?.value || "";
           timelineScroll.innerHTML = `
             <div class="timeline-block">
@@ -5176,70 +5998,95 @@
         if (sendErrorText) {
           blocks.push(`
             <div class="timeline-row">
-              <span class="state-text state-danger">&times; Failed &middot; ${escapeHtml(sendErrorText)}</span>
+              <span class="state-text state-neutral">Could not send &middot; ${escapeHtml(sendErrorText)}</span>
             </div>
           `);
         }
 
-        if (!vm.runs.length) {
-          lastPanelStructureKey = `empty:${vm.connectionStatus}:${sendErrorText}`;
+        const stopAllBtnHtml = renderStopAllButtonHtml(vm);
+
+        if (viewMode === "list") {
+          lastPanelStructureKey = buildPanelStructureKey(vm, null);
           destroyAllAgentChips();
-          const starterHtml = STARTER_PROMPTS.map(
-            (promptText, idx) => `
-              <div class="output-row">
-                <button
-                  type="button"
-                  class="btn starter-btn"
-                  data-action="pick-starter"
-                  data-prompt="${escapeHtml(promptText)}"
-                >${idx + 1}. ${escapeHtml(promptText)}</button>
-                <button
-                  type="button"
-                  class="btn"
-                  data-action="run-starter"
-                  data-prompt="${escapeHtml(promptText)}"
-                  aria-label="Run starter ${idx + 1}"
-                >Run</button>
-              </div>
-            `
-          ).join("");
-          blocks.push(`
-            <div class="timeline-row">
-              <span class="state-text state-neutral">&cir; No runs yet</span>
-            </div>
-            <div class="starter-section">
-              <div class="section-heading">Starter prompts</div>
-              <div class="starter-list">${starterHtml}</div>
-            </div>
+          const workingCount = vm.runs.filter((r) => r.state === "working").length;
+          setPanelHeaderHtml(`
+            <span class="list-nav-title">Chats</span>
+            <span style="flex:1"></span>
+            <span class="panel-header-right">
+              ${workingCount > 0 ? `<span class="state-text state-working">${escapeHtml(String(workingCount))} working</span>` : ""}
+              ${stopAllBtnHtml}
+            </span>
           `);
+          blocks.push(renderChatListHtml(vm));
           timelineScroll.innerHTML = blocks.join("");
+          mountAllAgentChips();
           syncSizeAndBridge();
           return;
         }
 
-        const liveRuns = vm.runs.filter((r) => !r.isFinished);
-        if (stopRouteSupported && (liveRuns.length > 0 || globalStopSummary)) {
-          const stopStatusLabel = liveRuns.length > 0
-            ? `${liveRuns.length} running task${liveRuns.length === 1 ? "" : "s"}`
-            : globalStopSummary;
-          blocks.push(`
-            <div class="global-stop-bar">
-              <span class="global-stop-copy">${escapeHtml(stopStatusLabel)}</span>
-              ${liveRuns.length > 0
-                ? `<button type="button" class="btn" data-action="stop-all" ${isStoppingAll ? "disabled" : ""}>${isStoppingAll ? "Stopping…" : "Stop all"}</button>`
-                : ""}
-            </div>
-          `);
+        if (vm.runs.length) {
+          const newestId = vm.runs[0].id;
+          if (latestSeenRunId === null) {
+            latestSeenRunId = newestId;
+            const storedThreadId = readStoredLastThreadId();
+            if (storedThreadId && vm.runs.some((r) => r.id === storedThreadId)) {
+              selectedRunId = storedThreadId;
+            } else if (!selectedRunId || !vm.runs.some((r) => r.id === selectedRunId)) {
+              selectedRunId = newestId;
+            }
+          } else if (newestId !== latestSeenRunId) {
+            latestSeenRunId = newestId;
+            selectedRunId = newestId;
+            viewMode = "chat";
+            isComposingNewChat = false;
+            saveLastThreadId(newestId);
+            stopStepReplay();
+          }
         }
 
-        const newestId = vm.runs[0].id;
-        if (newestId !== latestSeenRunId) {
-          latestSeenRunId = newestId;
-          selectedRunId = newestId;
-          stopStepReplay();
+        if (!vm.runs.length || isComposingNewChat) {
+          lastPanelStructureKey = buildPanelStructureKey(vm, null);
+          destroyAllAgentChips();
+          const primary = getPrimaryAgentRowIdentity();
+          setPanelHeaderHtml(`
+            <div class="chat-nav-left">
+              <button type="button" class="btn btn-icon" data-action="open-chat-list" aria-label="Back to chats" title="Back to chats">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              ${renderAgentChipHtml(primary, "empty-chat-header")}
+            </div>
+            ${stopAllBtnHtml ? `<span class="panel-header-right">${stopAllBtnHtml}</span>` : ""}
+          `);
+          blocks.push(`
+            <div class="starter-section">
+              <div class="starter-list">
+                ${STARTER_PROMPTS.map(
+                  (promptText) => `
+                    <button
+                      type="button"
+                      class="btn starter-btn"
+                      data-action="run-starter"
+                      data-prompt="${escapeHtml(promptText)}"
+                    >${escapeHtml(promptText)}</button>
+                  `
+                ).join("")}
+              </div>
+            </div>
+          `);
+          timelineScroll.innerHTML = blocks.join("");
+          mountAllAgentChips();
+          syncSizeAndBridge();
+          return;
         }
+
         const activeRun = vm.runs.find((r) => r.id === selectedRunId) || vm.runs[0];
         selectedRunId = activeRun.id;
+
+        if (getCurrentState() === "expanded" && activeRun.isRealFailure) {
+          markFailedRunSeen(activeRun.id);
+        }
 
         const nextStructureKey = buildPanelStructureKey(vm, activeRun);
         if (nextStructureKey === lastPanelStructureKey) {
@@ -5249,18 +6096,121 @@
         }
         lastPanelStructureKey = nextStructureKey;
 
-        const savedScroll = new Map();
-        timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
-          savedScroll.set(el.dataset.detailScroll, el.scrollTop);
+        const primaryForHeader = getPrimaryAgentRowIdentity();
+        const headerAgent = activeRun.steps?.[0]?.agentIdentity || primaryForHeader;
+        setPanelHeaderHtml(`
+          <div class="chat-nav-left">
+            <button type="button" class="btn btn-icon" data-action="open-chat-list" aria-label="Back to chats" title="Back to chats">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            ${renderAgentChipHtml(headerAgent, `chathead-${activeRun.id}`)}
+            <span class="chat-nav-title" title="${escapeHtml(activeRun.goal)}">${escapeHtml(activeRun.goal)}</span>
+          </div>
+          ${stopAllBtnHtml ? `<span class="panel-header-right">${stopAllBtnHtml}</span>` : ""}
+        `);
+
+        const messageNodes = [];
+        const rows = activeRun.transcriptRows || [];
+        const hasInitialUserRow =
+          rows.length > 0 &&
+          rows[0].role === "user" &&
+          String(rows[0].text || "").trim() === String(activeRun.goal || "").trim();
+
+        if (!hasInitialUserRow && activeRun.goal) {
+          messageNodes.push(`
+            <div class="chat-msg-row is-user">
+              <div class="chat-bubble is-user">${escapeHtml(activeRun.goal)}</div>
+            </div>
+          `);
+        }
+
+        const stepIdentityByName = new Map();
+        for (const s of activeRun.steps) {
+          if (s.agentIdentity?.name && !stepIdentityByName.has(s.agentIdentity.name)) {
+            stepIdentityByName.set(s.agentIdentity.name, s);
+          }
+        }
+        const attachedWorkStepIds = new Set();
+        const primaryIdentity = getPrimaryAgentRowIdentity();
+
+        let renderedAgentBubble = false;
+        rows.forEach((row, idx) => {
+          if (row.role === "user") {
+            messageNodes.push(`
+              <div class="chat-msg-row is-user">
+                <div class="chat-bubble is-user">${escapeHtml(row.text)}</div>
+              </div>
+            `);
+            return;
+          }
+          if (/^Finished\.?$/i.test(String(row.text || "").trim())) {
+            return;
+          }
+          renderedAgentBubble = true;
+          const matchingStep = stepIdentityByName.get(row.who) || null;
+          const chipId = `tr-${activeRun.id}-${idx}`;
+          const chipIdentity = matchingStep
+            ? matchingStep.agentIdentity
+            : {
+                name: row.who || primaryIdentity.name,
+                color: row.color || primaryIdentity.color,
+                hasAgentColor: Boolean(row.color || primaryIdentity.hasAgentColor),
+                palette: matchingStep?.agentIdentity?.palette || {
+                  body: row.color || primaryIdentity.color,
+                  edge: row.edge || primaryIdentity.rawEdge,
+                  ink: "#1E2630",
+                },
+              };
+          let workHtml = "";
+          if (matchingStep && !attachedWorkStepIds.has(matchingStep.id)) {
+            attachedWorkStepIds.add(matchingStep.id);
+            workHtml = renderWorkDividerHtml(activeRun.id, matchingStep);
+          }
+          messageNodes.push(`
+            <div class="chat-msg-row is-agent">
+              <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}</div>
+              <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
+              ${workHtml}
+            </div>
+          `);
         });
 
-        /* Inline live step line from act/decide events, fading after 3s */
-        let liveStepHtml = "";
-        if (activeRun.liveStep) {
-          const faded = isLiveStepFaded(activeRun.liveStep);
-          liveStepHtml = `
+        for (const step of activeRun.steps) {
+          if (attachedWorkStepIds.has(step.id) && renderedAgentBubble) continue;
+          const workHtml = renderWorkDividerHtml(activeRun.id, step);
+          let greetingText = "";
+          if (!renderedAgentBubble) {
+            if (step.goal && activeRun.steps.length > 1) {
+              greetingText = step.goal;
+            } else if (step.isWorking) {
+              greetingText = step.app ? `Working in ${step.app}` : "Working on it";
+            } else if (activeRun.speakText && !/^Finished\.?$/i.test(activeRun.speakText) && activeRun.steps.length === 1) {
+              greetingText = activeRun.speakText;
+            } else if (step.latestSummary && !/^Finished\.?$/i.test(step.latestSummary)) {
+              greetingText = step.latestSummary;
+            } else if (activeRun.stateFact && activeRun.steps.length === 1) {
+              greetingText = activeRun.stateFact;
+            } else {
+              greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
+            }
+          }
+          if (greetingText || workHtml) {
+            attachedWorkStepIds.add(step.id);
+            messageNodes.push(`
+              <div class="chat-msg-row is-agent">
+                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}</div><div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
+                ${workHtml}
+              </div>
+            `);
+          }
+        }
+
+        const liveStepHtml = activeRun.liveStep
+          ? `
             <div
-              class="live-step-line ${faded ? "is-faded" : ""}"
+              class="live-step-line ${isLiveStepFaded(activeRun.liveStep) ? "is-faded" : ""}"
               data-live-step-key="${escapeHtml(activeRun.liveStep.key)}"
             >
               <span
@@ -5269,32 +6219,42 @@
               ></span>
               <span class="live-step-text" title="${escapeHtml(activeRun.liveStep.text)}">${escapeHtml(activeRun.liveStep.text)}</span>
             </div>
-          `;
-        }
+          `
+          : "";
 
-        /* Inline pending help rows inside timeline (Requirement 5, A4, countdown to 5m deny) */
+        const approvalHistoryHtml = (activeRun.approvalHistory || [])
+          .map(
+            (item) =>
+              `<div class="chat-approval-history">${escapeHtml(item.lineText || `Asked “${item.question}” · ${item.choiceText}`)}</div>`
+          )
+          .join("");
+
         const helpHtml = activeRun.pendingHelp
           .map(
             (h) => `
               <div class="help-block ${h.isExpired ? "is-expired" : ""}">
+                <div class="timeline-row">
+                  <span class="state-text ${h.isExpired ? "state-neutral" : "state-warning"}">${h.isExpired ? "Timed out waiting for you" : "Waiting for you"}</span>
+                </div>
                 <div class="help-row">
                   <span class="help-question">${escapeHtml(h.question)}</span>
                   <span class="help-actions">
-                    ${h.isExpired
-                      ? `<span class="state-text state-danger">&oslash; Expired</span>`
-                      : h.options
-                          .map(
-                            (opt) => `
-                              <button
-                                type="button"
-                                class="btn"
-                                data-action="answer-help"
-                                data-help-id="${escapeHtml(h.id)}"
-                                data-choice="${escapeHtml(opt)}"
-                              >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
-                            `
-                          )
-                          .join("")
+                    ${
+                      h.isExpired
+                        ? `<span class="state-text state-neutral">Expired</span>`
+                        : h.options
+                            .map(
+                              (opt) => `
+                                <button
+                                  type="button"
+                                  class="btn"
+                                  data-action="answer-help"
+                                  data-help-id="${escapeHtml(h.id)}"
+                                  data-choice="${escapeHtml(opt)}"
+                                >${escapeHtml(opt.charAt(0).toUpperCase() + opt.slice(1))}</button>
+                              `
+                            )
+                            .join("")
                     }
                   </span>
                 </div>
@@ -5309,169 +6269,6 @@
             `
           )
           .join("");
-
-        /* Steps (one row per agent with its color; A3 & After a task) */
-        const stepsHtml = activeRun.steps
-          .map((step) => {
-            const isExpanded = expandedStepIds.has(step.id);
-            const fingerprint = `${step.stateSymbolWord}:${step.agentIdentity.name}:${step.app}:${step.latestSummary}`;
-            const prev = knownStepFingerprints.get(step.id);
-            if (prev && prev !== fingerprint) {
-              highlightedStepIds.add(step.id);
-              setTimeout(() => highlightedStepIds.delete(step.id), 650);
-            }
-            knownStepFingerprints.set(step.id, fingerprint);
-
-            const highlightClass = highlightedStepIds.has(step.id) ? "changed-highlight" : "";
-            const enterClass = !prev && hasLoadedOnce ? "step-enter" : "";
-            const stepSummaryText = step.app && step.latestSummary
-              ? `${step.app} · ${step.latestSummary}`
-              : step.latestSummary || step.app;
-
-            let detailHtml = "";
-            if (isExpanded) {
-              const linesHtml = step.detailLines.length
-                ? step.detailLines.map((l) => `<div>${escapeHtml(l)}</div>`).join("")
-                : `<div>No events recorded yet.</div>`;
-              const shimmerHtml = step.isWorking
-                ? `<div class="skeleton-line" style="margin-top: 8px; width: 70%;"></div>`
-                : "";
-              detailHtml = `
-                <div class="step-detail-mono" data-detail-scroll="${escapeHtml(step.id)}">${linesHtml}${shimmerHtml}</div>
-              `;
-            }
-
-            const stopStepBtnHtml =
-              stopRouteSupported && step.isWorking
-                ? `<button type="button" class="btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" aria-label="Stop ${escapeHtml(step.agentIdentity.name)}" ${pendingStopIds.has(step.id) ? "disabled" : ""}>Stop</button>`
-                : "";
-
-            return `
-              <div class="step-item ${highlightClass} ${enterClass}">
-                <div class="step-row-line">
-                  <button
-                    type="button"
-                    class="step-row-btn"
-                    data-step-id="${escapeHtml(step.id)}"
-                    aria-expanded="${isExpanded ? "true" : "false"}"
-                  >
-                    <span class="step-left">
-                      <span class="state-text ${escapeHtml(step.stateColorClass)}">${escapeHtml(step.stateSymbolWord)}</span>
-                      <span
-                        class="agent-chip"
-                        style="--chip-bg: ${escapeHtml(step.agentIdentity.palette.body)}; --chip-edge: ${escapeHtml(step.agentIdentity.palette.edge)}; --chip-ink: ${escapeHtml(step.agentIdentity.palette.ink)};"
-                        data-agent-chip="${escapeHtml(step.id)}"
-                        data-agent-has-color="${step.agentIdentity.hasAgentColor ? "1" : "0"}"
-                        data-agent-name="${escapeHtml(step.agentIdentity.name)}"
-                        data-agent-color="${escapeHtml(step.agentIdentity.color)}"
-                        data-agent-edge="${escapeHtml(step.agentIdentity.rawEdge || step.agentIdentity.palette.edge)}"
-                        data-agent-ink="${escapeHtml(step.agentIdentity.rawInk || step.agentIdentity.palette.ink)}"
-                      ><span class="agent-chip-label">${escapeHtml(step.agentIdentity.name)}</span></span>
-                      <span class="step-event-text">${escapeHtml(stepSummaryText)}</span>
-                    </span>
-                  </button>
-                  ${stopStepBtnHtml}
-                </div>
-                ${detailHtml}
-              </div>
-            `;
-          })
-          .join("");
-
-        /* After-a-task digest metrics & "Show steps" replay toggle */
-        let digestRowHtml = "";
-        if (activeRun.isFinished) {
-          const metricParts = [
-            activeRun.digest.timeText,
-            `${activeRun.digest.totalSteps} step${activeRun.digest.totalSteps === 1 ? "" : "s"}`,
-          ];
-          if (activeRun.digest.memorySteps > 0) {
-            metricParts.push(`${activeRun.digest.memorySteps} from memory`);
-          }
-          if (activeRun.digest.costText) {
-            metricParts.push(activeRun.digest.costText);
-          }
-          const isReplayOpen = openReplayRunIds.has(activeRun.id);
-          const showStepsBtn = activeRun.digest.hasActEvents
-            ? `<button type="button" class="btn" data-action="toggle-steps" data-run-id="${escapeHtml(activeRun.id)}" aria-expanded="${isReplayOpen ? "true" : "false"}">${isReplayOpen ? "Hide steps" : "Show steps"}</button>`
-            : "";
-
-          digestRowHtml = `
-            <div class="digest-row">
-              <div class="digest-metrics">${metricParts.map((p) => `<span>${escapeHtml(p)}</span>`).join("<span>&middot;</span>")}</div>
-              ${showStepsBtn}
-            </div>
-          `;
-        }
-
-        let replayHtml = "";
-        if (activeRun.isFinished && activeRun.digest.hasActEvents && openReplayRunIds.has(activeRun.id)) {
-          const activeIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
-          const rowsHtml = activeRun.digest.actEvents
-            .map((act, idx) => {
-              const isCurrent = idx === activeIdx;
-              const metaParts = [];
-              if (act.app) metaParts.push(act.app);
-              if (act.fromMemory) metaParts.push("from memory");
-              if (act.actMs != null) metaParts.push(`${act.actMs}ms`);
-              return `
-                <div class="act-replay-row ${isCurrent ? "is-replaying" : ""}">
-                  <span class="act-replay-index">${isCurrent ? "▶" : `${act.index}.`}</span>
-                  <span
-                    class="agent-dot"
-                    style="--dot-bg: ${escapeHtml(act.agentColor)}; --dot-edge: ${escapeHtml(act.agentEdge)};"
-                  ></span>
-                  <span class="act-replay-agent">${escapeHtml(act.agentName)}</span>
-                  <span class="act-replay-action" title="${escapeHtml(act.plainText)}">${escapeHtml(act.plainText)}</span>
-                  ${metaParts.length ? `<span class="act-replay-meta">${escapeHtml(metaParts.join(" · "))}</span>` : ""}
-                </div>
-              `;
-            })
-            .join("");
-
-          replayHtml = `
-            <div class="act-replay-section">
-              <div class="act-replay-header">
-                <span class="section-heading" style="padding: 0;">Action steps (${activeRun.digest.actEvents.length})</span>
-                <button type="button" class="btn" data-action="replay-steps" data-run-id="${escapeHtml(activeRun.id)}">Replay</button>
-              </div>
-              <div class="act-replay-list" data-detail-scroll="replay-${escapeHtml(activeRun.id)}">
-                ${rowsHtml}
-              </div>
-            </div>
-          `;
-        }
-
-        const outcomeActionParts = [];
-        if (!activeRun.isFinished) {
-          outcomeActionParts.push(
-            `<span class="run-live-cost" data-run-live-cost="${escapeHtml(activeRun.id)}">Cost ${escapeHtml(activeRun.digest.liveCostText)}</span>`
-          );
-          if (stopRouteSupported) {
-            outcomeActionParts.push(
-              `<button type="button" class="btn" data-action="stop-run" data-run-id="${escapeHtml(activeRun.id)}" ${pendingStopIds.has(activeRun.id) ? "disabled" : ""}>Stop</button>`
-            );
-          }
-        }
-        if (activeRun.copyResultText) {
-          const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
-          outcomeActionParts.push(
-            `<button type="button" class="btn" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}">${isCopiedResult ? "✓ Copied" : "Copy result"}</button>`
-          );
-        }
-        if (!String(activeRun.id).startsWith("optimistic-")) {
-          outcomeActionParts.push(
-            `<button type="button" class="btn" data-action="reply-run" data-run-id="${escapeHtml(activeRun.id)}">Follow up</button>`
-          );
-        }
-        if (activeRun.state === "failed") {
-          outcomeActionParts.push(
-            `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Run again</button>`
-          );
-        }
-        const runOutcomeActionsHtml = outcomeActionParts.length
-          ? `<div class="run-outcome-actions">${outcomeActionParts.join("")}</div>`
-          : "";
 
         const permissionHtml = activeRun.permissionIssue
           ? `
@@ -5492,14 +6289,88 @@
           `
           : "";
 
-        const outputsHtml = activeRun.producedOutputs.length
-          ? `
-            <div class="outputs-section">
-              <div class="section-heading" style="padding: 0;">Produced results</div>
-              ${activeRun.producedOutputs
+        const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
+        const stopNoticeHtml =
+          stopNoticeText && activeRun.state !== "failed"
+            ? `<div class="stop-notice-line">${escapeHtml(stopNoticeText)}</div>`
+            : "";
+        let outcomeHtml = "";
+        let failureHtml = "";
+        let outputsHtml = "";
+        if (activeRun.isFinished) {
+          if (activeRun.state === "failed") {
+            const noticeCopy = activeRun.isRealFailure
+              ? activeRun.failureLineText
+              : stopNoticeText || activeRun.failureLineText;
+            const retryBtnHtml = activeRun.isRealFailure
+              ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Try again</button>`
+              : "";
+            failureHtml = `
+              <div class="chat-failure-event">
+                <span class="chat-failure-copy">${escapeHtml(noticeCopy)}</span>
+                ${retryBtnHtml}
+              </div>
+            `;
+          } else {
+            const isVerified = activeRun.state === "verified";
+            const summaryLine = isVerified
+              ? activeRun.stateFact || activeRun.evidenceText || "Done"
+              : activeRun.stateFact || activeRun.stateSymbolWord || "Finished";
+            const stepsCount =
+              activeRun.digest?.totalSteps ||
+              activeRun.steps.reduce((acc, s) => acc + (s.workStepCount || s.workSteps.length || 0), 0);
+            const metaParts = [];
+            if (activeRun.elapsedText && activeRun.elapsedText !== "—") {
+              metaParts.push(activeRun.elapsedText);
+            }
+            if (stepsCount > 0) {
+              metaParts.push(`${stepsCount} ${stepsCount === 1 ? "step" : "steps"}`);
+            }
+            if (
+              isVerified &&
+              activeRun.digest?.costText &&
+              activeRun.digest.costText !== "—" &&
+              !activeRun.isMock
+            ) {
+              metaParts.push(activeRun.digest.costText);
+            }
+            const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
+            const firstOpenableOutput = activeRun.producedOutputs.find((o) => o.openUrl || o.previewText) || null;
+            const firstPreviewKey = firstOpenableOutput ? `${activeRun.id}:${firstOpenableOutput.id}` : "";
+            const isFirstPreviewOpen = firstPreviewKey ? openOutputPreviewIds.has(firstPreviewKey) : false;
+
+            outcomeHtml = `
+              <div class="chat-result-card ${isVerified ? "is-verified" : ""}">
+                <div class="chat-result-main">${
+                  isVerified ? `<span class="state-success">&#10003;</span> ` : ""
+                }${escapeHtml(summaryLine)}</div>
+                ${metaParts.length ? `<div class="chat-result-meta">${escapeHtml(metaParts.join(" · "))}</div>` : ""}
+                <div class="chat-result-acts">
+                  ${
+                    activeRun.copyResultText
+                      ? `<button type="button" class="btn" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}">${isCopiedResult ? "&#10003; Copied" : "Copy"}</button>`
+                      : ""
+                  }
+                  ${
+                    firstOpenableOutput
+                      ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(firstOpenableOutput.id)}" aria-expanded="${firstOpenableOutput.previewText ? (isFirstPreviewOpen ? "true" : "false") : "false"}">${isFirstPreviewOpen ? "Hide" : "Open"}</button>`
+                      : ""
+                  }
+                </div>
+              </div>
+            `;
+
+            const extraOutputs = activeRun.producedOutputs.length > 1 || (firstOpenableOutput && isFirstPreviewOpen && firstOpenableOutput.previewText);
+            if (activeRun.producedOutputs.length) {
+              outputsHtml = activeRun.producedOutputs
                 .map((out) => {
                   const previewKey = `${activeRun.id}:${out.id}`;
                   const isPreviewOpen = openOutputPreviewIds.has(previewKey);
+                  if (out === firstOpenableOutput && activeRun.producedOutputs.length === 1) {
+                    return isPreviewOpen && out.previewText
+                      ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>`
+                      : "";
+                  }
                   const isCopiedOut = copiedItemIds.has(`out:${activeRun.id}:${out.id}`);
                   const canOpenInPage = Boolean(out.openUrl || out.previewText);
                   return `
@@ -5515,34 +6386,11 @@
                     </div>
                   `;
                 })
-                .join("")}
-            </div>
-          `
-          : "";
-
-        const transcriptHtml = activeRun.transcriptRows.length
-          ? `
-            <div class="thread-chat-section">
-              <div class="section-heading" style="padding: 0;">Conversation</div>
-              ${activeRun.transcriptRows
-                .map((row) => {
-                  const styleAttr = row.color ? ` style="color: ${escapeHtml(row.color)};"` : "";
-                  return `
-                    <div class="thread-msg-row">
-                      <span class="thread-msg-who"${styleAttr}>${escapeHtml(row.who)}:</span>
-                      <span>${escapeHtml(row.text)}</span>
-                    </div>
-                  `;
-                })
-                .join("")}
-            </div>
-          `
-          : "";
-
-        const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
-        const stopNoticeHtml = stopNoticeText
-          ? `<div class="stop-notice-line">${escapeHtml(stopNoticeText)}</div>`
-          : "";
+                .filter(Boolean)
+                .join("");
+            }
+          }
+        }
 
         const visibleMemories = getVisibleMemoriesForRun(activeRun);
         const memoryNoticeHtml = visibleMemories
@@ -5562,107 +6410,39 @@
           })
           .join("");
 
-        const appLineHtml = activeRun.appLabel
-          ? `<div class="run-app-line">${activeRun.apps.length > 1 ? "Apps" : "App"}: ${escapeHtml(activeRun.appLabel)}</div>`
-          : "";
-
-        const speakHtml =
-          activeRun.speakText &&
-          activeRun.speakText !== activeRun.evidenceText &&
-          activeRun.speakText !== activeRun.stateFact
-            ? `<div class="run-evidence-line">${escapeHtml(activeRun.speakText)}</div>`
-            : "";
-
-        const evidenceHtml = activeRun.evidenceText
-          ? `<div class="run-evidence-line">Verified on screen: ${escapeHtml(activeRun.evidenceText)}</div>`
-          : "";
-
         const mockBannerHtml =
           activeRun.mockNote && !vm.isSampleData
             ? `<div class="sample-tag">${escapeHtml(activeRun.mockNote)}</div>`
             : "";
 
-        const isRunStepsOpen = openRunStepsIds.has(activeRun.id);
-        const stepCount = activeRun.steps.length;
-        const stepsSectionHtml = stepCount
-          ? `
-            <div class="steps-section">
-              <button
-                type="button"
-                class="btn steps-collapse-btn"
-                data-action="toggle-run-steps"
-                data-run-id="${escapeHtml(activeRun.id)}"
-                aria-expanded="${isRunStepsOpen ? "true" : "false"}"
-              >${stepCount} ${stepCount === 1 ? "step" : "steps"} ${isRunStepsOpen ? "▾" : "▸"}</button>
-              ${isRunStepsOpen ? `<div class="steps-list">${stepsHtml}</div>` : ""}
-            </div>`
-          : "";
-
         blocks.push(`
-          <div class="timeline-block">
-            <div class="run-header">
-              <div class="run-title-row">
-                <span class="run-title">${escapeHtml(activeRun.goal)}</span>
-                <span class="run-elapsed" data-run-elapsed="${escapeHtml(activeRun.id)}">${escapeHtml(activeRun.elapsedText)}</span>
-              </div>
-              ${appLineHtml}
-              <div class="run-outcome-row">
-                <div class="run-outcome-copy">
-                  <span class="state-text ${escapeHtml(activeRun.stateColorClass)}">${escapeHtml(activeRun.stateSymbolWord)}</span>
-                  ${activeRun.stateFact ? `<span class="run-summary-text">${escapeHtml(activeRun.stateFact)}</span>` : ""}
-                </div>
-                ${runOutcomeActionsHtml}
-              </div>
-              ${stopNoticeHtml}
-              ${permissionHtml}
-              ${digestRowHtml}
-              ${mockBannerHtml}
-              ${speakHtml}
-              ${evidenceHtml}
-              ${outputsHtml}
-            </div>
+          <div class="chat-thread">
+            ${messageNodes.join("")}
             ${liveStepHtml}
+            ${approvalHistoryHtml}
             ${helpHtml}
-            ${transcriptHtml}
+            ${stopNoticeHtml}
+            ${permissionHtml}
+            ${mockBannerHtml}
+            ${outcomeHtml}
+            ${failureHtml}
+            ${outputsHtml}
             ${memoryNoticeHtml}
-            ${stepsSectionHtml}
-            ${replayHtml}
           </div>
         `);
 
-        const otherRuns = vm.runs.filter((r) => r.id !== activeRun.id);
-        if (otherRuns.length) {
-          const pastHtml = otherRuns
-            .map(
-              (r) => `
-                <button type="button" class="past-run-btn" data-run-id="${escapeHtml(r.id)}">
-                  <span class="past-run-left">
-                    <span class="state-text ${escapeHtml(r.stateColorClass)}">${escapeHtml(r.stateSymbolWord)}</span>
-                    <span class="past-run-instr">${escapeHtml(r.goal)}</span>
-                  </span>
-                  <span class="run-elapsed">${escapeHtml(r.elapsedText)}</span>
-                </button>
-              `
-            )
-            .join("");
-
-          blocks.push(`
-            <div class="past-runs-section">
-              <div class="section-heading">Earlier runs</div>
-              ${pastHtml}
-            </div>
-          `);
-        }
-
         destroyAllAgentChips();
+        const prevScrollTop = timelineScroll.scrollTop;
+        const wasNearBottom =
+          timelineScroll.scrollHeight - timelineScroll.clientHeight - prevScrollTop < 32;
         timelineScroll.innerHTML = blocks.join("");
 
-        timelineScroll.querySelectorAll("[data-detail-scroll]").forEach((el) => {
-          const prev = savedScroll.get(el.dataset.detailScroll);
-          if (prev != null) el.scrollTop = prev;
-        });
-
         mountAllAgentChips();
+        const scrollKey = `${activeRun.id}:${rows.length}`;
+        if (scrollKey !== lastScrolledRunKey || wasNearBottom) {
+          lastScrolledRunKey = scrollKey;
+          timelineScroll.scrollTop = timelineScroll.scrollHeight;
+        }
         syncSizeAndBridge();
       }
 
@@ -5706,7 +6486,7 @@
         }
       });
 
-      timelineScroll.addEventListener("click", async (e) => {
+      panelView.addEventListener("click", async (e) => {
         if (e.target.id === "connect-submit-btn") {
           handleConnectSubmit();
           return;
@@ -5715,6 +6495,44 @@
         const actionBtn = e.target.closest("[data-action]");
         if (actionBtn) {
           const action = actionBtn.dataset.action;
+          if (action === "open-chat-list") {
+            viewMode = "list";
+            isComposingNewChat = false;
+            renderNow();
+            return;
+          }
+          if (action === "new-primary-chat") {
+            viewMode = "chat";
+            isComposingNewChat = true;
+            renderNow();
+            promptInput.focus();
+            return;
+          }
+          if (action === "select-chat") {
+            const runId = actionBtn.dataset.runId || "";
+            if (runId) {
+              selectedRunId = runId;
+              viewMode = "chat";
+              isComposingNewChat = false;
+              saveLastThreadId(runId);
+              markFailedRunSeen(runId);
+              stopStepReplay();
+              renderNow();
+            }
+            return;
+          }
+          if (action === "toggle-work") {
+            const workKey = actionBtn.dataset.workKey || "";
+            if (workKey) {
+              if (openWorkKeys.has(workKey)) {
+                openWorkKeys.delete(workKey);
+              } else {
+                openWorkKeys.add(workKey);
+              }
+              renderNow();
+            }
+            return;
+          }
           if (action === "retry-connect") {
             await pollAll();
             return;
@@ -5727,19 +6545,15 @@
           if (action === "pick-starter") {
             const p = actionBtn.dataset.prompt || "";
             if (p) {
-              composerThreadId = null;
-              syncThreadModeBar();
               promptInput.value = p;
               syncPromptFieldState();
               promptInput.focus();
-              announceStatus("Starter prompt loaded");
             }
             return;
           }
           if (action === "run-starter") {
             const p = actionBtn.dataset.prompt || "";
             if (p) {
-              composerThreadId = null;
               submitTask(p, [], { thread: "" });
             }
             return;
@@ -5747,10 +6561,11 @@
           if (action === "reply-run") {
             const runId = actionBtn.dataset.runId || selectedRunId;
             if (runId) {
-              composerThreadId = runId;
-              syncThreadModeBar();
+              selectedRunId = runId;
+              viewMode = "chat";
+              isComposingNewChat = false;
+              saveLastThreadId(runId);
               promptInput.focus();
-              announceStatus("Replying in task conversation");
             }
             return;
           }
@@ -6162,6 +6977,42 @@
           hasLoadedOnce = true;
           connectionStatus = "connected";
           connectionError = "";
+          const checkVm = WorkspaceAdapter.mapRuns([...optimisticRuns, ...rawRuns], detailsById, pendingHelp, {
+            connectionStatus,
+            connectionError,
+            isSampleData,
+            agentsById,
+            rememberedAgentsById,
+            costsById,
+            transcriptsById,
+          });
+          if (!hasInitializedFailureBaseline) {
+            hasInitializedFailureBaseline = true;
+            if (!fixtureParam) {
+              let baselineChanged = false;
+              for (const r of checkVm.runs) {
+                if (r.isRealFailure && !seenFailedRuns.has(r.id)) {
+                  seenFailedRuns.add(r.id);
+                  baselineChanged = true;
+                }
+              }
+              if (baselineChanged) persistSeenFailedRuns();
+            } else {
+              const unseenFirst = checkVm.runs.find((r) => r.isRealFailure && !isFailedRunSeen(r.id));
+              if (unseenFirst && getCurrentState() === "collapsed") {
+                triggerPillFailureNotice(unseenFirst);
+              }
+            }
+          } else {
+            const newlyFailed = checkVm.runs.find((r) => r.isRealFailure && !isFailedRunSeen(r.id));
+            if (newlyFailed) {
+              if (getCurrentState() === "expanded" && viewMode === "chat" && selectedRunId === newlyFailed.id) {
+                markFailedRunSeen(newlyFailed.id);
+              } else {
+                triggerPillFailureNotice(newlyFailed);
+              }
+            }
+          }
           processSpokenReplies(nextRuns);
           renderNow();
         } catch (err) {
@@ -6319,6 +7170,10 @@
         try {
           const state = await Transport.init();
           isSampleData = state.isSampleData;
+          if (fixtureParam) {
+            fixtureSeenFailedIds = Array.isArray(state.seenFailedRunIds) ? state.seenFailedRunIds : [];
+            seenFailedRuns = readSeenFailedRuns();
+          }
           speechAvailable = Boolean(state.speechAvailable);
           onDeviceSpeech = Boolean(state.onDeviceSpeech);
           if (state.isDictating) voiceState = "listening";
@@ -6433,7 +7288,7 @@
                   </button>`).join("")
               : `<div class="timeline-fact">No file names match “${esc(q)}”</div>`;
           } catch (err) {
-            box.innerHTML = `<div class="state-text state-danger">Search failed: ${esc(err.message)}</div>`;
+            box.innerHTML = `<div class="state-text state-neutral">Search unavailable: ${esc(err.message)}</div>`;
           }
           ca().syncSizeAndBridge();
         }, 150);
@@ -6447,57 +7302,6 @@
         if (b) pick(Number(b.dataset.hit));
       });
 
-      /* ---------------- side view: analytics (Settings lives in workspace sheet) ---------------- */
-      function showSide(on) {
-        $("side-view").classList.toggle("hidden", !on);
-        $("timeline-scroll").classList.toggle("hidden", on);
-        ca().syncSizeAndBridge();
-      }
-      const sideHead = (title) => `
-        <div class="side-head"><span class="side-title">${title}</span>
-        <button type="button" class="btn" data-close-side>Back</button></div>`;
-      document.addEventListener("click", async (e) => {
-        if (e.target.closest("[data-close-side]")) return showSide(false);
-        const settingsTrigger = e.target.closest("[data-open-settings]");
-        if (settingsTrigger) {
-          showSide(false);
-          ca().Transport.openWorkspace(new URLSearchParams(window.location.search).get("fixture") || "", { view: "settings" });
-          return;
-        }
-        const b = e.target.closest("[data-side]");
-        if (!b) return;
-        const v = $("side-view");
-        const title = "Analytics";
-        v.innerHTML = sideHead(title) + `<div class="timeline-fact">Loading…</div>`;
-        showSide(true);
-        try {
-          v.innerHTML = sideHead(title) + (await analyticsHtml());
-        } catch (err) {
-          v.innerHTML = sideHead(title) + `<div class="state-text state-danger">Could not load: ${esc(err.message)}</div>`;
-        }
-        ca().syncSizeAndBridge();
-      });
-
-      async function analyticsHtml() {
-        const midnight = new Date();
-        midnight.setHours(0, 0, 0, 0);
-        const [day, all] = await Promise.all([
-          req("GET", "/api/analytics?since=" + Math.floor(midnight.getTime() / 1000)),
-          req("GET", "/api/analytics"),
-        ]);
-        if (!all.tasks) return `<div class="timeline-fact">No tasks yet. Spend and success show up here after your first task.</div>`;
-        const block = (label, a) => `
-          <dl class="kv">
-            <dt>${label}</dt><dd>${a.tasks} task${a.tasks === 1 ? "" : "s"}</dd>
-            <dt>Spend</dt><dd>${money(a.cost_usd)}</dd>
-            <dt>Per task</dt><dd>${money(a.mean_cost_per_task)}</dd>
-            <dt>Model calls</dt><dd>${a.llm_calls}</dd>
-          </dl>`;
-        const roles = (all.by_role || []).filter((r) => r.role !== "orchestrator").map((r) =>
-          `<dt>${esc(r.role)}</dt><dd>${r.ok || 0} of ${r.runs} finished, ${Math.round(r.mean_seconds || 0)} s each</dd>`).join("");
-        return block("Today", day) + block("All time", all) + (roles ? `<dl class="kv">${roles}</dl>` : "");
-      }
-
       /* ---------------- views in their own windows ---------------- */
       window.__caBootView = function (mode, state) {
         if (!state || !state.connected) {
@@ -6509,355 +7313,151 @@
       };
 
       const STATE_WORD = {
-        done: ["✓ Done", "state-success"], failed: ["× Failed", "state-danger"],
+        done: ["✓ Done", "state-success"], failed: ["Stopped before finishing", "state-neutral"],
         awaiting_human: ["! Needs you", "state-warning"],
       };
 
-      function bootChat(bootState) {
-        const run = new URLSearchParams(location.search).get("run") || "";
+      function bootChat() {
         document.body.insertAdjacentHTML("beforeend", `
           <div class="chat" id="chat-shell">
             <div class="chat-head">
-              <span class="chat-title" id="chat-title">Conversation</span>
-              <span id="chat-state" class="state-text state-working"></span>
+              <span class="chat-title">Chats open in the notch</span>
               <button type="button" class="btn" id="chat-close">Close</button>
-            </div>
-            <div class="chat-log" id="chat-log" role="log" aria-live="polite">
-              <div class="timeline-fact">Loading the conversation…</div>
-            </div>
-            <div class="chat-composer" id="chat-composer">
-              <div id="chat-link-row" class="inline-input-row hidden">
-                <input
-                  type="url"
-                  id="chat-link-input"
-                  class="inline-text-input"
-                  placeholder="https://example.com"
-                  aria-label="Attachment link URL"
-                />
-                <button type="button" id="chat-link-add-btn" class="btn">Add link</button>
-                <button type="button" id="chat-link-cancel-btn" class="btn">Cancel</button>
-              </div>
-              <div id="chat-attachments-notice" class="attachments-notice" role="status" aria-live="polite"></div>
-              <div id="chat-attachments-list" class="attachments-list"></div>
-              <form class="chat-reply" id="chat-form">
-                <div class="attach-wrapper">
-                  <button
-                    type="button"
-                    id="chat-attach-btn"
-                    class="btn btn-icon"
-                    aria-label="Add attachment"
-                    aria-haspopup="menu"
-                    aria-expanded="false"
-                    title="Add attachment"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <path d="M8 3.2V12.8M3.2 8H12.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-                    </svg>
-                  </button>
-                  <div id="chat-attach-menu" class="attach-menu" role="menu" aria-label="Attachment options">
-                    <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="photo">Photo…</button>
-                    <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="video">Video…</button>
-                    <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="files">Files…</button>
-                    <button type="button" class="attach-menu-item" role="menuitem" data-attach-kind="link">Link…</button>
-                  </div>
-                </div>
-                <input type="file" id="chat-file-input" multiple hidden />
-                <input class="inline-text-input" id="chat-input" placeholder="Reply or ask a follow-up" aria-label="Reply" />
-                <button type="submit" class="btn btn-primary">Send</button>
-              </form>
             </div>
           </div>`);
         $("chat-close").onclick = () => ca().Transport.post("closeWindow");
+      }
 
-        const chatAttachments = ca().createAttachmentController({
-          attachBtn: $("chat-attach-btn"),
-          attachMenu: $("chat-attach-menu"),
-          fileInput: $("chat-file-input"),
-          linkRow: $("chat-link-row"),
-          linkInput: $("chat-link-input"),
-          linkAddBtn: $("chat-link-add-btn"),
-          linkCancelBtn: $("chat-link-cancel-btn"),
-          listEl: $("chat-attachments-list"),
-          noticeEl: $("chat-attachments-notice"),
-          dropZone: $("chat-shell"),
-          shouldHandleWindowPaste: () => document.body.dataset.mode === "chat",
-        });
+      function getHelpRemainingSec(h) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const askedSec =
+          h?.asked != null
+            ? Number(h.asked)
+            : h?.asked_age_s != null
+            ? nowSec - Number(h.asked_age_s)
+            : nowSec;
+        return Math.max(0, Math.ceil(300 - Math.max(0, nowSec - askedSec)));
+      }
 
-        window.__caOnChatFilesDropped = (files) => {
-          chatAttachments.add(files);
+      function formatApprovalCardTimer(h) {
+        const remaining = getHelpRemainingSec(h);
+        const m = Math.floor(remaining / 60);
+        const s = String(remaining % 60).padStart(2, "0");
+        return `${m}:${s} left`;
+      }
+
+      function isMoneyOrSendApproval(h) {
+        const kind = String(h?.kind || "").toLowerCase();
+        const text = `${h?.question || ""} ${h?.detail || ""}`;
+        return kind === "money" || kind === "send" || /\b(pay|purchase|buy|send|email|message|transfer|\$\d)\b/i.test(text);
+      }
+
+      function renderCardChipHtml(name, color) {
+        const cleanName = String(name || "Agent").trim();
+        const rawHex = String(color || "").trim().toUpperCase();
+        const palMap = {
+          "#B5D0EB": { bg: "#B5D0EB", ink: "#2F647C" },
+          "#EECED6": { bg: "#EECED6", ink: "#963F59" },
+          "#C0DED0": { bg: "#C0DED0", ink: "#396C5A" },
+          "#E1CDE8": { bg: "#E1CDE8", ink: "#71388B" },
+          "#F0D9BE": { bg: "#F0D9BE", ink: "#865733" },
         };
-        if (Array.isArray(bootState?.initialDroppedFiles) && bootState.initialDroppedFiles.length) {
-          chatAttachments.add(bootState.initialDroppedFiles);
-        }
-
-        window.addEventListener("keydown", (e) => {
-          if (e.isComposing || e.keyCode === 229) return;
-          if (e.key === "Escape") {
-            if (chatAttachments.isMenuOpen()) {
-              e.preventDefault();
-              chatAttachments.closeMenu();
-              $("chat-attach-btn").focus();
-              return;
-            }
-            if (chatAttachments.isLinkRowOpen()) {
-              e.preventDefault();
-              chatAttachments.closeLinkRow();
-              $("chat-attach-btn").focus();
-            }
-          }
-        });
-
-        let shownKey = "";
-        let lastChatMsgs = [];
-        let chatMemories = [];
-        let chatMemoryMissing = false;
-        const openChatStepRuns = new Set();
-
-        function renderChatBody() {
-          const log = $("chat-log");
-          const resolvePrimary = ca().resolvePrimaryAgent;
-          const visibleMemories = chatMemories.filter((m) => m && m.id != null && (!m.run || m.run === run));
-          const isChatStepsOpen = openChatStepRuns.has(run);
-          const key =
-            lastChatMsgs.length +
-            "::" +
-            lastChatMsgs.map((m) => `${m?.kind || ""}:${m?.role || ""}`).join(",") +
-            "::" +
-            (isChatStepsOpen ? 1 : 0) +
-            "::" +
-            visibleMemories.map((m) => `${m.id}:${m.text || ""}`).join("|") +
-            "::" +
-            (resolvePrimary ? resolvePrimary("ComputerAnything", "").name + resolvePrimary("ComputerAnything", "").color : "");
-          if (key === shownKey) return;
-          shownKey = key;
-
-          function renderChatItem(m) {
-            const who =
-              m.role === "user"
-                ? { name: "You", color: "" }
-                : resolvePrimary
-                ? resolvePrimary(m.agent, m.color)
-                : { name: m.agent, color: m.color };
-            return `
-              <div class="${m.kind === "step" ? "msg-step" : "msg"}">
-                <span class="msg-who"${m.role === "user" ? "" : paint(who.color)}>${esc(who.name)}</span>${esc(m.text)}
-              </div>`;
-          }
-
-          let msgsHtml = `<div class="timeline-fact">Waiting for the first message…</div>`;
-          if (lastChatMsgs.length) {
-            const parts = [];
-            let i = 0;
-            while (i < lastChatMsgs.length) {
-              if (lastChatMsgs[i]?.kind === "step") {
-                const start = i;
-                while (i < lastChatMsgs.length && lastChatMsgs[i]?.kind === "step") i += 1;
-                const chunk = lastChatMsgs.slice(start, i);
-                const count = chunk.length;
-                const stepsBody = isChatStepsOpen
-                  ? `<div class="chat-steps-list">${chunk.map(renderChatItem).join("")}</div>`
-                  : "";
-                parts.push(`
-                  <div class="chat-steps-group">
-                    <button
-                      type="button"
-                      class="btn steps-collapse-btn"
-                      data-toggle-chat-steps="${esc(run)}"
-                      aria-expanded="${isChatStepsOpen ? "true" : "false"}"
-                    >${count} ${count === 1 ? "step" : "steps"} ${isChatStepsOpen ? "▾" : "▸"}</button>
-                    ${stepsBody}
-                  </div>`);
-              } else {
-                parts.push(renderChatItem(lastChatMsgs[i]));
-                i += 1;
-              }
-            }
-            msgsHtml = parts.join("");
-          }
-
-          const memHtml = visibleMemories
-            .map((m) => {
-              const rawText = String(m.text || m.summary || m.content || "").trim();
-              const label = /^i['’]ll remember/i.test(rawText)
-                ? rawText
-                : rawText
-                ? `I'll remember: ${rawText}`
-                : "I'll remember this for next time.";
-              return `
-                <div class="memory-notice-row" data-memory-id="${esc(m.id)}">
-                  <span class="memory-notice-text">${esc(label)}</span>
-                  <button type="button" class="btn" data-undo-memory="${esc(m.id)}">Undo</button>
-                </div>`;
-            })
-            .join("");
-
-          log.innerHTML = msgsHtml + memHtml;
-          log.scrollTop = log.scrollHeight;
-        }
-
-        async function poll() {
-          try {
-            const [msgs, info] = await Promise.all([
-              req("GET", `/api/runs/${encodeURIComponent(run)}/transcript`),
-              req("GET", `/api/runs/${encodeURIComponent(run)}?since=1000000`),
-            ]);
-            if (!chatMemoryMissing) {
-              try {
-                const memResp = await req("GET", "/api/memory");
-                const list = Array.isArray(memResp)
-                  ? memResp
-                  : Array.isArray(memResp?.items)
-                  ? memResp.items
-                  : Array.isArray(memResp?.memories)
-                  ? memResp.memories
-                  : [];
-                chatMemories = list.filter((m) => m && m.id != null);
-              } catch (memErr) {
-                const memMsg = String(memErr?.data?.error || memErr?.message || "").toLowerCase();
-                if (memErr?.status === 404 && memMsg === "not found") {
-                  chatMemoryMissing = true;
-                  chatMemories = [];
-                }
-              }
-            }
-            $("chat-title").textContent = info.goal || "Conversation";
-            const [word, cls] = STATE_WORD[info.state] || ["… Working", "state-working"];
-            $("chat-state").textContent = word;
-            $("chat-state").className = "state-text " + cls;
-            lastChatMsgs = Array.isArray(msgs) ? msgs : [];
-            renderChatBody();
-          } catch (err) {
-            $("chat-state").textContent = "Reconnecting…";
-            $("chat-state").className = "state-text state-warning";
-          }
-        }
-
-        $("chat-log").addEventListener("click", async (e) => {
-          const stepsToggleBtn = e.target.closest("[data-toggle-chat-steps]");
-          if (stepsToggleBtn) {
-            const targetRun = stepsToggleBtn.dataset.toggleChatSteps || run;
-            if (openChatStepRuns.has(targetRun)) {
-              openChatStepRuns.delete(targetRun);
-            } else {
-              openChatStepRuns.add(targetRun);
-            }
-            shownKey = "";
-            renderChatBody();
-            return;
-          }
-          const btn = e.target.closest("[data-undo-memory]");
-          if (!btn) return;
-          const memId = btn.dataset.undoMemory;
-          if (!memId) return;
-          btn.disabled = true;
-          try {
-            await req("DELETE", `/api/memory/${encodeURIComponent(memId)}`);
-            chatMemories = chatMemories.filter((m) => String(m.id) !== String(memId));
-            shownKey = "";
-            renderChatBody();
-          } catch {
-            btn.disabled = false;
-          }
-        });
-
-        window.addEventListener("storage", (e) => {
-          if (!e.key || e.key === "ca.primaryAgent") {
-            shownKey = "";
-            renderChatBody();
-          }
-        });
-        window.addEventListener("focus", () => {
-          shownKey = "";
-          renderChatBody();
-        });
-        $("chat-form").addEventListener("submit", async (e) => {
-          e.preventDefault();
-          const input = $("chat-input");
-          const prompt = input.value.trim();
-          if (!prompt) return;
-          const attachedItems = chatAttachments.takeReadyForSubmit();
-          input.value = "";
-          try {
-            await ca().submitTaskRequest({ rawPrompt: prompt, attachedItems, thread: run });
-            poll();
-          } catch (err) {
-            input.value = prompt;
-            chatAttachments.restore(attachedItems);
-            $("chat-state").textContent = "Not sent: " + err.message;
-            $("chat-state").className = "state-text state-danger";
-          }
-        });
-        poll();
-        setInterval(poll, 1000);
-        $("chat-input").focus();
+        const pal = palMap[rawHex] || { bg: "#2b2f38", ink: "var(--text-primary)" };
+        return `<span class="agent-chip" style="background:${esc(pal.bg)};color:${esc(pal.ink)};border:1px solid rgba(255,255,255,0.16)"><span class="agent-chip-label">${esc(cleanName)}</span></span>`;
       }
 
       function bootNotes() {
         document.body.insertAdjacentHTML("beforeend", `<div class="notes" id="notes" aria-live="polite"></div>`);
-        const seen = new Set();
+        let lastCardId = "";
         let lastHeight = -1;
+        let currentHelpList = [];
+        let currentAgentsMap = {};
+
+        function renderCard() {
+          const active = currentHelpList.find((h) => h && getHelpRemainingSec(h) > 0) || null;
+          if (!active) {
+            $("notes").innerHTML = "";
+            if (lastHeight !== 0) {
+              lastHeight = 0;
+              ca().Transport.post("resize", { state: "notes", width: 330, height: 0, fresh: false });
+            }
+            return;
+          }
+          const resolvePrimary = ca().resolvePrimaryAgent;
+          const runAgent = (active.run && currentAgentsMap[active.run]) || {};
+          const rawName = active.agent || runAgent.name || "";
+          const rawColor = active.color || runAgent.color || runAgent.body || "";
+          const resolved = rawName
+            ? (resolvePrimary ? resolvePrimary(rawName, rawColor) : { name: rawName, color: rawColor })
+            : { name: "Agent", color: rawColor };
+          const moneyOrSend = isMoneyOrSendApproval(active);
+          const rawDetail = active.detail
+            ? (typeof active.detail === "string" ? active.detail.trim() : JSON.stringify(active.detail))
+            : "";
+          const detailLine = rawDetail ? `${rawDetail.replace(/[.]+$/, "")}. Silence means no.` : "Silence means no.";
+          const options = Array.isArray(active.options) && active.options.length ? active.options : ["deny", "approve"];
+          const orderedOptions = [...options].sort((a, b) => {
+            const aApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(a)) ? 1 : 0;
+            const bApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(b)) ? 1 : 0;
+            return aApprove - bApprove;
+          });
+          $("notes").innerHTML = `
+            <div class="note${moneyOrSend ? " is-money" : ""}" data-help-card="${esc(active.id)}">
+              <div>${renderCardChipHtml(resolved.name, resolved.color)}</div>
+              <div class="note-q">${esc(active.question || "Approval needed")}</div>
+              <div class="note-d">${esc(detailLine)}</div>
+              <div class="note-row">
+                <span class="note-timer">${esc(formatApprovalCardTimer(active))}</span>
+                <span class="note-actions">
+                  ${orderedOptions
+                    .map((opt) => {
+                      const isApprove = /^(yes|approve|allow|ok|send|pay)$/i.test(String(opt));
+                      const cls = isApprove ? (moneyOrSend ? "btn btn-money" : "btn btn-primary") : "btn";
+                      const label = String(opt).charAt(0).toUpperCase() + String(opt).slice(1);
+                      return `<button type="button" class="${cls}" data-help="${esc(active.id)}" data-choice="${esc(opt)}">${esc(label)}</button>`;
+                    })
+                    .join("")}
+                </span>
+              </div>
+            </div>
+          `;
+          const isFresh = active.id !== lastCardId;
+          lastCardId = String(active.id || "");
+          const height = $("notes").scrollHeight + 4;
+          if (height !== lastHeight || isFresh) {
+            lastHeight = height;
+            ca().Transport.post("resize", { state: "notes", width: 330, height, fresh: isFresh });
+          }
+        }
+
         async function poll() {
-          let help = [], notes = [];
+          let help = [], agents = {};
           try {
-            [notes, help] = await Promise.all([req("GET", "/api/notifications"), req("GET", "/api/help")]);
+            [help, agents] = await Promise.all([
+              req("GET", "/api/help"),
+              req("GET", "/api/agents").catch(() => ({})),
+            ]);
           } catch {
             return; /* keep what is on screen; the next poll retries */
           }
-          const ids = [...help.map((h) => "h:" + h.id), ...notes.map((n) => "n:" + n.id)];
-          const fresh = ids.some((id) => !seen.has(id));
-          ids.forEach((id) => seen.add(id));
-          const resolvePrimary = ca().resolvePrimaryAgent;
-          $("notes").innerHTML = help.map((h) => {
-              const agentLabel = h.agent
-                ? (resolvePrimary ? resolvePrimary(h.agent, h.color).name : h.agent)
-                : "An agent";
-              return `
-              <div class="note">
-                <span class="note-title state-warning">${esc(agentLabel)} needs you</span>
-                <span>${esc(h.question)}</span>
-                ${h.detail ? `<div class="note-detail">${esc(typeof h.detail === "string" ? h.detail : JSON.stringify(h.detail))}</div>` : ""}
-                <div class="note-actions">
-                  <button type="button" class="btn" data-focus-run="${esc(h.thread || h.run)}" data-focus-help="${esc(h.id)}">Open approval</button>
-                  ${h.options.map((o, i) => `<button type="button" class="btn${i === 0 ? " btn-primary" : ""}" data-help="${esc(h.id)}" data-choice="${esc(o)}">${esc(o[0].toUpperCase() + o.slice(1))}</button>`).join("")}
-                </div>
-              </div>`;
-            }).join("") + notes.map((n) => `
-              <div class="note">
-                <span class="note-title"><span class="state-text ${n.ok === false ? "state-danger" : "state-success"}">${n.ok === false ? "× Failed" : "✓ Done"}</span> ${esc(n.title)}</span>
-                <span>${esc(n.text)}</span>
-                <div class="note-actions">
-                  <button type="button" class="btn" data-focus-run="${esc(n.thread || n.run)}">Open in panel</button>
-                  <button type="button" class="btn" data-dismiss="${esc(n.id)}">Dismiss</button>
-                </div>
-              </div>`).join("");
-          const height = ids.length ? $("notes").scrollHeight + 4 : 0;
-          if (height !== lastHeight || fresh) {
-            lastHeight = height;
-            ca().Transport.post("resize", { state: "notes", width: 320, height, fresh });
-          }
+          currentHelpList = Array.isArray(help) ? help : [];
+          if (agents && typeof agents === "object") currentAgentsMap = agents;
+          renderCard();
         }
+
         document.addEventListener("click", async (e) => {
           const t = e.target.closest("button");
           if (!t) return;
-          if (t.dataset.focusRun) {
-            try {
-              localStorage.setItem(
-                "ca.focusTarget",
-                JSON.stringify({ run: t.dataset.focusRun, helpId: t.dataset.focusHelp || "", ts: Date.now() })
-              );
-            } catch {
-              // Ignore storage errors
-            }
-            if (new URLSearchParams(window.location.search).get("legacyChat") === "1") {
-              ca().Transport.openLegacyChatWindow(t.dataset.focusRun);
-            }
+          if (t.dataset.help) {
+            await req("POST", `/api/help/${encodeURIComponent(t.dataset.help)}`, { choice: t.dataset.choice }).catch(() => {});
+            poll();
           }
-          if (t.dataset.help) await req("POST", `/api/help/${encodeURIComponent(t.dataset.help)}`, { choice: t.dataset.choice }).catch(() => {});
-          if (t.dataset.dismiss) await req("POST", `/api/notifications/${encodeURIComponent(t.dataset.dismiss)}/dismiss`, {}).catch(() => {});
-          poll();
         });
         poll();
         setInterval(poll, 1000);
+        setInterval(() => {
+          if (currentHelpList.length) renderCard();
+        }, 1000);
       }
     })();
   </script>

@@ -1,0 +1,90 @@
+{
+  "runs": [
+    {
+      "id": "r1763149100-1",
+      "goal": "Archive last month's invoices and remove old drafts from Mail",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 18.4,
+      "n_events": 4,
+      "result": {
+        "ok": false,
+        "summary": "Cancelled by you",
+        "digest": {
+          "run": "r1763149100-1",
+          "goal": "Archive last month's invoices and remove old drafts from Mail",
+          "role": "orchestrator",
+          "ok": false,
+          "summary": "Cancelled by you",
+          "seconds": 18.4,
+          "steps": 3,
+          "help_requests": 1,
+          "memory_steps": 0,
+          "children": ["r1763149100-2"]
+        }
+      }
+    },
+    {
+      "id": "r1763149100-2",
+      "goal": "Open Mail and remove old invoice drafts",
+      "role": "cu",
+      "parent": "r1763149100-1",
+      "state": "failed",
+      "elapsed": 17.8,
+      "n_events": 7,
+      "result": {
+        "ok": false,
+        "summary": "Cancelled by you",
+        "steps": 3
+      }
+    }
+  ],
+  "details": {
+    "r1763149100-1": {
+      "id": "r1763149100-1",
+      "goal": "Archive last month's invoices and remove old drafts from Mail",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "failed",
+      "elapsed": 18.4,
+      "n_events": 4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "route", "role": "cu", "app": "Mail", "goal": "Open Mail and remove old invoice drafts" },
+        { "t": 0.5, "kind": "state", "state": "acting" },
+        { "t": 18.4, "kind": "state", "state": "failed" }
+      ],
+      "result": { "ok": false, "summary": "Cancelled by you" }
+    },
+    "r1763149100-2": {
+      "id": "r1763149100-2",
+      "goal": "Open Mail and remove old invoice drafts",
+      "role": "cu",
+      "parent": "r1763149100-1",
+      "state": "failed",
+      "elapsed": 17.8,
+      "n_events": 7,
+      "events": [
+        { "t": 0.2, "kind": "state", "state": "planning" },
+        { "t": 1.4, "kind": "app_ready", "app": "Mail", "method": "running", "seconds": 0.6 },
+        { "t": 2.1, "kind": "act", "step": 0, "source": "llm", "action": "click:Drafts", "act_ms": 110, "agent": "Alex" },
+        { "t": 3.4, "kind": "act", "step": 1, "source": "llm", "action": "click:Select Old Drafts", "act_ms": 120, "agent": "Alex" },
+        { "t": 4.2, "kind": "help", "id": "h-cancel-1", "help_kind": "destructive", "question": "Delete 4 old draft messages permanently?", "options": ["approve", "deny"] },
+        { "t": 18.1, "kind": "help_answer", "id": "h-cancel-1", "answer": "deny", "timed_out": false },
+        { "t": 18.3, "kind": "state", "state": "failed" }
+      ],
+      "result": { "ok": false, "summary": "Cancelled by you", "steps": 3 }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r1763149100-2": { "name": "Alex", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  },
+  "transcripts": {
+    "r1763149100-1": [
+      { "id": "m1", "ts": 1763149100, "run": "r1763149100-1", "role": "user", "agent": "", "kind": "msg", "text": "Archive last month's invoices and remove old drafts from Mail" },
+      { "id": "m2", "ts": 1763149102, "run": "r1763149100-2", "role": "agent", "agent": "Alex", "color": "#B5D0EB", "edge": "#D6E9FF", "kind": "msg", "text": "I found 4 old invoice drafts in Mail and asked before deleting them." }
+    ]
+  }
+}
