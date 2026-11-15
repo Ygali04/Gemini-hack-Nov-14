@@ -9,7 +9,7 @@ import os
 from . import runs
 
 PATH = os.path.join(runs.HOME, "profile.json")
-KEYS = ("call_me", "voice_id", "model", "decide_model")
+KEYS = ("call_me", "voice_id", "model", "decide_model", "agent_name")
 
 
 def load():
@@ -60,4 +60,5 @@ def view():
         "voice_id": os.environ.get("ELEVENLABS_VOICE_ID", ""),
         "model": llm.MODEL,
         "decide_model": llm.DECIDE_MODEL or "",
+        "agent_name": p.get("agent_name", ""),
     }

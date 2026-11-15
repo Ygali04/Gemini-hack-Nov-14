@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 
-from ..core import attach, llm, memory, runs
+from ..core import attach, llm, memory, profile, runs
 
 ROLES = ("qa", "marketing", "cu")
 TEST_TIMEOUT = 300
@@ -126,6 +126,9 @@ def submit(prompt, attachments=(), thread=None):
     if thread and thread not in runs.RUNS:
         raise ValueError("no such conversation")
     parent = runs.Run(prompt, role="orchestrator", parent=thread)
+    agent_name = profile.load().get("agent_name")
+    if agent_name:
+        parent.agent_name = agent_name
     names = [os.path.basename(str(a)) for a in attachments]
     runs.say(parent, "user", "prompt", prompt, attachments=names)
     history = []
@@ -715,6 +718,17 @@ def selftest():
     assert seen_ctx[-1] and "19.99" in seen_ctx[-1]["text"] and seen_ctx[-1]["images"], seen_ctx[-1]
     tr = store.transcript(p3.id)
     assert tr[0]["meta"]["attachments"] == ["order.txt", "ref.png"], tr[0]
+
+    # 6. primary agent name from profile reaches submit() parent, empty leaves default
+    assert getattr(p3, "agent_name", None) is None, getattr(p3, "agent_name", None)
+    assert profile.save({"agent_name": "Mercury"})["agent_name"] == "Mercury"
+    assert profile.view()["agent_name"] == "Mercury"
+    llm.mock(json.dumps({"role": "cu", "app": "TextEdit", "goal": "say hi"}))
+    p4 = submit("say hi")
+    p4.thread.join(10)
+    assert p4.agent_name == "Mercury", p4
+    assert store.transcript(p4.id)[0]["agent"] == "Mercury", store.transcript(p4.id)[0]
+    assert profile.save({"agent_name": ""})["agent_name"] == ""
     print("orchestrator selftest OK")
 
 
