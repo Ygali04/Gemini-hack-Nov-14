@@ -272,15 +272,15 @@
 
     async function loadFixture(name) {
       const safe = String(name || "").replace(/[^A-Za-z0-9_-]/g, "");
-      if (!safe) throw new Error("Invalid fixture name");
+      if (!safe) throw new Error("Invalid sample name");
       let rawText = "";
       if (hasShellBridge()) {
         const res = await callShell("readFixture", { name: safe });
-        if (!res || !res.ok) throw new Error(`Sample fixture "${safe}" not found`);
+        if (!res || !res.ok) throw new Error(`Sample "${safe}" not found`);
         rawText = res.body || "";
       } else {
         const res = await fetch(`./fixtures/${safe}.json`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Sample fixture "${safe}" not found`);
+        if (!res.ok) throw new Error(`Sample "${safe}" not found`);
         rawText = await res.text();
       }
       const parsed = JSON.parse(rawText);
@@ -2168,7 +2168,7 @@
                 kindLabel: "Commit",
                 statusObj: ok
                   ? { symbolWord: "✓ Committed", colorClass: "state-success" }
-                  : { symbolWord: "✕ Commit failed", colorClass: "state-danger" },
+                  : { symbolWord: "○ Couldn't commit", colorClass: "state-neutral" },
                 agentName: n.agentName,
                 agentPalette: n.palette,
                 taskId: g.id,
@@ -2779,7 +2779,7 @@
 
   function renderNotConnectedViewHtml({ title, subtitle, connectionError: errMsg }) {
     const prevVal = document.getElementById("connect-url-input")?.value || "";
-    const detail = errMsg || "Paste the address the backend printed to connect this view.";
+    const detail = errMsg || "Paste the address ComputerAnything printed when it started to connect this view.";
     return `
       <div class="section-header-row">
         <div>
@@ -2793,13 +2793,13 @@
           <span class="section-subtitle">${escapeHtml(detail)}</span>
         </div>
         <div class="inline-input-row connect-row">
-          <label for="connect-url-input" class="visually-hidden">Backend address</label>
+          <label for="connect-url-input" class="visually-hidden">ComputerAnything address</label>
           <input
             type="url"
             id="connect-url-input"
             class="inline-text-input"
             placeholder="http://127.0.0.1:8765/?t=..."
-            aria-label="Backend address"
+            aria-label="ComputerAnything address"
             value="${escapeHtml(prevVal)}"
           />
           <button type="button" id="connect-submit-btn" class="btn btn-primary" data-action="connect-backend">Connect</button>
@@ -2853,7 +2853,7 @@
     if (failedEndpoints.length > 0) {
       const arrivedText = succeededEndpoints.length
         ? succeededEndpoints.map((e) => e.label || e).join(", ")
-        : "No endpoints";
+        : "Nothing";
       const failedText = failedEndpoints
         .map((e) => e.label || String(e))
         .join(", ");
@@ -2861,7 +2861,7 @@
         <div class="view-status-row" role="status">
           <div class="filter-group">
             <span class="state-text state-warning">&#9684; Partial data</span>
-            <span class="section-subtitle">Arrived: ${escapeHtml(arrivedText)}. Failed: ${escapeHtml(failedText)}.</span>
+            <span class="section-subtitle">Loaded: ${escapeHtml(arrivedText)}. Missing: ${escapeHtml(failedText)}.</span>
           </div>
           <button type="button" class="btn" data-action="retry-poll">Retry</button>
         </div>
@@ -4526,7 +4526,7 @@
             artifactCopyText = String(d.out || (Array.isArray(d.files) ? d.files.join("\n") : "")).trim();
             detailHtml = `
               <div>
-                <span class="state-text ${d.ok ? "state-success" : "state-danger"}">${d.ok ? "✓ Committed" : "✕ Commit failed"}</span>
+                <span class="state-text ${d.ok ? "state-success" : "state-neutral"}">${d.ok ? "✓ Committed" : "○ Couldn't commit"}</span>
                 ${d.files && d.files.length ? ` · ${escapeHtml(d.files.join(", "))}` : ""}
               </div>
               ${d.out ? `<pre class="artifact-diff-pre">${escapeHtml(d.out)}</pre>` : ""}
@@ -5579,7 +5579,7 @@
         <div class="onboarding-block">
           <h3 class="section-title">What needs approval</h3>
           <p class="section-subtitle">
-            Sample preview (read-only; approval rules are not saved on the backend yet). Sensitive categories always ask first.
+            Sample preview (read-only; approval rules are not saved in ComputerAnything yet). Sensitive categories always ask first.
           </p>
           <div class="data-table-wrap">
             <table class="rules-table">
@@ -5599,7 +5599,7 @@
         <div class="onboarding-block">
           <h3 class="section-title">Memory</h3>
           <p class="section-subtitle">
-            Sample preview (in-session only; memory is not saved on the backend yet). Remember things about me to work faster next time.
+            Sample preview (in-session only; memory is not saved in ComputerAnything yet). Remember things about me to work faster next time.
           </p>
           <div class="filter-group">
             <button type="button" class="btn ${OnboardingState.memoryEnabled ? "btn-active" : ""}" data-action="set-onboarding-memory" data-enabled="1">
@@ -5712,7 +5712,7 @@
       </div>
 
       <p class="section-subtitle">
-        Note: Your name and voice are saved to your backend profile. Your primary agent name and color are saved in this browser. The agents it starts keep their own names and cursor colors.
+        Note: Your name and voice are saved to your ComputerAnything profile. Your primary agent name and color are saved in this browser. The agents it starts keep their own names and cursor colors.
       </p>
     `;
 
@@ -6544,7 +6544,7 @@
     const res = await Transport.setConnection(input.value);
     if (!res.ok) {
       connectionStatus = "disconnected";
-      connectionError = res.error || "Paste the address the backend printed";
+      connectionError = res.error || "Paste the address ComputerAnything printed when it started";
       renderNow();
       return;
     }
@@ -6574,7 +6574,7 @@
       }
       await pollAll();
     } catch (err) {
-      sendErrorText = err.message || "Could not load sample fixture";
+      sendErrorText = err.message || "Could not load sample";
       renderNow();
     }
   }
@@ -6641,7 +6641,7 @@
       if (err.code === "AUTH") {
         Transport.clearConnection();
         connectionStatus = "disconnected";
-        connectionError = "Token rejected · Paste the backend address again";
+        connectionError = "Token rejected · Paste the ComputerAnything address again";
       } else {
         sendErrorText = err.message || "Could not send task";
       }
@@ -6714,7 +6714,7 @@
     HistorySettingsState.profileSaveError = "";
     HistorySettingsState.savedRow = "";
     if (!Transport.isConnected()) {
-      HistorySettingsState.profileSaveError = "Not connected to backend";
+      HistorySettingsState.profileSaveError = "Not connected to ComputerAnything";
       renderNow();
       return;
     }
@@ -6774,7 +6774,7 @@
     if (wsState?.status === "disconnected") {
       hasLoadedOnce = false;
       connectionStatus = "disconnected";
-      connectionError = wsState.error || "Paste the address the backend printed";
+      connectionError = wsState.error || "Paste the address ComputerAnything printed when it started";
       failedEndpoints = [];
       succeededEndpoints = [];
       renderNow();
@@ -6845,7 +6845,7 @@
         connectionStatus = "stale";
       } else if (!hasLoadedOnce) {
         connectionStatus = "disconnected";
-        connectionError = nextFailed[0]?.error || "Could not reach backend";
+        connectionError = nextFailed[0]?.error || "Could not reach ComputerAnything";
       }
       renderNow();
       return;
@@ -6973,7 +6973,7 @@
           id: String(m.id ?? `mem-${idx}`),
           key: m.key || (m.run ? `Memory · ${m.run}` : "Saved memory"),
           value: String(m.text ?? m.value ?? ""),
-          source: m.run ? `Run ${m.run}` : (m.source || "Backend memory"),
+          source: m.run ? `Run ${m.run}` : (m.source || "ComputerAnything memory"),
           updated: m.ts
             ? new Date(m.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
             : (m.updated || "Saved"),
@@ -7530,7 +7530,7 @@
           OnboardingState.profileSaveStatus = "";
           OnboardingState.profileSaveError = "";
           if (!Transport.isConnected()) {
-            OnboardingState.profileSaveError = "Not connected to backend";
+            OnboardingState.profileSaveError = "Not connected to ComputerAnything";
             renderNow();
             break;
           }
