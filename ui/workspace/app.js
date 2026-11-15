@@ -1047,9 +1047,50 @@
        queued -> Queued
        planning / acting -> Running
        awaiting_human -> Waiting
-       done -> Success (✓ only when result.ok is true)
+       done -> Success (✓ only when result.ok is true and non-sample/non-mock)
        failed -> Failed */
-    function mapBackendState(rawState, result, hasPendingHelp, hasVerifyPass) {
+    function hasMockVerifyEvidence(allRunsInGroup, detailsById) {
+      for (const r of allRunsInGroup) {
+        const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+        if (
+          evs.some(
+            (e) =>
+              e?.kind === "verify" &&
+              e.achieved === true &&
+              /^mock$/i.test(String(e.evidence || "").trim())
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function isMockSummaryText(value) {
+      return /^mock$/i.test(String(value || "").trim());
+    }
+
+    function isMockRunGroup(allRunsInGroup, detailsById, costData, isSampleContext) {
+      if (isSampleContext) return true;
+      if (hasMockVerifyEvidence(allRunsInGroup, detailsById)) return true;
+      if (costData && costData.mock === true) return true;
+      for (const r of allRunsInGroup) {
+        const detail = detailsById[r.id];
+        if (r?.result?.digest?.task_cost?.mock === true) return true;
+        if (detail?.result?.digest?.task_cost?.mock === true) return true;
+        if (
+          isMockSummaryText(r?.result?.summary) ||
+          isMockSummaryText(r?.result?.digest?.summary) ||
+          isMockSummaryText(detail?.result?.summary) ||
+          isMockSummaryText(detail?.result?.digest?.summary)
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function mapBackendState(rawState, result, hasPendingHelp, hasVerifyPass, isMockRun) {
       if (hasPendingHelp || rawState === "awaiting_human") {
         return {
           filterKey: "waiting",
@@ -1084,6 +1125,17 @@
         };
       }
       if (rawState === "done" && result && result.ok === true) {
+        if (isMockRun) {
+          return {
+            filterKey: "success",
+            word: "Finished · sample run, not verified",
+            symbol: "",
+            symbolWord: "Finished · sample run, not verified",
+            shortSymbolWord: "Finished · sample run, not verified",
+            colorClass: "state-neutral",
+            isVerified: false,
+          };
+        }
         const verified = Boolean(hasVerifyPass);
         return {
           filterKey: "success",
@@ -1242,7 +1294,7 @@
       return clean.charAt(0).toUpperCase() + clean.slice(1);
     }
 
-    function formatAgentStepEvent(ev) {
+    function formatAgentStepEvent(ev, isMockRun) {
       if (!ev || typeof ev !== "object") return null;
       const tText = ev.t != null ? `${Number(ev.t).toFixed(1)}s` : "";
       switch (ev.kind) {
@@ -1269,7 +1321,16 @@
             summary: ev.action ? humanizeSmAction(ev.action) : "Completed a step",
             timeText: tText,
           };
-        case "verify":
+        case "verify": {
+          const isMockEv = Boolean(isMockRun || isMockSummaryText(ev.evidence));
+          if (ev.achieved && isMockEv) {
+            return {
+              kind: "verify",
+              label: "Verify",
+              summary: "Sample run check (not verified)",
+              timeText: tText,
+            };
+          }
           return {
             kind: "verify",
             label: "Verify",
@@ -1278,6 +1339,7 @@
               : `Not verified yet: ${ev.evidence || "Check did not pass"}`,
             timeText: tText,
           };
+        }
         case "help": {
           const q = String(ev.question || "").trim();
           const qText = q ? q.charAt(0).toLowerCase() + q.slice(1) : "needs confirmation";
@@ -1295,13 +1357,19 @@
             summary: `User answered: ${sentenceCase(ev.answer || "")}${ev.timed_out ? " (expired after 5m)" : ""}`,
             timeText: tText,
           };
-        case "result":
+        case "result": {
+          const isMockEv = Boolean(isMockRun || isMockSummaryText(ev.summary));
+          const prefix = ev.ok
+            ? (isMockEv ? "Finished · sample run, not verified" : "✓ Verified")
+            : "Did not finish";
+          const cleanSum = isMockSummaryText(ev.summary) ? "" : sentenceCase(ev.summary || "");
           return {
             kind: "result",
             label: "Result",
-            summary: `${ev.ok ? "✓ Verified" : "Did not finish"} · ${sentenceCase(ev.summary || "")}`,
+            summary: cleanSum ? `${prefix} · ${cleanSum}` : prefix,
             timeText: tText,
           };
+        }
         case "route": {
           const who = ev.agent || roleLabel(ev.role);
           const goalRaw = String(ev.goal || "").trim();
@@ -1798,6 +1866,12 @@
         /* Up to 4 child computer-use / specialist agents per prompt (Section 1B - B1) */
         const rawChildren = [...(childrenByParent.get(parent.id) || [])].slice(0, 4);
         const allGroupRuns = [parent, ...rawChildren];
+        const isMockGroup = isMockRunGroup(
+          allGroupRuns,
+          detailsById,
+          costsById[parent.id],
+          Boolean(isSampleData)
+        );
 
         const parentTranscriptRows = transcriptsByRunId[parent.id] || [];
         const parentEvents = Array.isArray(detailsById[parent.id]?.events) ? detailsById[parent.id].events : [];
@@ -1843,13 +1917,14 @@
             }
           }
           const runHelp = mappedApprovals.filter((h) => h.runId === runItem.id && !h.isExpired);
-          const hasVerifyPass = events.some((e) => e.kind === "verify" && e.achieved);
+          const hasVerifyPass = !isMockGroup && events.some((e) => e.kind === "verify" && e.achieved);
 
           const status = mapBackendState(
             runItem.state,
             runItem.result || detail?.result,
             runHelp.length > 0,
-            hasVerifyPass
+            hasVerifyPass,
+            isMockGroup
           );
 
           let recoveredInfo = recoveredByRunId.get(runItem.id) || null;
@@ -1871,12 +1946,17 @@
             agentPaletteByName.set(displayName, glassRecord);
           }
 
-          const steps = events.map(formatAgentStepEvent).filter(Boolean);
-          if (!steps.length && (runItem.result?.summary || detail?.result?.summary)) {
+          const steps = events.map((ev) => formatAgentStepEvent(ev, isMockGroup)).filter(Boolean);
+          const rawNodeSummary = (runItem.result || detail?.result)?.summary;
+          const cleanNodeSummary =
+            rawNodeSummary && !isMockSummaryText(rawNodeSummary)
+              ? sentenceCase(rawNodeSummary)
+              : "";
+          if (!steps.length && rawNodeSummary) {
             steps.push({
               kind: "result",
               label: "Result",
-              summary: sentenceCase((runItem.result || detail.result).summary),
+              summary: cleanNodeSummary || "Finished · sample run, not verified",
               timeText: formatSeconds(runItem.elapsed),
             });
           }
@@ -1897,9 +1977,10 @@
             seed: stableSeed(runItem.id + ":" + displayName),
             steps,
             rawEvents: events,
-            resultSummary: (runItem.result || detail?.result)?.summary
-              ? sentenceCase((runItem.result || detail.result).summary)
-              : steps[steps.length - 1]?.summary || status.word,
+            resultSummary:
+              cleanNodeSummary ||
+              steps[steps.length - 1]?.summary ||
+              status.word,
           };
         });
 
@@ -1908,22 +1989,23 @@
         const groupHasWaiting = nodes.some((n) => n.status.filterKey === "waiting");
         const groupHasRunning = nodes.some((n) => n.status.filterKey === "running");
         const groupHasFailed = nodes.some((n) => n.status.filterKey === "failed");
-        const groupHasVerified = nodes.some((n) => n.status.isVerified);
+        const groupHasVerified = !isMockGroup && nodes.some((n) => n.status.isVerified);
 
         let overallStatus = primaryNode.status;
         if (groupHasWaiting) {
-          overallStatus = mapBackendState("awaiting_human", null, true, false);
+          overallStatus = mapBackendState("awaiting_human", null, true, false, isMockGroup);
         } else if (groupHasRunning && primaryNode.status.filterKey !== "failed") {
           overallStatus = mapBackendState(
             primaryNode.status.word === "Queued" ? "queued" : "acting",
             null,
             false,
-            false
+            false,
+            isMockGroup
           );
         } else if (groupHasFailed && primaryNode.status.filterKey !== "running") {
-          overallStatus = mapBackendState("failed", { ok: false }, false, false);
+          overallStatus = mapBackendState("failed", { ok: false }, false, false, isMockGroup);
         } else if (primaryNode.status.filterKey === "success") {
-          overallStatus = mapBackendState("done", parent.result || { ok: true }, false, groupHasVerified);
+          overallStatus = mapBackendState("done", parent.result || { ok: true }, false, groupHasVerified, isMockGroup);
         }
 
         const uiSentFiles = sentAttachmentsByRunId.get(parent.id) || [];
@@ -1948,7 +2030,11 @@
             const isRawActionKind =
               tr.kind === "act" ||
               /^(click|double_click|type|set_value|press|scroll|open_app|run_applescript)[\s:]/i.test(rawText);
-            const cleanSummary = isRawActionKind ? humanizeSmAction(rawText) : rawText;
+            const cleanSummary = isRawActionKind
+              ? humanizeSmAction(rawText)
+              : isMockSummaryText(rawText)
+                ? "Sample run (not verified)"
+                : rawText;
             combinedEvents.push({
               kind: isRawActionKind ? "act" : (tr.kind || tr.role || "message"),
               agentName: isOrchestratorRow ? getPrimaryAgentDisplayName(rawAgent) : rawAgent,
@@ -1979,19 +2065,32 @@
           if (parentDigest.seconds != null) digestParts.push(`${parentDigest.seconds}s`);
         }
 
+        const cleanParentSummary =
+          parent.result?.summary && !isMockSummaryText(parent.result.summary)
+            ? sentenceCase(parent.result.summary)
+            : "";
+        const cleanDigestSummary =
+          parentDigest?.summary && !isMockSummaryText(parentDigest.summary)
+            ? sentenceCase(parentDigest.summary)
+            : "";
+        const childResultFallback =
+          childNodes.find((c) => c.resultSummary && c.resultSummary !== "Sample run check (not verified)")?.resultSummary ||
+          "";
+
         return {
           id: parent.id,
           goal: parent.goal || "Untitled task",
           elapsedText: formatSeconds(parent.elapsed),
           attachments,
           overallStatus,
+          isMock: isMockGroup,
           digest: parentDigest,
           digestSummaryText: digestParts.join(" · "),
-          resultSummary: parent.result?.summary
-            ? sentenceCase(parent.result.summary)
-            : parentDigest?.summary
-              ? sentenceCase(parentDigest.summary)
-              : childNodes.find((c) => c.resultSummary)?.resultSummary || overallStatus.word,
+          resultSummary:
+            cleanParentSummary ||
+            cleanDigestSummary ||
+            childResultFallback ||
+            overallStatus.word,
           primaryNode,
           childNodes,
           allNodes: nodes,
@@ -3262,7 +3361,7 @@
                     data-run-id="${escapeHtml(g.id)}"
                   >
                     <span>${
-                      g.overallStatus.filterKey === "failed"
+                      g.overallStatus.filterKey === "failed" || !g.overallStatus.symbol
                         ? `Run ${vm.taskGroups.length - i}`
                         : `${escapeHtml(g.overallStatus.symbol)} Run ${vm.taskGroups.length - i}`
                     }</span>
@@ -5025,7 +5124,7 @@
                     return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
                   })()}</td>
                   <td class="num-col">${escapeHtml(g.allNodes.length)}</td>
-                  <td class="num-col" colspan="4"><span class="section-subtitle">No model calls logged (mock mode or pending)</span></td>
+                  <td class="num-col" colspan="4"><span class="section-subtitle">No model calls recorded (sample run or still starting)</span></td>
                   <td class="num-col">${escapeHtml(g.elapsedText)}</td>
                 </tr>
               `;

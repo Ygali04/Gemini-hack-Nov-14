@@ -438,6 +438,120 @@ function runChecks() {
   assert.equal(verifiedGroup.cost.cost_usd, 0.0049);
   assert.equal(verifiedGroup.cost.model_seconds, 1.4);
   assert.equal(verifiedGroup.cost.by_agent.length, 2);
+
+  // ===========================================================================
+  // 5. Sample & mock runs: never Verified, never ✓ Success, never "mock"
+  // ===========================================================================
+  {
+    const mockFx = readFixtureJson("mock-finished.json");
+    const mockCostsById = {};
+    for (const r of mockFx.runs) {
+      if (r.result?.digest?.task_cost) mockCostsById[r.id] = r.result.digest.task_cost;
+    }
+    const vmMock = WorkspaceAdapter.buildViewModel({
+      rawRuns: mockFx.runs,
+      detailsById: mockFx.details,
+      pendingHelp: mockFx.help || [],
+      rawAgents: mockFx.agents || {},
+      rawActions: [],
+      rawGraph: null,
+      rawAnalytics: null,
+      costsById: mockCostsById,
+      transcriptsByRunId: {},
+      searchedTranscriptRows: null,
+      sentAttachmentsByRunId: new Map(),
+      connectionStatus: "connected",
+      connectionError: "",
+      isSampleData: false,
+      selectedTaskRunId: "r-mock-calc-1",
+      selectedAgentId: "r-mock-calc-1-cu",
+      smAgentFilter: "",
+      selectedAppFilter: "all",
+      logSearchQuery: "",
+      logStatusFilter: "all",
+    });
+
+    const mockGroup = vmMock.taskGroups.find((g) => g.id === "r-mock-calc-1");
+    assert.ok(mockGroup, "Expected r-mock-calc-1 task group in mock-finished.json");
+    assert.equal(mockGroup.overallStatus.isVerified, false, "Mock-verified run must not be marked isVerified");
+    assert.equal(
+      mockGroup.overallStatus.symbolWord,
+      "Finished · sample run, not verified",
+      "Mock-verified run must show 'Finished · sample run, not verified'"
+    );
+    assert.equal(
+      mockGroup.overallStatus.shortSymbolWord,
+      "Finished · sample run, not verified",
+      "Mock-verified run shortSymbolWord must match"
+    );
+    assert.equal(mockGroup.overallStatus.colorClass, "state-neutral");
+    assert.ok(!mockGroup.overallStatus.symbolWord.includes("✓"), "Mock run must never show checkmark");
+    assert.ok(!mockGroup.overallStatus.symbolWord.includes("Success"), "Mock run must never show Success");
+    assert.ok(!/\bmock\b/i.test(mockGroup.resultSummary), "Mock run resultSummary must not contain 'mock'");
+
+    const mockChild = mockGroup.childNodes[0];
+    assert.ok(mockChild, "Expected child node in mock-finished.json");
+    assert.equal(mockChild.status.isVerified, false, "Mock child node must not be marked isVerified");
+    assert.equal(mockChild.status.symbolWord, "Finished · sample run, not verified");
+    assert.ok(
+      mockChild.steps.every(
+        (s) => !s.summary.includes("✓") && !/\bVerified\b/.test(s.summary) && !/\bmock\b/i.test(s.summary)
+      ),
+      "Mock child steps must not contain checkmark, Verified, or 'mock'"
+    );
+
+    const mockTranscriptRow = vmMock.filteredTranscriptRuns.find((r) => r.id === "r-mock-calc-1");
+    assert.ok(mockTranscriptRow, "Expected transcript row for r-mock-calc-1");
+    assert.equal(mockTranscriptRow.overallStatus.symbolWord, "Finished · sample run, not verified");
+  }
+
+  {
+    const demoFx = readFixtureJson("workspace-demo.json");
+    const vmSample = WorkspaceAdapter.buildViewModel({
+      rawRuns: demoFx.runs,
+      detailsById: demoFx.details || {},
+      pendingHelp: demoFx.help || [],
+      rawAgents: demoFx.agents || {},
+      rawActions: demoFx.actions?.actions || demoFx.actions || [],
+      rawGraph: demoFx.graph || null,
+      rawAnalytics: demoFx.analytics || null,
+      costsById: demoFx.costs || {},
+      transcriptsByRunId: {},
+      searchedTranscriptRows: null,
+      sentAttachmentsByRunId: new Map(),
+      connectionStatus: "connected",
+      connectionError: "",
+      isSampleData: true,
+      selectedTaskRunId: "r1763140100-1",
+      selectedAgentId: "",
+      smAgentFilter: "",
+      selectedAppFilter: "all",
+      logSearchQuery: "",
+      logStatusFilter: "all",
+    });
+
+    const sampleDoneGroup = vmSample.taskGroups.find((g) => g.id === "r1763140100-1");
+    assert.ok(sampleDoneGroup, "Expected completed task group r1763140100-1 in workspace-demo.json");
+    assert.equal(sampleDoneGroup.overallStatus.isVerified, false, "Sample run must not be marked isVerified");
+    assert.equal(sampleDoneGroup.overallStatus.symbolWord, "Finished · sample run, not verified");
+    assert.equal(sampleDoneGroup.overallStatus.shortSymbolWord, "Finished · sample run, not verified");
+    assert.equal(sampleDoneGroup.overallStatus.colorClass, "state-neutral");
+    assert.ok(!sampleDoneGroup.overallStatus.symbolWord.includes("✓"));
+    assert.ok(!sampleDoneGroup.overallStatus.symbolWord.includes("Success"));
+    assert.ok(
+      sampleDoneGroup.childNodes.every(
+        (c) => !c.status.isVerified && c.status.symbolWord === "Finished · sample run, not verified"
+      ),
+      "All finished child nodes in sample mode must say 'Finished · sample run, not verified'"
+    );
+
+    const sampleCalcChild = vmSample.taskGroups
+      .find((g) => g.id === "r1763140500-1")
+      ?.childNodes.find((c) => c.runId === "r1763140500-3");
+    assert.ok(sampleCalcChild, "Expected finished child r1763140500-3 in workspace-demo.json");
+    assert.equal(sampleCalcChild.status.isVerified, false);
+    assert.equal(sampleCalcChild.status.symbolWord, "Finished · sample run, not verified");
+  }
 }
 
 try {
