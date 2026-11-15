@@ -1780,6 +1780,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     "error": error?.localizedDescription ?? ""
                 ])
             }
+        case "open":
+            if allHidden || !expanded {
+                toggleAll()
+            } else {
+                postToWeb(["type": "hotkey"], to: webView)
+            }
+            writeInspectResponse(["id": reqId, "ok": true])
         case "quit":
             writeInspectResponse(["id": reqId, "ok": true])
             NSApplication.shared.terminate(nil)
