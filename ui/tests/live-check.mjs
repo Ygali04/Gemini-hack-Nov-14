@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+import {
+  loadNotchAdapterFromIndexHtml as loadNotchAdapter,
+  loadWorkspaceAdapterFromAppJs as loadWorkspaceAdapter,
+} from "./adapter-loader.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -236,96 +239,11 @@ function compareRunEventsByKind(liveDetails, fxRunDetail, diffs) {
 // ---------------------------------------------------------------------------
 
 function loadNotchAdapterFromIndexHtml() {
-  const html = fs.readFileSync(INDEX_HTML_PATH, "utf8");
-  const startMarker = "const WorkspaceAdapter = (function () {";
-  const startIdx = html.indexOf(startMarker);
-  assert.ok(startIdx !== -1, "Could not locate WorkspaceAdapter in ui/index.html");
-
-  const returnMarker = "return { mapRuns };";
-  const returnIdx = html.indexOf(returnMarker, startIdx);
-  assert.ok(returnIdx !== -1, "Could not locate WorkspaceAdapter return statement in ui/index.html");
-
-  const endMarker = "})();";
-  const endIdx = html.indexOf(endMarker, returnIdx);
-  assert.ok(endIdx !== -1, "Could not locate end of WorkspaceAdapter IIFE in ui/index.html");
-
-  const adapterSource = html.slice(startIdx, endIdx + endMarker.length) + "\n;WorkspaceAdapter;";
-  const context = vm.createContext({
-    Date,
-    Math,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Map,
-    Set,
-    RegExp,
-    parseInt,
-    parseFloat,
-    isNaN,
-  });
-  const adapter = vm.runInContext(adapterSource, context, { filename: "ui/index.html#WorkspaceAdapter" });
-  assert.equal(typeof adapter?.mapRuns, "function", "Notch WorkspaceAdapter.mapRuns must be a function");
-  return adapter;
+  return loadNotchAdapter(INDEX_HTML_PATH);
 }
 
 function loadWorkspaceAdapterFromAppJs() {
-  const src = fs.readFileSync(APP_JS_PATH, "utf8");
-
-  let presetStart = src.indexOf("const SharedGlass =");
-  if (presetStart === -1) presetStart = src.indexOf("const QUIET_PRESET =");
-  assert.ok(presetStart !== -1, "Could not locate SharedGlass or QUIET_PRESET in ui/workspace/app.js");
-
-  const mountedMarker = "const mountedGlassByContainer = new Map();";
-  const mountedIdx = src.indexOf(mountedMarker, presetStart);
-  assert.ok(mountedIdx !== -1, "Could not locate mountedGlassByContainer in ui/workspace/app.js");
-
-  const onboardingStart = src.indexOf("const OnboardingState = {", mountedIdx);
-  assert.ok(onboardingStart !== -1, "Could not locate OnboardingState in ui/workspace/app.js");
-
-  const adapterStart = src.indexOf("const WorkspaceAdapter = (function () {", onboardingStart);
-  assert.ok(adapterStart !== -1, "Could not locate WorkspaceAdapter in ui/workspace/app.js");
-
-  const returnMarker = "return {\n      buildViewModel,\n      formatSeconds,\n    };";
-  const returnIdx = src.indexOf(returnMarker, adapterStart);
-  assert.ok(returnIdx !== -1, "Could not locate WorkspaceAdapter return block in ui/workspace/app.js");
-
-  const endMarker = "})();";
-  const endIdx = src.indexOf(endMarker, returnIdx);
-  assert.ok(endIdx !== -1, "Could not locate end of WorkspaceAdapter IIFE in ui/workspace/app.js");
-
-  const extractedSource = [
-    src.slice(presetStart, mountedIdx),
-    src.slice(onboardingStart, endIdx + endMarker.length),
-    "({ WorkspaceAdapter, OnboardingState, AGENT_SWATCHES });",
-  ].join("\n\n");
-
-  const context = vm.createContext({
-    window: {},
-    Date,
-    Math,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Map,
-    Set,
-    RegExp,
-    parseInt,
-    parseFloat,
-    isNaN,
-    Transport: {
-      getSampleLabel: () => "Sample data (backend-shape)",
-    },
-  });
-
-  const exported = vm.runInContext(extractedSource, context, {
-    filename: "ui/workspace/app.js#WorkspaceAdapter",
-  });
-  assert.equal(typeof exported?.WorkspaceAdapter?.buildViewModel, "function", "WorkspaceAdapter.buildViewModel must be a function");
-  return exported;
+  return loadWorkspaceAdapter({ appJsPath: APP_JS_PATH });
 }
 
 // ---------------------------------------------------------------------------

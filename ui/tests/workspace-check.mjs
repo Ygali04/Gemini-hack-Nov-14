@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+import { loadWorkspaceAdapterFromAppJs as loadWorkspaceAdapter } from "./adapter-loader.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,75 +24,13 @@ function readFixtureJson(fileName) {
  * ui/workspace/app.js and evaluate them inside an isolated node:vm context.
  */
 function loadWorkspaceAdapterFromAppJs(fixedNowSec) {
-  assert.ok(fs.existsSync(APP_JS_PATH), "Missing ui/workspace/app.js");
-  const src = fs.readFileSync(APP_JS_PATH, "utf8");
-
-  let presetStart = src.indexOf("const SharedGlass =");
-  if (presetStart === -1) {
-    presetStart = src.indexOf("const QUIET_PRESET =");
-  }
-  assert.ok(presetStart !== -1, "Could not locate SharedGlass or QUIET_PRESET in ui/workspace/app.js");
-
-  const mountedMarker = "const mountedGlassByContainer = new Map();";
-  const mountedIdx = src.indexOf(mountedMarker, presetStart);
-  assert.ok(mountedIdx !== -1, "Could not locate mountedGlassByContainer in ui/workspace/app.js");
-
-  const onboardingStart = src.indexOf("const OnboardingState = {", mountedIdx);
-  assert.ok(onboardingStart !== -1, "Could not locate OnboardingState in ui/workspace/app.js");
-
-  const adapterStart = src.indexOf("const WorkspaceAdapter = (function () {", onboardingStart);
-  assert.ok(adapterStart !== -1, "Could not locate WorkspaceAdapter in ui/workspace/app.js");
-
-  const returnMarker = "return {\n      buildViewModel,\n      formatSeconds,\n    };";
-  const returnIdx = src.indexOf(returnMarker, adapterStart);
-  assert.ok(returnIdx !== -1, "Could not locate WorkspaceAdapter return block in ui/workspace/app.js");
-
-  const endMarker = "})();";
-  const endIdx = src.indexOf(endMarker, returnIdx);
-  assert.ok(endIdx !== -1, "Could not locate end of WorkspaceAdapter IIFE in ui/workspace/app.js");
-
-  const extractedSource = [
-    src.slice(presetStart, mountedIdx),
-    src.slice(onboardingStart, endIdx + endMarker.length),
-    "({ WorkspaceAdapter, OnboardingState, AGENT_SWATCHES });",
-  ].join("\n\n");
-
   const fixedNowMs = fixedNowSec * 1000;
   class FixedDate extends Date {
     static now() {
       return fixedNowMs;
     }
   }
-
-  const context = vm.createContext({
-    window: {},
-    Date: FixedDate,
-    Math,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Map,
-    Set,
-    RegExp,
-    parseInt,
-    parseFloat,
-    isNaN,
-    Transport: {
-      getSampleLabel: () => "Sample data (backend-shape)",
-    },
-  });
-
-  const exported = vm.runInContext(extractedSource, context, {
-    filename: "ui/workspace/app.js#WorkspaceAdapter",
-  });
-  assert.equal(
-    typeof exported?.WorkspaceAdapter?.buildViewModel,
-    "function",
-    "WorkspaceAdapter.buildViewModel must be a function"
-  );
-  return exported;
+  return loadWorkspaceAdapter({ appJsPath: APP_JS_PATH, DateClass: FixedDate });
 }
 
 /**

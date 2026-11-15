@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+import { loadNotchAdapterFromIndexHtml } from "./adapter-loader.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,39 +14,7 @@ const FIXTURES_DIR = path.join(UI_DIR, "fixtures");
  * Extract WorkspaceAdapter IIFE from ui/index.html and evaluate it in an isolated VM context.
  */
 function loadAdapterFromIndexHtml() {
-  const html = fs.readFileSync(INDEX_HTML_PATH, "utf8");
-  const startMarker = "const WorkspaceAdapter = (function () {";
-  const startIdx = html.indexOf(startMarker);
-  assert.ok(startIdx !== -1, "Could not locate WorkspaceAdapter in ui/index.html");
-
-  const returnMarker = "return { mapRuns };";
-  const returnIdx = html.indexOf(returnMarker, startIdx);
-  assert.ok(returnIdx !== -1, "Could not locate WorkspaceAdapter return statement in ui/index.html");
-
-  const endMarker = "})();";
-  const endIdx = html.indexOf(endMarker, returnIdx);
-  assert.ok(endIdx !== -1, "Could not locate end of WorkspaceAdapter IIFE in ui/index.html");
-
-  const adapterSource = html.slice(startIdx, endIdx + endMarker.length) + "\n;WorkspaceAdapter;";
-  const context = vm.createContext({
-    Date,
-    Math,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Map,
-    Set,
-    RegExp,
-    parseInt,
-    parseFloat,
-    isNaN,
-  });
-
-  const adapter = vm.runInContext(adapterSource, context, { filename: "ui/index.html#WorkspaceAdapter" });
-  assert.equal(typeof adapter?.mapRuns, "function", "WorkspaceAdapter.mapRuns must be a function");
-  return adapter;
+  return loadNotchAdapterFromIndexHtml(INDEX_HTML_PATH);
 }
 
 /**
