@@ -2879,11 +2879,8 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         ${renderEmptyStateHtml({
-          title: "Agent graph",
-          subtitle: "One lead agent and the agents it starts",
-          message: "No runs yet. Send a prompt above to watch your primary agent and the agents it starts work.",
-          ctaLabel: "Ask agents to run a task",
-          ctaAction: "focus-prompt",
+          title: "",
+          message: "No runs yet. Open the notch at the top of your screen to ask an agent to run a task.",
         })}
       `;
       return;
@@ -3196,11 +3193,8 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         ${renderEmptyStateHtml({
-          title: "State machine graph",
-          subtitle: "Screens as nodes and actions as directed edges across runs",
-          message: "No screen transitions recorded yet. Run a computer-use task to map screens and actions.",
-          ctaLabel: "Ask agents to run a task",
-          ctaAction: "focus-prompt",
+          title: "",
+          message: "No screen transitions recorded yet. Open the notch at the top of your screen to run a computer-use task.",
         })}
       `;
       return;
@@ -3884,11 +3878,8 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         ${renderEmptyStateHtml({
-          title: "Transcript log",
-          subtitle: "Every run newest first: prompt, attachments, agents, status, result, and time",
-          message: "No transcripts yet. Prompts, attachments, and agent replies appear here after your first run.",
-          ctaLabel: "Ask agents to run a task",
-          ctaAction: "focus-prompt",
+          title: "",
+          message: "No transcripts yet. Open the notch at the top of your screen to run your first task.",
         })}
       `;
       return;
@@ -4017,12 +4008,9 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">Transcript log</h2>
-          <p class="section-subtitle">
-            Every run newest first: prompt, attachments, agents, status, result, and time
-          </p>
-        </div>
+        <p class="section-subtitle">
+          Every run newest first: prompt, attachments, agents, status, result, and time
+        </p>
         <div class="filter-group" role="group" aria-label="Transcript or history view">
           <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="logs">Transcript</button>
           <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="history">History</button>
@@ -4100,10 +4088,7 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         <div class="section-header-row">
-          <div>
-            <h2 class="section-title">Artifacts</h2>
-            <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
-          </div>
+          <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
           <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
             <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
             <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
@@ -4266,10 +4251,7 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">Artifacts</h2>
-          <p class="section-subtitle">Bug reports, patches, commits, and marketing briefs from run events</p>
-        </div>
+        <p class="section-subtitle">Bug reports, patches, commits, and marketing briefs from run events</p>
         <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
           <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
           <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
@@ -4306,10 +4288,7 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         <div class="section-header-row">
-          <div>
-            <h2 class="section-title">Marketing</h2>
-            <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
-          </div>
+          <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
           <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
             <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
             <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
@@ -4545,11 +4524,8 @@
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         ${renderEmptyStateHtml({
-          title: "Analytics",
-          subtitle: "Spend, model calls, and app reliability from the local store",
-          message: "No tasks recorded yet. Spend, model calls, and app reliability appear here after your first run.",
-          ctaLabel: "Ask agents to run a task",
-          ctaAction: "focus-prompt",
+          title: "",
+          message: "No tasks recorded yet. Open the notch at the top of your screen to run your first task.",
         })}
       `;
       return;
@@ -4763,10 +4739,7 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">Analytics</h2>
-          <p class="section-subtitle">${escapeHtml(provenanceDescription)}</p>
-        </div>
+        <p class="section-subtitle">${escapeHtml(provenanceDescription)}</p>
       </div>
 
       ${summaryStripHtml}
@@ -4954,9 +4927,8 @@
           <div class="view-status-row" role="status">
             <div class="filter-group">
               <span class="state-text state-neutral">&cir; No runs yet</span>
-              <span class="section-subtitle">Complete step 1 below or send your first prompt to start.</span>
+              <span class="section-subtitle">Complete step 1 below or open the notch at the top of your screen to start.</span>
             </div>
-            <button type="button" class="btn" data-action="focus-prompt">Ask agents to run a task</button>
           </div>
         `
         : "";
@@ -5635,14 +5607,11 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">History</h2>
-          <p class="section-subtitle">${
-            usingSample
-              ? "Sample data — no live runs recorded yet."
-              : "Past tasks, outcomes, apps used, and cost."
-          }</p>
-        </div>
+        <p class="section-subtitle">${
+          usingSample
+            ? "Sample data — no live runs recorded yet."
+            : "Past tasks, outcomes, apps used, and cost."
+        }</p>
         <div class="filter-group" role="group" aria-label="Transcript or history view">
           <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="logs">Transcript</button>
           <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="history">History</button>
@@ -5767,10 +5736,7 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">Settings</h2>
-          <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
-        </div>
+        <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
         <div class="filter-group">
           <span aria-live="polite">${settingsStatusHtml}</span>
           <button type="submit" form="workspace-settings-form" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
@@ -6001,14 +5967,11 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <div>
-          <h2 class="section-title">Memory</h2>
-          <p class="section-subtitle">${
-            HistorySettingsState.memoryLive
-              ? "Saved memories from the backend. Forgetting a memory deletes it."
-              : "Sample memories. Nothing here is saved."
-          }</p>
-        </div>
+        <p class="section-subtitle">${
+          HistorySettingsState.memoryLive
+            ? "Saved memories. Forgetting a memory deletes it."
+            : "Sample memories. Nothing here is saved."
+        }</p>
         ${HistorySettingsState.memoryLive ? "" : `<span class="provenance-tag">Sample</span>`}
       </div>
       ${

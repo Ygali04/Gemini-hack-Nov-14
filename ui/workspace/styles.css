@@ -70,6 +70,10 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -394,11 +398,14 @@ select:focus-visible,
 
 /* Red appears ONLY on destructive buttons */
 .btn-destructive {
+  background: rgba(255, 92, 108, 0.14);
+  border: 1px solid rgba(255, 92, 108, 0.35);
   color: var(--state-danger);
+  font-weight: 600;
 }
 
 .btn-destructive:hover:not(:disabled) {
-  background: var(--btn-hover);
+  background: rgba(255, 92, 108, 0.24);
   color: var(--state-danger);
 }
 
