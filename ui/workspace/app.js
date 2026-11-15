@@ -646,6 +646,15 @@
       return Array.isArray(res?.files) ? res.files : [];
     }
 
+    async function openSettingsPane(pane) {
+      if (!hasShellBridge()) return { ok: false, error: "Shell unavailable" };
+      try {
+        return await callShell("openSettingsPane", { pane: String(pane || "").trim() });
+      } catch (err) {
+        return { ok: false, error: err?.message || "Could not open System Settings" };
+      }
+    }
+
     function getSampleLabel() {
       return fixtureState?.sampleLabel || (activeFixtureName ? "Sample data" : "");
     }
@@ -658,6 +667,7 @@
       loadFixture,
       request,
       pickFiles,
+      openSettingsPane,
       getSampleLabel,
       getFixtureWorkspaceState: () => fixtureState?.workspaceState || null,
     };
@@ -991,6 +1001,34 @@
       return null;
     }
 
+    function humanizeSmAction(rawAction, appName) {
+      const raw = String(rawAction || "").trim();
+      if (!raw) return "Performed action";
+      const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
+      const verb = (parts[0] || "").toLowerCase();
+      const target = parts.slice(1).filter((p) => !["button", "menuitem", "textfield", "checkbox", "link", "tab"].includes(p.toLowerCase())).join(" ").trim();
+      if (verb === "open_app" || verb === "open") {
+        return `Opened ${target || appName || "app"}`;
+      }
+      if (verb === "click") {
+        return `Clicked ${target || "control"}`;
+      }
+      if (verb === "type" || verb === "input") {
+        return `Typed ${target || "text"}`;
+      }
+      if (verb === "key" || verb === "press" || verb === "hotkey") {
+        return `Pressed ${target || "key"}`;
+      }
+      if (verb === "scroll") {
+        return `Scrolled ${target || "page"}`;
+      }
+      if (verb === "verify" || verb === "done_verified") {
+        return `Checked ${target || appName || "screen"}`;
+      }
+      const clean = raw.replace(/[:_]+/g, " ").replace(/\s+/g, " ").trim();
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    }
+
     function formatAgentStepEvent(ev) {
       if (!ev || typeof ev !== "object") return null;
       const tText = ev.t != null ? `${Number(ev.t).toFixed(1)}s` : "";
@@ -1006,7 +1044,7 @@
             summary: thought
               ? thought
               : ev.action
-                ? `Selected action ${ev.action}`
+                ? humanizeSmAction(ev.action)
                 : "Planned next step",
             timeText: tText,
           };
@@ -1014,10 +1052,8 @@
         case "act":
           return {
             kind: "act",
-            label: "Act",
-            summary: `${ev.action ? String(ev.action).replace(/:/g, " · ") : "Executed screen action"}${
-              ev.source ? ` (${ev.source})` : ""
-            }`,
+            label: "Work",
+            summary: ev.action ? humanizeSmAction(ev.action) : "Completed a step",
             timeText: tText,
           };
         case "verify":
@@ -1235,17 +1271,24 @@
       return `Before ${target}`;
     }
 
-    function buildStateMachine(rawActions, agentPaletteByName, selectedAgentFilter, selectedAppFilter) {
+    function buildStateMachine(rawActions, agentPaletteByName, selectedAgentFilter, selectedAppFilter, resolveAgentName) {
       const rows = Array.isArray(rawActions) ? rawActions : [];
-      const filteredRows = rows.filter((r) => {
+      const resolveName = typeof resolveAgentName === "function" ? resolveAgentName : (a) => String(a || "").trim();
+      const normalizedRows = rows.map((r) => ({
+        ...r,
+        _appName: String(r.app || "App").trim() || "App",
+        _agentName: resolveName(r.agent, r.run),
+      }));
+      const filteredRows = normalizedRows.filter((r) => {
         if (selectedAgentFilter) {
           const matchAgent =
+            r._agentName === selectedAgentFilter ||
             r.agent === selectedAgentFilter ||
             r.run === selectedAgentFilter;
           if (!matchAgent) return false;
         }
         if (selectedAppFilter && selectedAppFilter !== "all") {
-          if ((r.app || "App") !== selectedAppFilter) return false;
+          if (r._appName !== selectedAppFilter) return false;
         }
         return true;
       });
@@ -1258,9 +1301,9 @@
       const outgoingByScreen = new Map();
       const explicitTitleByScreen = new Map();
 
-      for (const r of rows) {
-        if (r.app) appsSet.add(r.app);
-        if (r.agent) agentsSet.add(r.agent);
+      for (const r of normalizedRows) {
+        if (r._appName) appsSet.add(r._appName);
+        if (r._agentName) agentsSet.add(r._agentName);
       }
 
       for (const row of filteredRows) {
@@ -1317,15 +1360,15 @@
       }
 
       for (const row of filteredRows) {
-        const app = row.app || "Desktop";
+        const app = row._appName || "Desktop";
         const fromId = row.from || `${app}:start`;
         const actionVerb = String(row.action || "act").split(":")[0] || "next";
         const toId = row.to || `${app}:${actionVerb}`;
         const fromNode = ensureScreen(fromId, app);
         const toNode = ensureScreen(toId, app);
-        if (row.agent) {
-          fromNode.agents.add(row.agent);
-          toNode.agents.add(row.agent);
+        if (row._agentName) {
+          fromNode.agents.add(row._agentName);
+          toNode.agents.add(row._agentName);
         }
 
         const edgeKey = `${fromId}__${row.action || "act"}__${toId}`;
@@ -1369,8 +1412,8 @@
         }
         if (row.ms) edge.latencies.push(Number(row.ms));
         if (row.source) edge.sources.add(row.source);
-        if (row.agent && !edge.agents.includes(row.agent)) {
-          edge.agents.push(row.agent);
+        if (row._agentName && !edge.agents.includes(row._agentName)) {
+          edge.agents.push(row._agentName);
         }
         if (row.run && !edge.runs.includes(row.run)) {
           edge.runs.push(row.run);
@@ -1462,7 +1505,7 @@
         screens,
         edges,
         allApps: Array.from(appsSet).sort(),
-        allAgents: Array.from(agentsSet),
+        allAgents: Array.from(agentsSet).sort(),
         totalFilteredActions: filteredRows.length,
       };
     }
@@ -1684,11 +1727,17 @@
               rawAgent === "Mercury" ||
               rawAgent === "Primary orchestrator" ||
               tr.role === "orchestrator";
+            const rawText = String(tr.text || "").trim();
+            const isRawActionKind =
+              tr.kind === "act" ||
+              /^(click|double_click|type|set_value|press|scroll|open_app|run_applescript)[\s:]/i.test(rawText);
+            const cleanSummary = isRawActionKind ? humanizeSmAction(rawText) : rawText;
             combinedEvents.push({
+              kind: isRawActionKind ? "act" : (tr.kind || tr.role || "message"),
               agentName: isOrchestratorRow ? getPrimaryAgentDisplayName(rawAgent) : rawAgent,
               agentPalette: isOrchestratorRow ? getPrimaryAgentSwatch() : null,
-              label: sentenceCase(tr.kind || tr.role || "Message"),
-              summary: tr.text || "",
+              label: isRawActionKind ? "Work" : sentenceCase(tr.kind || tr.role || "Message"),
+              summary: cleanSummary,
               timeText: tr.ts ? new Date(tr.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "",
             });
           }
@@ -1771,11 +1820,32 @@
       });
 
       /* Build B1b State Machine Graph */
+      const runById = new Map(runsList.map((r) => [r.id, r]));
+      const resolveSmAgentName = (rawAgent, runId) => {
+        const raw = String(rawAgent || "").trim();
+        const fromAgents =
+          (raw && rawAgents?.[raw]?.name) ||
+          (runId && rawAgents?.[runId]?.name) ||
+          "";
+        if (fromAgents) return String(fromAgents).trim();
+        const rObj = (runId && runById.get(runId)) || (raw && runById.get(raw)) || null;
+        if (rObj?.agent_name) return String(rObj.agent_name).trim();
+        if (raw && !/^r\d{6,}-\d+$/.test(raw) && !/^[0-9a-f]{6,}$/i.test(raw)) {
+          return raw;
+        }
+        if (rObj?.role === "orchestrator" || raw === "orchestrator") {
+          return getPrimaryAgentDisplayName("Primary orchestrator");
+        }
+        if (rObj?.role) return formatRoleTitle(rObj.role);
+        return raw || "Agent";
+      };
+
       const stateMachine = buildStateMachine(
         rawActions,
         agentPaletteByName,
         state.smAgentFilter || "",
-        selectedAppFilter || "all"
+        selectedAppFilter || "all",
+        resolveSmAgentName
       );
 
       /* Build Agent Replay runs (Issue #1 #5: step through act events and see which screen node each hit) */
@@ -2136,6 +2206,7 @@
       buildViewModel,
       formatSeconds,
       sentenceCase,
+      humanizeSmAction,
     };
   })();
 
@@ -2337,10 +2408,11 @@
     { id: "state-machine", label: "State machine", desc: "Screens and actions per app, success and failure", key: "2" },
     { id: "logs", label: "Transcript and history", desc: "Every chat, searchable, filter by state", key: "3" },
     { id: "analytics", label: "Analytics", desc: "Cost per task and app, reliability per app", key: "4" },
-    { id: "artifacts", label: "Artifacts and marketing", desc: "Files, patches and briefs the agents made", key: "5" },
+    { id: "artifacts", label: "Artifacts", desc: "Reports, patches, commits, files, and marketing results", key: "5" },
     { id: "memory", label: "Memory", desc: "What the agents remember about you, with Forget", key: "6" },
-    { id: "settings", label: "Settings", desc: "Your agent's name and color, voice, model, approvals, app permissions, daily cap", key: "7" },
-    { id: "onboarding", label: "First-run setup", desc: "Set your name, agent identity, voice, and permissions", key: "8" },
+    { id: "agent-settings", label: "Agent settings", desc: "Primary agent name and color, primary model, and faster step model", key: "7" },
+    { id: "app-settings", label: "App settings", desc: "What agents call you, voice, notch shortcut, permissions, and setup", key: "8" },
+    { id: "onboarding", label: "First-run setup", desc: "Set your name, agent identity, voice, and permissions", key: "9" },
   ];
 
   let viewMenuOpen = false;
@@ -2382,10 +2454,11 @@
     if (v === "b1b" || v === "statemachine" || v === "state-machine" || v === "state") return "state-machine";
     if (v === "b2" || v === "logs" || v === "transcript" || v === "transcripts") return "logs";
     if (v === "b6" || v === "artifacts" || v === "artifact") return "artifacts";
-    if (v === "b7" || v === "marketing" || v === "promo") return "marketing";
+    if (v === "b7" || v === "marketing" || v === "promo") return "artifacts";
     if (v === "b3" || v === "analytics" || v === "cost") return "analytics";
     if (v === "b4" || v === "onboarding" || v === "setup") return "onboarding";
-    if (v === "settings") return "settings";
+    if (v === "settings" || v === "agent-settings") return "agent-settings";
+    if (v === "app-settings") return "app-settings";
     if (v === "memory") return "memory";
     if (v === "b5" || v === "history" || v === "history-settings") return "history";
     return "graph";
@@ -2479,7 +2552,7 @@
       menuDrop.classList.toggle("hidden", !viewMenuOpen);
       menuDrop.innerHTML = VIEW_DEFINITIONS.map((v) => {
         const isCurrent = v.id === menuViewId;
-        const shortcutText = v.key >= "1" && v.key <= "8" ? `⌘${v.key}` : "";
+        const shortcutText = v.key >= "1" && v.key <= "9" ? `⌘${v.key}` : "";
         return `
           <button
             type="button"
@@ -3191,34 +3264,7 @@
 
   /* ---------------- B1b: STATE MACHINE GRAPH VIEW ---------------- */
   let selectedSmScreenId = null;
-
-  function humanizeSmAction(rawAction, appName) {
-    const raw = String(rawAction || "").trim();
-    if (!raw) return "Performed action";
-    const parts = raw.split(":").map((p) => p.trim()).filter(Boolean);
-    const verb = (parts[0] || "").toLowerCase();
-    const target = parts.slice(1).filter((p) => !["button", "menuitem", "textfield", "checkbox", "link", "tab"].includes(p.toLowerCase())).join(" ").trim();
-    if (verb === "open_app" || verb === "open") {
-      return `Opened ${target || appName || "app"}`;
-    }
-    if (verb === "click") {
-      return `Clicked ${target || "control"}`;
-    }
-    if (verb === "type" || verb === "input") {
-      return `Typed ${target || "text"}`;
-    }
-    if (verb === "key" || verb === "press" || verb === "hotkey") {
-      return `Pressed ${target || "key"}`;
-    }
-    if (verb === "scroll") {
-      return `Scrolled ${target || "page"}`;
-    }
-    if (verb === "verify" || verb === "done_verified") {
-      return `Checked ${target || appName || "screen"}`;
-    }
-    const clean = raw.replace(/[:_]+/g, " ").replace(/\s+/g, " ").trim();
-    return clean.charAt(0).toUpperCase() + clean.slice(1);
-  }
+  const humanizeSmAction = WorkspaceAdapter.humanizeSmAction;
 
   function formatSmReliabilityWords(edge) {
     if (!edge) return "";
@@ -3992,6 +4038,41 @@
                   .join("")
               : `<span class="section-subtitle">No attachments</span>`;
 
+            const renderCombinedTranscriptEntries = (eventsList) => {
+              if (!eventsList.length) return `<div>No events recorded yet.</div>`;
+              const blocks = [];
+              let i = 0;
+              while (i < eventsList.length) {
+                const ev = eventsList[i];
+                if (ev.kind === "act") {
+                  const agent = ev.agentName || "Agent";
+                  const group = [];
+                  while (i < eventsList.length && eventsList[i].kind === "act" && (eventsList[i].agentName || "Agent") === agent) {
+                    group.push(eventsList[i]);
+                    i += 1;
+                  }
+                  const timeHint = group[group.length - 1]?.timeText || group[0]?.timeText || "";
+                  const stepWord = group.length === 1 ? "step" : "steps";
+                  const headerParts = ["Work", agent, `${group.length} ${stepWord}`];
+                  if (timeHint) headerParts.push(timeHint);
+                  blocks.push(`
+                    <details class="transcript-work-fold">
+                      <summary class="transcript-work-summary">${escapeHtml(headerParts.join(" · "))}</summary>
+                      <div class="transcript-work-steps">
+                        ${group.map((st) => `<div>${escapeHtml(st.summary)}</div>`).join("")}
+                      </div>
+                    </details>
+                  `);
+                } else {
+                  blocks.push(
+                    `<div>[${escapeHtml(ev.timeText || "0.0s")}] ${escapeHtml(ev.agentName)} · ${escapeHtml(ev.label)}: ${escapeHtml(ev.summary)}</div>`
+                  );
+                  i += 1;
+                }
+              }
+              return blocks.join("");
+            };
+
             const eventsHtml = isExpanded
               ? `
                 <div class="transcript-events-panel">
@@ -4000,16 +4081,7 @@
                       ? `<div class="filter-group" style="margin-bottom:8px;">${renderCopyButton(`log-result:${g.id}`, "Copy result", g.resultSummary)}</div>`
                       : ""
                   }
-                  ${
-                    g.combinedEvents.length
-                      ? g.combinedEvents
-                          .map(
-                            (ev) =>
-                              `<div>[${escapeHtml(ev.timeText || "0.0s")}] ${escapeHtml(ev.agentName)} · ${escapeHtml(ev.label)}: ${escapeHtml(ev.summary)}</div>`
-                          )
-                          .join("")
-                      : `<div>No events recorded yet.</div>`
-                  }
+                  ${renderCombinedTranscriptEntries(g.combinedEvents)}
                 </div>
               `
               : "";
@@ -4148,27 +4220,93 @@
     }
 
     const artifacts = Array.isArray(vm.artifacts) ? vm.artifacts : [];
+    const marketingRuns = Array.isArray(vm.marketingRuns) ? vm.marketingRuns : [];
 
-    if (!artifacts.length) {
+    if (selectedMarketingRunId) {
+      const activeMkt = marketingRuns.find((r) => r.runId === selectedMarketingRunId);
+      if (activeMkt) {
+        container.innerHTML = renderMarketingArtifactDetailHtml(vm, activeMkt);
+        return;
+      }
+      selectedMarketingRunId = null;
+    }
+
+    const existingMktTaskIds = new Set(
+      artifacts
+        .filter((a) => a.kind === "marketing" || a.detail?.brief)
+        .map((a) => a.taskId)
+        .filter(Boolean)
+    );
+    const extraMarketingRows = marketingRuns
+      .filter((m) => !existingMktTaskIds.has(m.runId))
+      .map((m) => ({
+        id: `mkt:${m.runId}`,
+        kind: "marketing",
+        kindLabel: "Marketing",
+        taskId: m.runId,
+        taskGoal: m.goal,
+        agentName: m.agentName,
+        agentPalette: m.agentPalette,
+        statusObj: m.status,
+        timeText: m.elapsedText,
+        detail: {
+          tagline: m.tagline,
+          brief: {
+            launch_script: m.launchScript,
+            shot_list: m.shotList,
+            palette: m.palette,
+          },
+        },
+        _marketingRunId: m.runId,
+      }));
+    const combinedArtifacts = [...artifacts, ...extraMarketingRows];
+
+    if (!combinedArtifacts.length) {
       container.innerHTML = `
         ${renderViewStatusNoticesHtml(vm)}
         <div class="section-header-row">
-          <p class="section-subtitle">Reports, patches, commits, and launch briefs produced by agents</p>
-          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
-            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
-            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
-          </div>
+          <p class="section-subtitle">Reports, patches, commits, files, and marketing results produced by agents</p>
         </div>
         ${renderEmptyStateHtml({
           title: "",
-          message: "No artifacts produced yet. Bug reports, patches, commits, and launch briefs appear here as agents work.",
+          message: "No artifacts produced yet.",
         })}
       `;
       return;
     }
 
-    const rowsHtml = artifacts
+    const rowsHtml = combinedArtifacts
       .map((item) => {
+        const mktRun =
+          item.kind === "marketing" || item._marketingRunId
+            ? marketingRuns.find((r) => r.runId === (item._marketingRunId || item.taskId))
+            : null;
+        if (mktRun) {
+          return `
+            <div class="artifact-row">
+              <button
+                type="button"
+                class="artifact-row-btn"
+                data-action="open-marketing-artifact"
+                data-run-id="${escapeHtml(mktRun.runId)}"
+              >
+                <span class="artifact-row-main">
+                  <span class="state-text ${escapeHtml(item.statusObj.colorClass)}">${escapeHtml(item.statusObj.symbolWord)}</span>
+                  <strong>${escapeHtml(item.kindLabel || "Marketing")}</strong>
+                  <span class="inline-badge">
+                    <span class="agent-color-dot" style="background:${escapeHtml(item.agentPalette?.body || "#767d8e")};"></span>
+                    <span>${escapeHtml(item.agentName)}</span>
+                  </span>
+                  <span class="section-subtitle">${escapeHtml(item.taskGoal)}</span>
+                </span>
+                <span class="artifact-row-meta">
+                  <span>${escapeHtml(item.timeText || "")}</span>
+                  <span>Open</span>
+                </span>
+              </button>
+            </div>
+          `;
+        }
         const isExpanded = expandedArtifactIds.has(item.id);
         let detailHtml = "";
         let artifactCopyText = "";
@@ -4316,11 +4454,7 @@
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <p class="section-subtitle">Bug reports, patches, commits, and marketing briefs from run events</p>
-        <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
-          <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
-          <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
-        </div>
+        <p class="section-subtitle">Reports, patches, commits, and marketing results produced by agents</p>
       </div>
       <div class="artifact-list">
         ${rowsHtml}
@@ -4328,64 +4462,8 @@
     `;
   }
 
-  /* ---------------- MARKETING VIEW ---------------- */
-  function renderMarketingView(vm) {
-    const container = document.getElementById("b7-content");
-    if (!container) return;
-
-    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
-      container.innerHTML = renderLoadingSkeletonViewHtml("marketing");
-      return;
-    }
-
-    if (vm.connectionStatus === "disconnected") {
-      container.innerHTML = renderNotConnectedViewHtml({
-        title: "Marketing",
-        subtitle: "Launch briefs, voice-over scripts, shot lists, palettes, and screenshots",
-        connectionError: vm.connectionError,
-      });
-      attachConnectInputHandlers(container);
-      return;
-    }
-
-    const runs = Array.isArray(vm.marketingRuns) ? vm.marketingRuns : [];
-    if (!runs.length) {
-      container.innerHTML = `
-        ${renderViewStatusNoticesHtml(vm)}
-        <div class="section-header-row">
-          <p class="section-subtitle">Launch briefs, voice-over scripts, shot lists, palettes, and screenshots</p>
-          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
-            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
-            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
-          </div>
-        </div>
-        ${renderEmptyStateHtml({
-          title: "",
-          message: "No marketing runs yet. Ask your agents to create a launch brief or promo for an app or site.",
-        })}
-      `;
-      return;
-    }
-
-    const activeMkt = runs.find((r) => r.runId === selectedMarketingRunId) || runs[0];
-    selectedMarketingRunId = activeMkt.runId;
-
-    const selectorHtml =
-      runs.length > 1
-        ? `
-          <div class="filter-group">
-            <label for="marketing-run-select" class="filter-label">Marketing run</label>
-            <select id="marketing-run-select" class="inline-select" data-action="select-marketing-run">
-              ${runs
-                .map(
-                  (r) =>
-                    `<option value="${escapeHtml(r.runId)}" ${r.runId === activeMkt.runId ? "selected" : ""}>${escapeHtml(r.goal)}</option>`
-                )
-                .join("")}
-            </select>
-          </div>
-        `
-        : "";
+  /* ---------------- MARKETING ARTIFACT DETAIL ---------------- */
+  function renderMarketingArtifactDetailHtml(vm, activeMkt) {
 
     const paletteHtml = activeMkt.palette.length
       ? `
@@ -4499,7 +4577,7 @@
       ? renderCopyButton(`marketing-script:${activeMkt.runId}`, "Copy script", activeMkt.launchScript)
       : "";
 
-    container.innerHTML = `
+    return `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
@@ -4512,11 +4590,7 @@
         </div>
         <div class="filter-group">
           ${copyBriefBtn}
-          ${selectorHtml}
-          <div class="filter-group" role="group" aria-label="Artifacts or marketing view">
-            <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="artifacts">Artifacts</button>
-            <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
-          </div>
+          <button type="button" class="btn" data-action="close-marketing-artifact">&larr; Back to artifacts</button>
         </div>
       </div>
 
@@ -4551,14 +4625,6 @@
         ${macOnlyNoticeHtml}
       </div>
     `;
-
-    const selectEl = document.getElementById("marketing-run-select");
-    if (selectEl) {
-      selectEl.addEventListener("change", (e) => {
-        selectedMarketingRunId = e.target.value;
-        renderMarketingView(getViewModel());
-      });
-    }
   }
 
   /* ---------------- B3: ANALYTICS VIEW ---------------- */
@@ -4596,57 +4662,48 @@
       return;
     }
 
-    const provenanceDescription = vm.isSampleData
-      ? "Preview metrics shown from sample runs, never live runs."
-      : vm.connectionStatus === "connected"
-        ? "Live metrics from the local backend store."
-        : "Not connected. Connect to the backend or load preview data to inspect analytics.";
+    const reliabilityValue =
+      gs.mean_edge_p != null ? `${Math.round(Number(gs.mean_edge_p) * 100)}% of the time` : "—";
 
     const summaryStripHtml = hasRecordedAnalytics
       ? `
         <div class="metrics-strip">
           <div class="metric-item">
-            <span class="metric-label">Recorded tasks</span>
+            <span class="metric-label">Tasks</span>
             <span class="metric-value">${escapeHtml(an.tasks)}</span>
-            <span class="metric-note">${vm.isSampleData ? "Preview tasks" : "From local store"}</span>
           </div>
           <div class="metric-item">
-            <span class="metric-label">Total model calls</span>
+            <span class="metric-label">Model calls</span>
             <span class="metric-value">${escapeHtml(an.llm_calls)}</span>
-            <span class="metric-note">${vm.isSampleData ? "Preview model calls" : "From local store"}</span>
           </div>
           <div class="metric-item">
-            <span class="metric-label">Total token spend</span>
+            <span class="metric-label">Spent</span>
             <span class="metric-value">${an.cost_usd != null ? `$${Number(an.cost_usd).toFixed(4)}` : "—"}</span>
-            <span class="metric-note">${
-              an.mean_cost_per_task != null
-                ? `Mean $${Number(an.mean_cost_per_task).toFixed(4)} / task`
-                : "No per-task mean yet"
-            }</span>
           </div>
           <div class="metric-item">
-            <span class="metric-label">Memory graph coverage</span>
-            <span class="metric-value">${escapeHtml(gs.screens ?? 0)} screens · ${escapeHtml(gs.skills ?? 0)} saved shortcuts</span>
-            <span class="metric-note">${
-              gs.mean_edge_p != null ? `${Math.round(Number(gs.mean_edge_p) * 100)}% reliable` : "No scored edges yet"
-            }</span>
+            <span class="metric-label">Per task</span>
+            <span class="metric-value">${an.mean_cost_per_task != null ? `$${Number(an.mean_cost_per_task).toFixed(4)}` : "—"}</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Works</span>
+            <span class="metric-value">${escapeHtml(reliabilityValue)}</span>
           </div>
         </div>
       `
       : `
-        <div class="filter-bar" style="padding: 12px 0; border-bottom: 1px solid var(--line-divider);">
-          <span class="state-text state-neutral">&cir; No recorded model calls in store yet</span>
+        <div class="filter-bar" style="padding: 10px 0; border-bottom: 1px solid var(--line-divider);">
+          <span class="state-text state-neutral">&cir; No recorded model calls yet</span>
           <span class="section-subtitle">
             ${
               vm.isSampleData
-                ? "This fixture is the empty first-run sample (0 recorded tasks)."
-                : "The local store has 0 recorded model calls (for example when running in mock mode). Zeroes are not shown as completed metrics."
+                ? "This sample has 0 recorded tasks."
+                : "0 recorded model calls so far."
             }
           </span>
         </div>
       `;
 
-    /* Cost per task over time (Issue #1 #2) */
+    /* Cost per task over time */
     const tasksWithCost = vm.taskGroups
       .filter((g) => g.cost && g.cost.cost_usd != null && (g.cost.cost_usd > 0 || g.cost.llm_calls > 0))
       .slice()
@@ -4654,22 +4711,36 @@
     let spendChartHtml = "";
     if (tasksWithCost.length) {
       const maxCost = Math.max(...tasksWithCost.map((g) => Number(g.cost.cost_usd || 0)), 0.0001);
-      const barW = 44;
-      const gap = 12;
-      const chartW = Math.max(240, tasksWithCost.length * (barW + gap) + 16);
-      const chartH = 62;
+      const chartH = 148;
+      const topPad = 20;
+      const bottomPad = 26;
+      const plotH = chartH - topPad - bottomPad;
+      const leftPad = 56;
+      const rightPad = 16;
+      const count = tasksWithCost.length;
+      const barW = Math.min(64, Math.max(28, Math.floor(560 / Math.max(count, 1)) - 14));
+      const gap = Math.max(12, Math.min(28, Math.floor(140 / Math.max(count, 1))));
+      const chartW = Math.max(540, leftPad + rightPad + count * (barW + gap));
+      const plotW = chartW - leftPad - rightPad;
+      const midCost = maxCost / 2;
+      const baselineY = topPad + plotH;
+      const midY = topPad + plotH / 2;
       const barsSvg = tasksWithCost
         .map((g, i) => {
           const val = Number(g.cost.cost_usd || 0);
-          const h = Math.max(4, Math.round((val / maxCost) * 38));
-          const x = 8 + i * (barW + gap);
-          const y = 44 - h;
+          const h = Math.max(6, Math.round((val / maxCost) * plotH));
+          const stepW = plotW / count;
+          const x = Math.round(leftPad + i * stepW + (stepW - barW) / 2);
+          const y = baselineY - h;
+          const shortGoal = String(g.goal || `Task ${i + 1}`).trim();
+          const axisLabel = shortGoal.length > 14 ? shortGoal.slice(0, 13).trimEnd() + "…" : shortGoal;
           return `
             <g>
-              <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" fill="#a6adbb" opacity="0.75">
-                <title>${escapeHtml(g.goal)}: $${val.toFixed(4)}</title>
+              <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="4" fill="#a6adbb" opacity="0.82">
+                <title>${escapeHtml(shortGoal)}: $${val.toFixed(4)}</title>
               </rect>
-              <text x="${x + barW / 2}" y="58" text-anchor="middle" fill="#767d8e" font-size="12">$${val.toFixed(3)}</text>
+              <text x="${x + barW / 2}" y="${Math.max(12, y - 5)}" text-anchor="middle" fill="#f2f4f8" font-size="11">$${val.toFixed(4)}</text>
+              <text x="${x + barW / 2}" y="${chartH - 6}" text-anchor="middle" fill="#a6adbb" font-size="11">${escapeHtml(axisLabel)}<title>${escapeHtml(shortGoal)}</title></text>
             </g>
           `;
         })
@@ -4677,17 +4748,23 @@
       spendChartHtml = `
         <div class="analytics-spark-wrap">
           <div class="section-header-row">
-            <span class="filter-label">Cost per task over time</span>
+            <span class="filter-label">Cost per task</span>
             <span class="section-subtitle">${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}</span>
           </div>
-          <svg class="analytics-spark-svg" width="${chartW}" height="${chartH}" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task over time">
+          <svg class="analytics-spark-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task">
+            <line x1="${leftPad}" y1="${topPad}" x2="${chartW - rightPad}" y2="${topPad}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
+            <line x1="${leftPad}" y1="${midY}" x2="${chartW - rightPad}" y2="${midY}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3 3" />
+            <line x1="${leftPad}" y1="${baselineY}" x2="${chartW - rightPad}" y2="${baselineY}" stroke="rgba(255,255,255,0.16)" />
+            <text x="${leftPad - 8}" y="${topPad + 4}" text-anchor="end" fill="#7d8495" font-size="11">$${maxCost.toFixed(3)}</text>
+            <text x="${leftPad - 8}" y="${midY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$${midCost.toFixed(3)}</text>
+            <text x="${leftPad - 8}" y="${baselineY + 4}" text-anchor="end" fill="#7d8495" font-size="11">$0</text>
             ${barsSvg}
           </svg>
         </div>
       `;
     }
 
-    /* Decide spend share cue (Issue #1 #2) */
+    /* Decide spend share cue */
     const purposes = Array.isArray(an?.by_purpose) ? an.by_purpose : [];
     const totalPurposeSpend = purposes.reduce((sum, p) => sum + Number(p.cost_usd || 0), 0);
     const decideRow = purposes.find((p) => String(p.purpose || "").toLowerCase() === "decide");
@@ -4697,7 +4774,7 @@
         : null;
     const decideCueHtml =
       decidePct != null && decidePct >= 65
-        ? `<p class="section-subtitle">Decide accounts for ${decidePct}% of model spend — consider switching on the fast decide tier.</p>`
+        ? `<p class="section-subtitle">Most of the cost (${decidePct}%) is the model deciding each step.</p>`
         : "";
 
     const taskRowsHtml = vm.taskGroups.length
@@ -4803,159 +4880,174 @@
 
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
-      <div class="section-header-row">
-        <p class="section-subtitle">${escapeHtml(provenanceDescription)}</p>
-      </div>
-
       ${summaryStripHtml}
       ${spendChartHtml}
       ${decideCueHtml}
 
-      <details class="analytics-disclosure">
-        <summary class="analytics-disclosure-summary">
-          <span>Per-task cost and time</span>
-          <span class="section-subtitle">${vm.taskGroups.length} ${vm.taskGroups.length === 1 ? "task" : "tasks"} &middot; ${vm.isSampleData ? "Preview" : "Live store"}</span>
-        </summary>
-        <div class="data-table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Task prompt</th>
-                <th>Status</th>
-                <th class="num-col">Agents</th>
-                <th class="num-col">Calls</th>
-                <th class="num-col">Tokens (in / out)</th>
-                <th class="num-col">Cost</th>
-                <th class="num-col">Model time</th>
-                <th class="num-col">Wall time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${taskRowsHtml}
-            </tbody>
-          </table>
-        </div>
-      </details>
-
-      <details class="analytics-disclosure">
-        <summary class="analytics-disclosure-summary">
-          <span>Spend by model purpose &amp; agent role</span>
-          <span class="section-subtitle">${decidePct != null ? `Decide ${decidePct}% of spend` : "Breakdown"}</span>
-        </summary>
-        <div class="b1-layout">
-          <div>
-            <div class="section-header-row">
-              <h3 class="section-title">By model purpose</h3>
-            </div>
+      <div class="analytics-disclosures-list">
+        <details class="analytics-disclosure">
+          <summary class="analytics-disclosure-summary">
+            <span class="analytics-disclosure-summary-left">Per-task cost and time</span>
+            <span class="section-subtitle">${vm.taskGroups.length} ${vm.taskGroups.length === 1 ? "task" : "tasks"}</span>
+          </summary>
+          <div class="analytics-disclosure-body">
             <div class="data-table-wrap">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Purpose</th>
+                    <th>Task prompt</th>
+                    <th>Status</th>
+                    <th class="num-col">Agents</th>
                     <th class="num-col">Calls</th>
-                    <th class="num-col">Spend</th>
-                    <th class="num-col">Mean latency</th>
+                    <th class="num-col">Tokens (in / out)</th>
+                    <th class="num-col">Cost</th>
+                    <th class="num-col">Model time</th>
+                    <th class="num-col">Wall time</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${purposeRowsHtml}
+                  ${taskRowsHtml}
                 </tbody>
               </table>
             </div>
           </div>
+        </details>
 
-          <div>
-            <div class="section-header-row">
-              <h3 class="section-title">By agent role</h3>
-            </div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Role</th>
-                    <th class="num-col">Runs</th>
-                    <th class="num-col">Success</th>
-                    <th class="num-col">Mean time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${roleRowsHtml}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </details>
+        <details class="analytics-disclosure">
+          <summary class="analytics-disclosure-summary">
+            <span class="analytics-disclosure-summary-left">Spend by model purpose &amp; agent role</span>
+            <span class="section-subtitle">${decidePct != null ? `Decide ${decidePct}% of spend` : "Breakdown"}</span>
+          </summary>
+          <div class="analytics-disclosure-body">
+            <div class="b1-layout">
+              <div>
+                <div class="section-header-row">
+                  <h3 class="section-title">By model purpose</h3>
+                </div>
+                <div class="data-table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Purpose</th>
+                        <th class="num-col">Calls</th>
+                        <th class="num-col">Spend</th>
+                        <th class="num-col">Mean latency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${purposeRowsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
-      <details class="analytics-disclosure">
-        <summary class="analytics-disclosure-summary">
-          <span>Reliability per app &amp; memory stats</span>
-          <span class="section-subtitle">${Array.isArray(an?.by_app) ? `${an.by_app.length} apps` : "0 apps"} &middot; ${escapeHtml(gs.screens ?? 0)} screens</span>
-        </summary>
-        <div class="b1-layout">
-          <div>
-            <div class="section-header-row">
-              <h3 class="section-title">Reliability per app</h3>
-            </div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Application</th>
-                    <th class="num-col">Steps</th>
-                    <th class="num-col">✓ Ok</th>
-                    <th class="num-col">Did not finish</th>
-                    <th class="num-col">⊘ Denied</th>
-                    <th class="num-col">Success rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${appRowsHtml}
-                </tbody>
-              </table>
+              <div>
+                <div class="section-header-row">
+                  <h3 class="section-title">By agent role</h3>
+                </div>
+                <div class="data-table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Role</th>
+                        <th class="num-col">Runs</th>
+                        <th class="num-col">Success</th>
+                        <th class="num-col">Mean time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${roleRowsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
+        </details>
 
-          <div>
-            <div class="section-header-row">
-              <h3 class="section-title">Memory and tool stats</h3>
-            </div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Metric</th>
-                    <th class="num-col">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Screens indexed</td>
-                    <td class="num-col">${escapeHtml(gs.screens ?? 0)}</td>
-                  </tr>
-                  <tr>
-                    <td>Action transitions</td>
-                    <td class="num-col">${escapeHtml(gs.transitions ?? 0)}</td>
-                  </tr>
-                  <tr>
-                    <td>Saved macro skills</td>
-                    <td class="num-col">${escapeHtml(gs.skills ?? 0)}</td>
-                  </tr>
-                  <tr>
-                    <td>Destructive edges gated</td>
-                    <td class="num-col">${escapeHtml(gs.destructive_edges ?? 0)}</td>
-                  </tr>
-                  <tr>
-                    <td>Total actions logged</td>
-                    <td class="num-col">${escapeHtml(gs.actions_logged ?? 0)}</td>
-                  </tr>
-                </tbody>
-              </table>
+        <details class="analytics-disclosure">
+          <summary class="analytics-disclosure-summary">
+            <span class="analytics-disclosure-summary-left">Reliability per app &amp; memory stats</span>
+            <span class="section-subtitle">${Array.isArray(an?.by_app) ? `${an.by_app.length} apps` : "0 apps"} &middot; ${escapeHtml(gs.screens ?? 0)} screens</span>
+          </summary>
+          <div class="analytics-disclosure-body">
+            <div class="b1-layout">
+              <div>
+                <div class="section-header-row">
+                  <h3 class="section-title">Reliability per app</h3>
+                </div>
+                <div class="data-table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Application</th>
+                        <th class="num-col">Steps</th>
+                        <th class="num-col">✓ Ok</th>
+                        <th class="num-col">Did not finish</th>
+                        <th class="num-col">⊘ Denied</th>
+                        <th class="num-col">Success rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${appRowsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <div class="section-header-row">
+                  <h3 class="section-title">Memory and tool stats</h3>
+                </div>
+                <div class="data-table-wrap">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Metric</th>
+                        <th class="num-col">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Screens indexed</td>
+                        <td class="num-col">${escapeHtml(gs.screens ?? 0)}</td>
+                      </tr>
+                      <tr>
+                        <td>Action transitions</td>
+                        <td class="num-col">${escapeHtml(gs.transitions ?? 0)}</td>
+                      </tr>
+                      <tr>
+                        <td>Saved macro skills</td>
+                        <td class="num-col">${escapeHtml(gs.skills ?? 0)}</td>
+                      </tr>
+                      <tr>
+                        <td>Destructive edges gated</td>
+                        <td class="num-col">${escapeHtml(gs.destructive_edges ?? 0)}</td>
+                      </tr>
+                      <tr>
+                        <td>Total actions logged</td>
+                        <td class="num-col">${escapeHtml(gs.actions_logged ?? 0)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </details>
+        </details>
+      </div>
     `;
+
+    const disclosures = Array.from(container.querySelectorAll(".analytics-disclosure"));
+    for (const d of disclosures) {
+      d.addEventListener("toggle", () => {
+        if (d.open) {
+          for (const other of disclosures) {
+            if (other !== d && other.open) other.open = false;
+          }
+        }
+      });
+    }
   }
 
   /* ---------------- B4: ONBOARDING VIEW ---------------- */
@@ -5739,46 +5831,37 @@
     }
   }
 
-  function renderSettingsView(vm) {
+  function renderAgentSettingsView(vm) {
     const container = document.getElementById("b8-content");
     if (!container) return;
 
     if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
-      container.innerHTML = renderLoadingSkeletonViewHtml("settings");
+      container.innerHTML = renderLoadingSkeletonViewHtml("agent-settings");
       return;
     }
 
     if (vm.connectionStatus === "disconnected") {
       container.innerHTML = renderNotConnectedViewHtml({
-        title: "Settings",
-        subtitle: "Manage your profile settings and model preferences",
+        title: "Agent settings",
+        subtitle: "Primary agent identity and model preferences",
         connectionError: vm.connectionError,
       });
       attachConnectInputHandlers(container);
       return;
     }
 
-    const activeProfileFieldId = document.activeElement?.id || "";
-    const activeProfileCursor =
-      activeProfileFieldId.startsWith("settings-") && document.activeElement?.selectionStart != null
+    const activeFieldId = document.activeElement?.id || "";
+    const activeCursor =
+      activeFieldId === "settings-agent-name" && document.activeElement?.selectionStart != null
         ? document.activeElement.selectionStart
         : null;
 
     const draft = HistorySettingsState.profileDraft;
-    const settingsStatusHtml = HistorySettingsState.profileSaveError
+    const savedRow = HistorySettingsState.savedRow || "";
+    const currentSwatch = getPrimaryAgentSwatch();
+    const errorHtml = HistorySettingsState.profileSaveError
       ? `<span class="state-text state-neutral">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
-      : HistorySettingsState.profileSaveStatus
-        ? `<span class="state-text state-success">${escapeHtml(HistorySettingsState.profileSaveStatus)}</span>`
-        : "";
-
-    const voiceOptions = [
-      { value: "", label: "Default voice" },
-      { value: "2X7h8q4r8pMNZ7zRmpiF", label: "Warm & clear (default)" },
-      ...ONBOARDING_VOICES.map((v) => ({ value: v.id, label: v.name })),
-    ];
-    if (draft.voice_id && !voiceOptions.some((o) => o.value === draft.voice_id)) {
-      voiceOptions.push({ value: draft.voice_id, label: "Custom voice" });
-    }
+      : "";
 
     const modelOptions = [
       { value: "", label: "Automatic" },
@@ -5798,47 +5881,52 @@
       decideModelOptions.push({ value: draft.decide_model, label: draft.decide_model });
     }
 
+    const rowFeedback = (key) =>
+      savedRow === key ? `<span class="settings-row-feedback" role="status">✓ Saved</span>` : "";
+
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
-        <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
-        <div class="filter-group">
-          <span aria-live="polite">${settingsStatusHtml}</span>
-          <button type="submit" form="workspace-settings-form" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
-            ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
-          </button>
-          <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Run setup again</button>
+        <div>
+          <h3 class="section-title">Primary agent</h3>
+          <p class="section-subtitle">Name and color apply immediately across the workspace and notch.</p>
+        </div>
+        <span aria-live="polite">${errorHtml}</span>
+      </div>
+
+      <div class="settings-form-grid">
+        <div class="onboarding-field">
+          <label for="settings-agent-name" class="filter-label">Primary agent name ${rowFeedback("agent_name")}</label>
+          <input
+            type="text"
+            id="settings-agent-name"
+            class="inline-text-input"
+            maxlength="60"
+            placeholder="Primary orchestrator"
+            value="${escapeHtml(OnboardingState.agentName)}"
+          />
+        </div>
+        <div class="onboarding-field">
+          <span class="filter-label">Color ${rowFeedback("agent_color")}</span>
+          <div class="filter-group" role="group" aria-label="Primary agent color">
+            ${AGENT_SWATCHES.map((sw) => {
+              const selected = currentSwatch.key === sw.key;
+              return `<button type="button" class="btn ${selected ? "btn-active" : ""}" data-action="select-swatch" data-swatch="${escapeHtml(sw.key)}" aria-pressed="${selected ? "true" : "false"}"><span class="agent-color-dot" style="background:${escapeHtml(sw.body)};"></span><span>${escapeHtml(sw.name)}</span></button>`;
+            }).join("")}
+          </div>
         </div>
       </div>
 
-      <form id="workspace-settings-form" class="settings-form-grid">
-        <div class="onboarding-field">
-          <label for="settings-call-me" class="filter-label">What should agents call you?</label>
-          <input
-            type="text"
-            id="settings-call-me"
-            name="call_me"
-            class="inline-text-input"
-            maxlength="200"
-            placeholder="Your name"
-            value="${escapeHtml(draft.call_me)}"
-          />
+      <div class="section-header-row" style="margin-top: 10px;">
+        <div>
+          <h3 class="section-title">Models</h3>
+          <p class="section-subtitle">Choose which Gemini model plans tasks and which runs each step.</p>
         </div>
+      </div>
 
+      <form id="agent-models-form" class="settings-form-grid">
         <div class="onboarding-field">
-          <label for="settings-voice-id" class="filter-label">Voice</label>
-          <select id="settings-voice-id" name="voice_id" class="inline-text-input">
-            ${voiceOptions
-              .map(
-                (opt) =>
-                  `<option value="${escapeHtml(opt.value)}" ${draft.voice_id === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
-              )
-              .join("")}
-          </select>
-        </div>
-
-        <div class="onboarding-field">
-          <label for="settings-model" class="filter-label">Primary model</label>
+          <label for="settings-model" class="filter-label">Primary model ${rowFeedback("model")}</label>
           <select id="settings-model" name="model" class="inline-text-input">
             ${modelOptions
               .map(
@@ -5850,7 +5938,7 @@
         </div>
 
         <div class="onboarding-field">
-          <label for="settings-decide-model" class="filter-label">Faster step model</label>
+          <label for="settings-decide-model" class="filter-label">Faster step model ${rowFeedback("decide_model")}</label>
           <select id="settings-decide-model" name="decide_model" class="inline-text-input">
             ${decideModelOptions
               .map(
@@ -5861,52 +5949,6 @@
           </select>
         </div>
       </form>
-
-      <div class="section-header-row" style="margin-top: 8px;">
-        <div>
-          <h3 class="section-title">Primary agent</h3>
-          <p class="section-subtitle">Name and color for your lead agent. Agents it starts pick their own cursor colors.</p>
-        </div>
-      </div>
-      <div class="settings-form-grid">
-        <div class="onboarding-field">
-          <label for="settings-agent-name" class="filter-label">Primary agent name</label>
-          <input
-            type="text"
-            id="settings-agent-name"
-            class="inline-text-input"
-            maxlength="60"
-            placeholder="Primary orchestrator"
-            value="${escapeHtml(OnboardingState.agentName)}"
-          />
-        </div>
-        <div class="onboarding-field">
-          <span class="filter-label">Color</span>
-          <div class="filter-group" role="group" aria-label="Primary agent color">
-            ${AGENT_SWATCHES.map((sw) => {
-              const selected = OnboardingState.swatchKey === sw.key;
-              return `<button type="button" class="btn ${selected ? "btn-active" : ""}" data-action="select-swatch" data-swatch="${escapeHtml(sw.key)}" aria-pressed="${selected ? "true" : "false"}"><span class="agent-color-dot" style="background:${escapeHtml(sw.body)};"></span><span>${escapeHtml(sw.label)}</span></button>`;
-            }).join("")}
-          </div>
-        </div>
-      </div>
-
-      <div class="section-header-row" style="margin-top: 8px;">
-        <div>
-          <h3 class="section-title">Approvals, app permissions, and daily cap</h3>
-          <p class="section-subtitle">Money, sign-in, send, delete, and script actions always ask first.</p>
-        </div>
-      </div>
-      <div class="settings-form-grid">
-        <div class="onboarding-field">
-          <span class="filter-label">Off-limits apps</span>
-          <span class="section-subtitle">${OnboardingState.blockedApps.length ? escapeHtml(OnboardingState.blockedApps.join(", ")) : "None"}</span>
-        </div>
-        <div class="onboarding-field">
-          <span class="filter-label">Daily spend cap</span>
-          <span class="section-subtitle">$${escapeHtml(Number(OnboardingState.dailyCapUsd || 5).toFixed(2))} per day (enforced in session)</span>
-        </div>
-      </div>
     `;
 
     const agentNameInput = document.getElementById("settings-agent-name");
@@ -5914,37 +5956,190 @@
       agentNameInput.addEventListener("input", (e) => {
         OnboardingState.agentName = e.target.value;
         savePrimaryAgentChoice();
+        HistorySettingsState.savedRow = "agent_name";
+        renderNow();
       });
-    }
-
-    const settingsForm = document.getElementById("workspace-settings-form");
-    if (settingsForm) {
-      ["call_me", "voice_id", "model", "decide_model"].forEach((key) => {
-        const inputEl = settingsForm.querySelector(`[name="${key}"]`);
-        if (!inputEl) return;
-        inputEl.addEventListener("input", (e) => {
-          HistorySettingsState.profileDraft[key] = e.target.value;
-          HistorySettingsState.profileDirty = true;
-          HistorySettingsState.profileSaveStatus = "";
-          HistorySettingsState.profileSaveError = "";
-        });
-      });
-      if (activeProfileFieldId && activeProfileFieldId.startsWith("settings-")) {
-        const refocused = document.getElementById(activeProfileFieldId);
-        if (refocused) {
-          refocused.focus();
-          if (activeProfileCursor != null) {
-            try {
-              refocused.setSelectionRange(activeProfileCursor, activeProfileCursor);
-            } catch {
-              // Ignore
-            }
+      if (activeFieldId === "settings-agent-name") {
+        agentNameInput.focus();
+        if (activeCursor != null) {
+          try {
+            agentNameInput.setSelectionRange(activeCursor, activeCursor);
+          } catch {
+            // Ignore
           }
         }
       }
-      settingsForm.addEventListener("submit", async (e) => {
+    }
+
+    const modelsForm = document.getElementById("agent-models-form");
+    if (modelsForm) {
+      ["model", "decide_model"].forEach((key) => {
+        const inputEl = modelsForm.querySelector(`[name="${key}"]`);
+        if (!inputEl) return;
+        inputEl.addEventListener("change", async (e) => {
+          HistorySettingsState.profileDraft[key] = e.target.value;
+          await saveWorkspaceProfileSettings([key], key);
+        });
+      });
+    }
+  }
+
+  function renderAppSettingsView(vm) {
+    const container = document.getElementById("b10-content");
+    if (!container) return;
+
+    if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
+      container.innerHTML = renderLoadingSkeletonViewHtml("app-settings");
+      return;
+    }
+
+    if (vm.connectionStatus === "disconnected") {
+      container.innerHTML = renderNotConnectedViewHtml({
+        title: "App settings",
+        subtitle: "Personal preferences, notch shortcut, and macOS permissions",
+        connectionError: vm.connectionError,
+      });
+      attachConnectInputHandlers(container);
+      return;
+    }
+
+    const activeFieldId = document.activeElement?.id || "";
+    const activeCursor =
+      activeFieldId === "settings-call-me" && document.activeElement?.selectionStart != null
+        ? document.activeElement.selectionStart
+        : null;
+
+    const draft = HistorySettingsState.profileDraft;
+    const savedRow = HistorySettingsState.savedRow || "";
+    const errorHtml = HistorySettingsState.profileSaveError
+      ? `<span class="state-text state-neutral">${escapeHtml(HistorySettingsState.profileSaveError)}</span>`
+      : "";
+
+    const voiceOptions = [
+      { value: "", label: "Default voice" },
+      { value: "2X7h8q4r8pMNZ7zRmpiF", label: "Warm & clear (default)" },
+      ...ONBOARDING_VOICES.map((v) => ({ value: v.id, label: v.name })),
+    ];
+    if (draft.voice_id && !voiceOptions.some((o) => o.value === draft.voice_id)) {
+      voiceOptions.push({ value: draft.voice_id, label: "Custom voice" });
+    }
+
+    const rowFeedback = (key) =>
+      savedRow === key ? `<span class="settings-row-feedback" role="status">✓ Saved</span>` : "";
+
+    const permButtons = [
+      { pane: "accessibility", label: "Accessibility" },
+      { pane: "screenRecording", label: "Screen Recording" },
+      { pane: "microphone", label: "Microphone" },
+      { pane: "speechRecognition", label: "Speech Recognition" },
+      { pane: "automation", label: "Automation" },
+    ];
+
+    container.innerHTML = `
+      ${renderViewStatusNoticesHtml(vm)}
+      <div class="section-header-row">
+        <div>
+          <h3 class="section-title">You &amp; voice</h3>
+          <p class="section-subtitle">How agents address you and which voice reads replies.</p>
+        </div>
+        <div class="filter-group">
+          <span aria-live="polite">${errorHtml}</span>
+          <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Run setup again</button>
+        </div>
+      </div>
+
+      <form id="app-settings-form" class="settings-form-grid">
+        <div class="onboarding-field">
+          <label for="settings-call-me" class="filter-label">What should agents call you? ${rowFeedback("call_me")}</label>
+          <div class="inline-input-row">
+            <input
+              type="text"
+              id="settings-call-me"
+              name="call_me"
+              class="inline-text-input"
+              maxlength="200"
+              placeholder="Your name"
+              value="${escapeHtml(draft.call_me)}"
+            />
+            <button type="submit" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
+              ${HistorySettingsState.profileSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+
+        <div class="onboarding-field">
+          <label for="settings-voice-id" class="filter-label">Voice for spoken replies ${rowFeedback("voice_id")}</label>
+          <select id="settings-voice-id" name="voice_id" class="inline-text-input">
+            ${voiceOptions
+              .map(
+                (opt) =>
+                  `<option value="${escapeHtml(opt.value)}" ${draft.voice_id === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+              )
+              .join("")}
+          </select>
+        </div>
+      </form>
+
+      <div class="section-header-row" style="margin-top: 10px;">
+        <div>
+          <h3 class="section-title">Notch shortcut</h3>
+          <p class="section-subtitle">Press Option-Space anywhere on macOS to open or close the notch.</p>
+        </div>
+        <span class="attachment-token">⌥ Space</span>
+      </div>
+
+      <div class="section-header-row" style="margin-top: 10px;">
+        <div>
+          <h3 class="section-title">macOS permissions</h3>
+          <p class="section-subtitle">Open System Settings to grant or review each permission the app uses.</p>
+        </div>
+      </div>
+      <div class="filter-group">
+        ${permButtons
+          .map(
+            (p) =>
+              `<button type="button" class="btn" data-action="open-settings-pane" data-pane="${escapeHtml(p.pane)}">${escapeHtml(p.label)}</button>`
+          )
+          .join("")}
+      </div>
+      ${
+        HistorySettingsState.paneStatus
+          ? `<p class="section-subtitle" style="margin-top: 6px;">${escapeHtml(HistorySettingsState.paneStatus)}</p>`
+          : ""
+      }
+    `;
+
+    const appForm = document.getElementById("app-settings-form");
+    if (appForm) {
+      const callMeEl = appForm.querySelector('[name="call_me"]');
+      if (callMeEl) {
+        callMeEl.addEventListener("input", (e) => {
+          HistorySettingsState.profileDraft.call_me = e.target.value;
+          HistorySettingsState.profileDirty = true;
+          HistorySettingsState.savedRow = "";
+          HistorySettingsState.profileSaveError = "";
+        });
+      }
+      const voiceEl = appForm.querySelector('[name="voice_id"]');
+      if (voiceEl) {
+        voiceEl.addEventListener("change", async (e) => {
+          HistorySettingsState.profileDraft.voice_id = e.target.value;
+          await saveWorkspaceProfileSettings(["voice_id"], "voice_id");
+        });
+      }
+      if (activeFieldId === "settings-call-me" && callMeEl) {
+        callMeEl.focus();
+        if (activeCursor != null) {
+          try {
+            callMeEl.setSelectionRange(activeCursor, activeCursor);
+          } catch {
+            // Ignore
+          }
+        }
+      }
+      appForm.addEventListener("submit", async (e) => {
         e.preventDefault();
-        await saveWorkspaceProfileSettings();
+        await saveWorkspaceProfileSettings(["call_me"], "call_me");
       });
     }
   }
@@ -6088,14 +6283,14 @@
       renderStateMachineView(vm);
     } else if (currentView === "logs") {
       renderTranscriptLogView(vm);
-    } else if (currentView === "artifacts") {
+    } else if (currentView === "artifacts" || currentView === "marketing") {
       renderArtifactsView(vm);
-    } else if (currentView === "marketing") {
-      renderMarketingView(vm);
     } else if (currentView === "analytics") {
       renderAnalyticsView(vm);
-    } else if (currentView === "settings") {
-      renderSettingsView(vm);
+    } else if (currentView === "agent-settings" || currentView === "settings") {
+      renderAgentSettingsView(vm);
+    } else if (currentView === "app-settings") {
+      renderAppSettingsView(vm);
     } else if (currentView === "history") {
       renderHistoryView(vm);
     } else if (currentView === "memory") {
@@ -6342,20 +6537,24 @@
     await pollAll();
   }
 
-  async function saveWorkspaceProfileSettings() {
+  async function saveWorkspaceProfileSettings(onlyKeys = null, savedRowKey = "") {
     HistorySettingsState.profileSaveStatus = "";
     HistorySettingsState.profileSaveError = "";
+    HistorySettingsState.savedRow = "";
     if (!Transport.isConnected()) {
       HistorySettingsState.profileSaveError = "Not connected to backend";
       renderNow();
       return;
     }
-    const payload = {
+    const fullPayload = {
       call_me: String(HistorySettingsState.profileDraft.call_me || "").trim(),
       voice_id: String(HistorySettingsState.profileDraft.voice_id || "").trim(),
       model: String(HistorySettingsState.profileDraft.model || "").trim(),
       decide_model: String(HistorySettingsState.profileDraft.decide_model || "").trim(),
     };
+    const payload = Array.isArray(onlyKeys) && onlyKeys.length
+      ? Object.fromEntries(onlyKeys.filter((k) => k in fullPayload).map((k) => [k, fullPayload[k]]))
+      : fullPayload;
     for (const [k, v] of Object.entries(payload)) {
       if (v.length > 200 || /[\r\n]/.test(v)) {
         HistorySettingsState.profileSaveError = `${k}: one line, at most 200 characters`;
@@ -6368,16 +6567,17 @@
     try {
       const saved = await Transport.request("POST", "/api/profile", { jsonBody: payload });
       const next = {
-        call_me: String(saved?.call_me ?? payload.call_me),
-        voice_id: String(saved?.voice_id ?? payload.voice_id),
-        model: String(saved?.model ?? payload.model),
-        decide_model: String(saved?.decide_model ?? payload.decide_model),
+        call_me: String(saved?.call_me ?? fullPayload.call_me),
+        voice_id: String(saved?.voice_id ?? fullPayload.voice_id),
+        model: String(saved?.model ?? fullPayload.model),
+        decide_model: String(saved?.decide_model ?? fullPayload.decide_model),
       };
       HistorySettingsState.profile = next;
       HistorySettingsState.profileDraft = { ...next };
       HistorySettingsState.profileDirty = false;
       HistorySettingsState.profileLoaded = true;
       HistorySettingsState.profileSaveStatus = "✓ Saved";
+      HistorySettingsState.savedRow = savedRowKey || (onlyKeys && onlyKeys[0]) || "all";
       OnboardingState.callMe = next.call_me;
       if (next.voice_id) OnboardingState.voiceId = next.voice_id;
     } catch (err) {
@@ -6417,9 +6617,7 @@
       return;
     }
 
-    const actionsPath = smAgentFilter
-      ? `/api/actions?agent=${encodeURIComponent(smAgentFilter)}`
-      : "/api/actions";
+    const actionsPath = "/api/actions";
 
     const specs = [
       { key: "runs", label: "Runs", path: "/api/runs" },
@@ -7166,6 +7364,42 @@
           break;
         }
 
+        case "select-swatch": {
+          const swatchKey = actionEl.dataset.swatch;
+          const idx = AGENT_SWATCHES.findIndex((s) => s.key === swatchKey);
+          if (idx >= 0) {
+            OnboardingState.swatchIndex = idx;
+            savePrimaryAgentChoice();
+            HistorySettingsState.savedRow = "agent_color";
+            renderNow();
+          }
+          break;
+        }
+
+        case "open-marketing-artifact": {
+          selectedMarketingRunId = actionEl.dataset.runId || null;
+          renderNow();
+          break;
+        }
+
+        case "close-marketing-artifact": {
+          selectedMarketingRunId = null;
+          renderNow();
+          break;
+        }
+
+        case "open-settings-pane": {
+          const pane = actionEl.dataset.pane;
+          if (pane) {
+            const res = await Transport.openSettingsPane(pane);
+            HistorySettingsState.paneStatus = res?.ok
+              ? `Opened ${pane} in System Settings.`
+              : res?.error || "Open System Settings from the Mac app.";
+            renderNow();
+          }
+          break;
+        }
+
         case "select-onboarding-swatch": {
           const idx = Number(actionEl.dataset.swatchIdx);
           if (!Number.isNaN(idx) && idx >= 0 && idx < AGENT_SWATCHES.length) {
@@ -7471,7 +7705,7 @@
         smAgentFilter = target.value || "";
         selectedSmEdgeId = null;
         selectedSmScreenId = null;
-        await pollAll();
+        renderNow();
       }
     });
 
