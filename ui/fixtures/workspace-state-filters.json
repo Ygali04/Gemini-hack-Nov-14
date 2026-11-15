@@ -1,0 +1,165 @@
+{
+  "agents": {
+    "r1763141000-2": {
+      "name": "Maya",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C",
+      "greeted": true
+    },
+    "r1763141000-3": {
+      "name": "Leo",
+      "color": "#EECED6",
+      "edge": "#FFF0F1",
+      "ink": "#963F59",
+      "greeted": true
+    },
+    "r1763141000-4": {
+      "name": "Nora",
+      "color": "#C0DED0",
+      "edge": "#E6FFF0",
+      "ink": "#396C5A",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r1763141000-1",
+      "goal": "Compute 23 * 19 in Calculator and switch to Dark Appearance in System Settings",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 14.2,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Computed 437 in Calculator and opened Dark Appearance in System Settings"
+      }
+    },
+    {
+      "id": "r1763141000-2",
+      "goal": "Compute 23 * 19 in Calculator",
+      "role": "cu",
+      "parent": "r1763141000-1",
+      "state": "done",
+      "elapsed": 6.4,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Verified 437 in Calculator"
+      }
+    },
+    {
+      "id": "r1763141000-3",
+      "goal": "Open Appearance in System Settings",
+      "role": "cu",
+      "parent": "r1763141000-1",
+      "state": "done",
+      "elapsed": 5.1,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Opened Appearance pane in System Settings"
+      }
+    },
+    {
+      "id": "r1763141000-4",
+      "goal": "Select Dark appearance in System Settings",
+      "role": "cu",
+      "parent": "r1763141000-1",
+      "state": "done",
+      "elapsed": 2.7,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Selected Dark mode"
+      }
+    }
+  ],
+  "graph": {
+    "screens": 5,
+    "transitions": 4,
+    "skills": 2,
+    "mean_edge_p": 0.85,
+    "destructive_edges": 0,
+    "actions_logged": 4
+  },
+  "actions": {
+    "total": 4,
+    "actions": [
+      {
+        "ts": 1763141001.0,
+        "run": "r1763141000-2",
+        "agent": "r1763141000-2",
+        "app": "Calculator",
+        "from": "Calculator:ready",
+        "from_title": "Calculator ready",
+        "action": "click:button:23",
+        "to": "Calculator:entered_23",
+        "to_title": "23 entered",
+        "outcome": "ok",
+        "ms": 110,
+        "source": "memory"
+      },
+      {
+        "ts": 1763141002.2,
+        "run": "r1763141000-2",
+        "agent": "Maya",
+        "app": "Calculator",
+        "from": "Calculator:entered_23",
+        "from_title": "23 entered",
+        "action": "click:button:equals",
+        "to": "Calculator:result_437",
+        "to_title": "Result 437",
+        "outcome": "ok",
+        "ms": 95,
+        "source": "memory"
+      },
+      {
+        "ts": 1763141003.4,
+        "run": "r1763141000-3",
+        "agent": "Leo",
+        "app": "System Settings",
+        "from": "System Settings:home",
+        "from_title": "Settings home",
+        "action": "click:button:appearance",
+        "to": "System Settings:appearance",
+        "to_title": "Appearance pane",
+        "outcome": "ok",
+        "ms": 180,
+        "source": "gemini"
+      },
+      {
+        "ts": 1763141004.8,
+        "run": "r1763141000-4",
+        "agent": "Nora",
+        "app": "System Settings",
+        "from": "System Settings:appearance",
+        "from_title": "Appearance pane",
+        "action": "click:button:dark",
+        "to": "System Settings:dark_active",
+        "to_title": "Dark mode active",
+        "outcome": "ok",
+        "ms": 140,
+        "source": "gemini"
+      }
+    ]
+  },
+  "analytics": {
+    "tasks": 1,
+    "llm_calls": 4,
+    "cost_usd": 0.0112,
+    "mean_cost_per_task": 0.0112,
+    "by_role": [
+      { "role": "cu", "runs": 3, "ok": 3, "mean_seconds": 4.7 }
+    ],
+    "by_purpose": [
+      { "purpose": "decide", "calls": 3, "cost_usd": 0.0082, "mean_ms": 950 },
+      { "purpose": "verify", "calls": 1, "cost_usd": 0.0030, "mean_ms": 620 }
+    ],
+    "by_app": [
+      { "app": "Calculator", "actions": 2, "ok": 2, "failed": 0, "denied": 0 },
+      { "app": "System Settings", "actions": 2, "ok": 2, "failed": 0, "denied": 0 }
+    ]
+  }
+}

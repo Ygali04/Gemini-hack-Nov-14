@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 const UI_DIR = path.resolve(__dirname, "..");
 
 const WIDTHS = [560, 720, 900, 1280];
-const FIXTURES = ["workspace-state-loop", "workspace-demo", "workspace-state-branches"];
+const FIXTURES = ["workspace-state-loop", "workspace-demo", "workspace-state-branches", "workspace-state-filters"];
 const NEGATIVE_CONTROL = process.argv.includes("--negative-control");
 
 const MIME_TYPES = {
@@ -334,13 +334,87 @@ async function main() {
     }
   }
 
+  // Verify state-machine app and agent filters on workspace-state-filters at 900px
+  await pageCdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 900,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await pageCdp.send("Page.navigate", {
+    url: `http://127.0.0.1:${port}/workspace.html?fixture=workspace-state-filters&view=state-machine`,
+  });
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await sleep(100);
+    const readyRes = await pageCdp.send("Runtime.evaluate", {
+      expression: `document.querySelectorAll(".sm-node-rect").length > 0 && document.querySelector("#sm-app-select") !== null`,
+      returnByValue: true,
+    });
+    if (readyRes.result.value) break;
+  }
+  await sleep(100);
+
+  const filterListsRes = await pageCdp.send("Runtime.evaluate", {
+    expression: `(() => ({
+      apps: Array.from(document.querySelectorAll("#sm-app-select option")).map((o) => o.value),
+      agents: Array.from(document.querySelectorAll("#sm-agent-select option")).map((o) => o.value),
+    }))()`,
+    returnByValue: true,
+  });
+  const filterLists = filterListsRes.result.value;
+  let filterChecks = 0;
+
+  async function runFilterCheck(appVal, agentVal, expectEmpty = false) {
+    filterChecks += 1;
+    await pageCdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const appSel = document.getElementById("sm-app-select");
+        if (appSel) {
+          appSel.value = ${JSON.stringify(appVal)};
+          appSel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        const agSel = document.getElementById("sm-agent-select");
+        if (agSel) {
+          agSel.value = ${JSON.stringify(agentVal)};
+          agSel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      })()`,
+    });
+    await sleep(80);
+    const res = await pageCdp.send("Runtime.evaluate", {
+      expression: `(() => {
+        const check = ${CHECK_EXPR};
+        const emptyMsg = document.querySelector("#b1b-content")?.textContent?.includes("No screen transitions recorded for this filter") || false;
+        const remainingAgents = Array.from(document.querySelectorAll("#sm-agent-select option")).map((o) => o.value);
+        return { ...check, emptyMsg, remainingAgents };
+      })()`,
+      returnByValue: true,
+    });
+    const d = res.result.value;
+    const ok = expectEmpty
+      ? !d.hOverflow && d.emptyMsg && d.nodeCount === 0
+      : !d.hOverflow && d.nodeCount > 0 && d.labelCount > 0 && d.intersections.length === 0 && d.remainingAgents.length >= 4;
+    console.log(
+      `${ok ? "PASS" : "FAIL"} filter(app=${appVal}, agent=${agentVal || "all"}): nodes=${d.nodeCount} labels=${d.labelCount} emptyMsg=${d.emptyMsg} agentsInSelect=${d.remainingAgents.length} intersections=${d.intersections.length}`
+    );
+    if (!ok) failed = true;
+  }
+
+  for (const appVal of filterLists.apps.filter((v) => v !== "all")) {
+    await runFilterCheck(appVal, "", false);
+  }
+  for (const agentVal of filterLists.agents.filter((v) => v !== "")) {
+    await runFilterCheck("all", agentVal, false);
+  }
+  await runFilterCheck("Calculator", "Nora", true);
+
   cleanupAll();
   if (failed) {
     console.log("B1b-L CHECK FAIL");
     process.exit(1);
   }
-  const totalChecks = FIXTURES.length * WIDTHS.length;
-  console.log(`B1b-L CHECK PASS (${totalChecks}/${totalChecks} fixture x width checks)`);
+  const totalChecks = FIXTURES.length * WIDTHS.length + filterChecks;
+  console.log(`B1b-L CHECK PASS (${totalChecks}/${totalChecks} fixture x width & filter checks)`);
   process.exit(0);
 }
 
