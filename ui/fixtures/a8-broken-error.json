@@ -1,0 +1,82 @@
+{
+  "runs": [
+    {
+      "id": "r-a8-broken-1",
+      "parent": null,
+      "role": "orchestrator",
+      "goal": "Prepare weekly sales report and email it",
+      "state": "failed",
+      "elapsed": 8.4,
+      "ts": 1763149600,
+      "result": {
+        "ok": false,
+        "summary": "orchestrator error: no JSON object in model reply (line 1 col 1)"
+      }
+    },
+    {
+      "id": "r-a8-child-1",
+      "parent": "r-a8-broken-1",
+      "role": "cu",
+      "agent": "Aria",
+      "goal": "Open Numbers",
+      "state": "failed",
+      "elapsed": 3.1,
+      "ts": 1763149596,
+      "result": {
+        "ok": false,
+        "summary": "Stopped: the task hit an error"
+      }
+    },
+    {
+      "id": "r-a8-child-2",
+      "parent": "r-a8-broken-1",
+      "role": "cu",
+      "agent": "Milo",
+      "goal": "Open Mail",
+      "state": "failed",
+      "elapsed": 2.0,
+      "ts": 1763149598,
+      "result": {
+        "ok": false,
+        "summary": "Stopped: the task hit an error"
+      }
+    }
+  ],
+  "agents": {
+    "r-a8-child-1": { "name": "Aria", "color": "#D4E8DF", "edge": "#3E8E6E" },
+    "r-a8-child-2": { "name": "Milo", "color": "#EFE8D6", "edge": "#9A7A2E" }
+  },
+  "details": {
+    "r-a8-broken-1": { "events": [] },
+    "r-a8-child-1": { "events": [] },
+    "r-a8-child-2": { "events": [] }
+  },
+  "help": [],
+  "transcripts": {
+    "r-a8-broken-1": [
+      {
+        "id": 1,
+        "ts": 1763149590,
+        "role": "user",
+        "kind": "prompt",
+        "text": "Prepare weekly sales report and email it"
+      },
+      {
+        "id": 2,
+        "ts": 1763149592,
+        "role": "agent",
+        "agent": "ComputerAnything",
+        "kind": "msg",
+        "text": "Opening Numbers and Mail now."
+      },
+      {
+        "id": 3,
+        "ts": 1763149599,
+        "role": "agent",
+        "agent": "ComputerAnything",
+        "kind": "error",
+        "text": "Something broke: no JSON object in model reply (line 1 col 1)"
+      }
+    ]
+  }
+}

@@ -1496,6 +1496,12 @@
       overflow-wrap: anywhere;
       user-select: text;
     }
+    .chat-quiet-stop {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      padding: 2px 2px 0;
+    }
     .chat-list {
       display: flex;
       flex-direction: column;
@@ -3458,6 +3464,22 @@
           return outputs;
         }
 
+        function isPipelineErrorText(rawText) {
+          return /^(?:something broke:|orchestrator error:)/i.test(String(rawText || "").trim());
+        }
+
+        function isStoppedByTaskErrorText(rawText) {
+          return /^stopped\s*:\s*the task hit an error\.?$/i.test(String(rawText || "").trim());
+        }
+
+        function classifyPipelineErrorPlain(rawText) {
+          const text = String(rawText || "");
+          if (/(?:402|payment required|credit)/i.test(text)) {
+            return "The model account is out of credit. Add credit, then send this again.";
+          }
+          return "This task stopped because something went wrong on our side. Nothing else was done. Send it again to retry.";
+        }
+
         function normalizeTranscriptRows(rawRows, allowedParentId, rootParentByRunId) {
           if (!Array.isArray(rawRows)) return [];
           return rawRows
@@ -3493,14 +3515,20 @@
               const role = row.role === "user" ? "user" : "agent";
               const rawName = role === "user" ? "You" : String(row.agent || row.role || "Agent").trim();
               const resolved = role === "agent" ? resolvePrimaryAgentDisplay(rawName, row.color || row.body) : null;
+              const rawText = String(row.text || "").trim();
+              const kindStr = row.kind ? String(row.kind) : "";
+              const isErrorNotice = role === "agent" && (kindStr === "error" || isPipelineErrorText(rawText));
               return {
                 id: String(row.id || `msg-${idx}`),
                 ts: row.ts != null ? Number(row.ts) : row.t != null ? Number(row.t) : null,
                 run: row.run ? String(row.run) : "",
+                kind: kindStr,
                 msgKind: row.msg_kind ? String(row.msg_kind) : "",
                 role,
                 who: resolved ? resolved.name : rawName,
-                text: String(row.text || "").trim(),
+                text: isErrorNotice ? classifyPipelineErrorPlain(rawText) : rawText,
+                rawErrorText: isErrorNotice ? rawText : "",
+                isErrorNotice,
                 color: resolved?.color || row.color || row.body || "",
                 edge: row.edge || "",
               };
@@ -3901,6 +3929,8 @@
           let stateSymbolWord = "▶ Running";
           let stateColorClass = "state-working";
           let isWorking = false;
+          const rawChildSummary = String(childRun.result?.summary || "").trim();
+          const isStoppedByTaskError = isStoppedByTaskErrorText(rawChildSummary);
 
           if (pendingHelpForChild.length || childRun.state === "awaiting_human") {
             stateSymbolWord = "◔ Needs approval";
@@ -3922,7 +3952,9 @@
               stateColorClass = "state-success";
             }
           } else if (childRun.state === "failed" || childRun.result?.ok === false) {
-            stateSymbolWord = deriveStoppedLabel(childRun.result?.summary || "", events);
+            stateSymbolWord = isStoppedByTaskError
+              ? "Stopped"
+              : deriveStoppedLabel(rawChildSummary, events);
             stateColorClass = "state-neutral";
           } else {
             stateSymbolWord = "◔ Finished, not verified";
@@ -3934,7 +3966,7 @@
           let latestSummaryIsAction = false;
           if (unappliedPatch && (childRun.state === "failed" || childRun.role === "dev")) {
             latestSummary = summarizeEventPlain(unappliedPatch);
-          } else {
+          } else if (!isStoppedByTaskError) {
             for (let i = events.length - 1; i >= 0; i--) {
               const ev = events[i];
               let candidate = "";
@@ -3947,7 +3979,13 @@
               } else {
                 candidate = summarizeEventPlain(ev);
               }
-              if (candidate && candidate !== "Finished" && candidate !== "Stopped" && candidate !== "Working") {
+              if (
+                candidate &&
+                candidate !== "Finished" &&
+                candidate !== "Stopped" &&
+                candidate !== "Working" &&
+                !isStoppedByTaskErrorText(candidate)
+              ) {
                 latestSummary = candidate;
                 latestSummaryIsAction = Boolean(
                   ev?.kind === "act" ||
@@ -3959,13 +3997,15 @@
               }
             }
           }
-          if (!latestSummary) {
+          if (!latestSummary && !isStoppedByTaskError) {
             if (verifiedEvent?.evidence && !isMockSummaryText(verifiedEvent.evidence)) {
               const plainEv = formatEvidencePlain(verifiedEvent.evidence, app, childRun.result?.summary || "");
               latestSummary = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
             } else if (childRun.result?.summary && !isMockSummaryText(childRun.result.summary)) {
               const plainSummary = cleanPlainSummary(childRun.result.summary, app, "");
-              if (plainSummary) latestSummary = cleanFailureFact(plainSummary);
+              if (plainSummary && !isStoppedByTaskErrorText(plainSummary)) {
+                latestSummary = cleanFailureFact(plainSummary);
+              }
             } else if (isWorking) {
               latestSummary = "Working…";
             }
@@ -3992,6 +4032,7 @@
             agentIdentity,
             stateSymbolWord,
             stateColorClass,
+            isStoppedByTaskError,
             latestSummary,
             latestSummaryIsAction,
             detailLines,
@@ -4540,12 +4581,39 @@
               stateColorClass = "state-neutral";
             }
 
+            const transcriptRows = normalizeTranscriptRows(rawGroupTranscript, parent.id, rootParentByRunId);
+            const errorTranscriptRow = transcriptRows.find((tr) => tr.isErrorNotice) || null;
+            const rawParentSummary = String(parent.result?.summary || parent.result?.digest?.summary || "").trim();
+            const rawParentErr = isPipelineErrorText(rawParentSummary)
+              ? rawParentSummary
+              : parent.result?.error
+              ? String(parent.result.error).trim()
+              : "";
+            const pipelineRawText = rawParentErr || errorTranscriptRow?.rawErrorText || "";
+            const pipelineError =
+              pipelineRawText || errorTranscriptRow
+                ? {
+                    plainText: classifyPipelineErrorPlain(pipelineRawText || errorTranscriptRow?.text || ""),
+                    rawText: pipelineRawText || errorTranscriptRow?.rawErrorText || "",
+                    isRenderedInTranscript: Boolean(errorTranscriptRow),
+                  }
+                : null;
+            if (pipelineError && state === "failed") {
+              stopKind = "real_failure";
+              stateSymbolWord = "Couldn't finish";
+              stateFact = pipelineError.plainText;
+              pillFact = buildPillFact("Couldn't finish", false);
+              stateColorClass = "state-neutral";
+            }
+
             const isFinished = state === "verified" || state === "failed" || state === "unverified";
             const isRealFailure = state === "failed" && stopKind === "real_failure";
             const primaryStep = steps[0] || null;
             const failureAgentName = primaryStep?.agentIdentity?.name || primaryStep?.actorLabel || "Agent";
             const rawFailureMsg =
-              stateSymbolWord === "Stopped before finishing"
+              pipelineError && state === "failed"
+                ? pipelineError.plainText
+                : stateSymbolWord === "Stopped before finishing"
                 ? "Couldn't finish"
                 : stateSymbolWord || stateFact || "Couldn't finish";
             const failureLineText = /[.!?]$/.test(rawFailureMsg) ? rawFailureMsg : `${rawFailureMsg}.`;
@@ -4578,7 +4646,6 @@
               evidenceText,
               outputs: producedOutputs,
             });
-            const transcriptRows = normalizeTranscriptRows(rawGroupTranscript, parent.id, rootParentByRunId);
             const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById, rawGroupTranscript);
             const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
             const lastTranscriptRow = transcriptRows.length ? transcriptRows[transcriptRows.length - 1] : null;
@@ -4617,6 +4684,7 @@
               isRealFailure,
               failureAgentName,
               failureLineText,
+              pipelineError,
               isFinished,
               isMock: isMockRun,
               mockNote: isSampleContext || hasMockVerify || isMockRun
@@ -4995,6 +5063,7 @@
       let fixtureLastAgentIdOverride = "";
       const optimisticAgentByRunId = Object.create(null);
       const openResultDetailIds = new Set();
+      const openErrorDetailIds = new Set();
 
       function sanitizeCreatedAgent(entry) {
         if (!entry || typeof entry !== "object") return null;
@@ -6858,6 +6927,10 @@
           .map((o) => `${o.id}:${openOutputPreviewIds.has(`${task.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${task.id}:${o.id}`) ? 1 : 0}`)
           .join("|");
         const resultDetailKey = openResultDetailIds.has(task.id) ? 1 : 0;
+        const errorDetailKey = Array.from(openErrorDetailIds)
+          .filter((k) => k.startsWith(`${task.id}:`))
+          .sort()
+          .join(",");
         const transcriptKey = task.transcriptRows
           .map((t) => `${t.id}:${t.role}:${t.who}:${t.color}:${t.text}`)
           .join("|");
@@ -6873,6 +6946,7 @@
           stopNoticesByRunId.get(task.id) || "",
           copiedItemIds.has(`result:${task.id}`) ? 1 : 0,
           resultDetailKey,
+          errorDetailKey,
           task.permissionIssue ? task.permissionIssue.key : "",
           outputKey,
           transcriptKey,
@@ -7180,6 +7254,23 @@
           if (/^Finished\.?$/i.test(String(row.text || "").trim())) {
             return;
           }
+          if (row.isErrorNotice) {
+            const errKey = `${activeRun.id}:tr:${row.id || idx}`;
+            const isErrOpen = openErrorDetailIds.has(errKey);
+            const rawErr = row.rawErrorText || "";
+            messageNodes.push(`
+              <div class="chat-failure-event">
+                <span class="chat-failure-copy">${escapeHtml(row.text)}</span>
+                ${
+                  rawErr
+                    ? `<button type="button" class="btn" data-action="toggle-error-details" data-error-key="${escapeHtml(errKey)}" aria-expanded="${isErrOpen ? "true" : "false"}">${isErrOpen ? "Hide details" : "Details"}</button>`
+                    : ""
+                }
+              </div>
+              ${isErrOpen && rawErr ? `<pre class="step-detail-mono">${escapeHtml(rawErr)}</pre>` : ""}
+            `);
+            return;
+          }
           renderedAgentBubble = true;
           const matchingStep = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
           if (matchingStep) bubbledStepIds.add(matchingStep.id);
@@ -7226,10 +7317,28 @@
 
         for (const step of activeRun.steps) {
           const needsWork = !attachedWorkStepIds.has(step.id);
+          const stepChipIdentity = step.isOrchestrator ? leadIdentity : step.agentIdentity;
+          if (step.isStoppedByTaskError) {
+            if (!bubbledStepIds.has(step.id)) {
+              const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step, activeRun) : "";
+              attachedWorkStepIds.add(step.id);
+              const handoffLineHtml = !step.isOrchestrator
+                ? buildHandoffLineHtml(stepChipIdentity?.name, step.app)
+                : "";
+              messageNodes.push(`
+                ${handoffLineHtml}
+                <div class="chat-msg-row is-agent">
+                  <div class="chat-msg-head">${renderAgentChipHtml(stepChipIdentity, `step-${activeRun.id}-${step.id}`)}</div>
+                  <div class="chat-quiet-stop">Stopped</div>
+                  ${workHtml}
+                </div>
+              `);
+            }
+            continue;
+          }
           const needsBubble = !bubbledStepIds.has(step.id) && (!renderedAgentBubble || !step.isOrchestrator);
           if (!needsWork && !needsBubble) continue;
           const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step, activeRun) : "";
-          const stepChipIdentity = step.isOrchestrator ? leadIdentity : step.agentIdentity;
           let greetingText = "";
           if (needsBubble) {
             if (step.goal && activeRun.steps.length > 1) {
@@ -7331,18 +7440,37 @@
         let outputsHtml = "";
         if (activeRun.isFinished) {
           if (activeRun.state === "failed") {
-            const noticeCopy = activeRun.isRealFailure
-              ? activeRun.failureLineText
-              : stopNoticeText || activeRun.failureLineText;
-            const retryBtnHtml = activeRun.isRealFailure
-              ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}" data-agent-id="${escapeHtml(conv?.id || "__primary__")}">Try again</button>`
-              : "";
-            failureHtml = `
-              <div class="chat-failure-event">
-                <span class="chat-failure-copy">${escapeHtml(noticeCopy)}</span>
-                ${retryBtnHtml}
-              </div>
-            `;
+            if (activeRun.pipelineError) {
+              if (!activeRun.pipelineError.isRenderedInTranscript) {
+                const errKey = `${activeRun.id}:run`;
+                const isErrOpen = openErrorDetailIds.has(errKey);
+                const rawErr = activeRun.pipelineError.rawText || "";
+                failureHtml = `
+                  <div class="chat-failure-event">
+                    <span class="chat-failure-copy">${escapeHtml(activeRun.pipelineError.plainText)}</span>
+                    ${
+                      rawErr
+                        ? `<button type="button" class="btn" data-action="toggle-error-details" data-error-key="${escapeHtml(errKey)}" aria-expanded="${isErrOpen ? "true" : "false"}">${isErrOpen ? "Hide details" : "Details"}</button>`
+                        : ""
+                    }
+                  </div>
+                  ${isErrOpen && rawErr ? `<pre class="step-detail-mono">${escapeHtml(rawErr)}</pre>` : ""}
+                `;
+              }
+            } else {
+              const noticeCopy = activeRun.isRealFailure
+                ? activeRun.failureLineText
+                : stopNoticeText || activeRun.failureLineText;
+              const retryBtnHtml = activeRun.isRealFailure
+                ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}" data-agent-id="${escapeHtml(conv?.id || "__primary__")}">Try again</button>`
+                : "";
+              failureHtml = `
+                <div class="chat-failure-event">
+                  <span class="chat-failure-copy">${escapeHtml(noticeCopy)}</span>
+                  ${retryBtnHtml}
+                </div>
+              `;
+            }
           } else {
             const isVerified = activeRun.state === "verified";
             const compactFact = isVerified
@@ -8091,6 +8219,15 @@
           }
           if (action === "stop-speaking") {
             Transport.post("stopSpeaking");
+            return;
+          }
+          if (action === "toggle-error-details") {
+            const errKey = actionBtn.dataset.errorKey || "";
+            if (errKey) {
+              if (openErrorDetailIds.has(errKey)) openErrorDetailIds.delete(errKey);
+              else openErrorDetailIds.add(errKey);
+              renderNow();
+            }
             return;
           }
           if (action === "open-output") {

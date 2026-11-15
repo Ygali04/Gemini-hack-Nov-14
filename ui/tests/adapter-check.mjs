@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { loadNotchAdapterFromIndexHtml } from "./adapter-loader.mjs";
+import { extractStatement, loadNotchAdapterFromIndexHtml } from "./adapter-loader.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -711,6 +712,127 @@ function runChecks() {
         `transcript-action-lines: missing action line "${expectedLine}" in steps[0].workSteps`
       );
     }
+  }
+
+  // =========================================================================
+  // 8. A8: Pipeline error notice & stopped children + raw Details toggle
+  // =========================================================================
+  {
+    const fx = loadFixtureNormalized("a8-broken-error.json", nowSec);
+    const vmBroken = WorkspaceAdapter.mapRuns(fx.runs, fx.details, fx.help, {
+      connectionStatus: "connected",
+      isSampleData: false,
+      agentsById: fx.agents,
+      transcriptsById: fx.transcripts,
+      nowSec,
+    });
+    assert.equal(vmBroken.runs.length, 1, "a8-broken-error: expected 1 parent run");
+    const brokenRun = vmBroken.runs[0];
+    const errRow = brokenRun.transcriptRows.find((r) => r.id === "3");
+    assert.ok(errRow, "a8-broken-error: missing transcript error row");
+    assert.equal(
+      errRow.text,
+      "This task stopped because something went wrong on our side. Nothing else was done. Send it again to retry.",
+      "a8-broken-error: raw error message must be replaced with plain generic copy"
+    );
+    assert.equal(
+      errRow.rawErrorText,
+      "Something broke: no JSON object in model reply (line 1 col 1)",
+      "a8-broken-error: raw error text must be preserved for Details toggle"
+    );
+    assert.ok(
+      !`${brokenRun.stateSymbolWord} ${brokenRun.stateFact} ${brokenRun.pillFact} ${brokenRun.failureLineText}`.includes("no JSON object"),
+      "a8-broken-error: raw error text must not leak into run summary fields"
+    );
+    for (const childStep of brokenRun.steps) {
+      assert.equal(childStep.isStoppedByTaskError, true, `a8-broken-error: child ${childStep.id} must be flagged isStoppedByTaskError`);
+      assert.ok(!childStep.stateSymbolWord.includes("✓"), `a8-broken-error: child ${childStep.id} must not render checkmark`);
+      assert.equal(childStep.latestSummary, "", `a8-broken-error: child ${childStep.id} must not duplicate error summary`);
+    }
+
+    // Credit / 402 variant
+    const vmCredit = WorkspaceAdapter.mapRuns(
+      [
+        {
+          id: "r-credit-1",
+          parent: null,
+          role: "orchestrator",
+          goal: "Check inbox",
+          state: "failed",
+          result: { ok: false, summary: "orchestrator error: HTTP 402 Payment Required" },
+        },
+      ],
+      {},
+      [],
+      {
+        connectionStatus: "connected",
+        isSampleData: false,
+        transcriptsById: {
+          "r-credit-1": [
+            { id: 1, ts: 1, role: "user", kind: "prompt", text: "Check inbox" },
+            { id: 2, ts: 2, role: "agent", kind: "error", text: "Something broke: 402 Payment Required — out of credit" },
+          ],
+        },
+        nowSec,
+      }
+    );
+    const creditRow = vmCredit.runs[0].transcriptRows.find((r) => r.id === "2");
+    assert.equal(
+      creditRow.text,
+      "The model account is out of credit. Add credit, then send this again.",
+      "a8-broken-error: 402/credit error must use credit guidance"
+    );
+
+    // Chat DOM rendering: raw text absent until Details is opened
+    const indexSrc = fs.readFileSync(INDEX_HTML_PATH, "utf8");
+    const renderFnSrc = extractStatement(indexSrc, /\bfunction renderAgentTaskHtml\s*\(/, "renderAgentTaskHtml");
+    const openErrorDetailIds = new Set();
+    const escapeHtml = (s) =>
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    const renderCtx = {
+      escapeHtml,
+      openWorkKeys: new Set(),
+      openResultDetailIds: new Set(),
+      openErrorDetailIds,
+      openOutputPreviewIds: new Set(),
+      copiedItemIds: new Set(),
+      stopNoticesByRunId: new Map(),
+      pendingStopIds: new Set(),
+      stopRouteSupported: false,
+      ttsSpeaking: false,
+      getPrimaryAgentRowIdentity: () => ({ name: "ComputerAnything", palette: {} }),
+      renderAgentChipHtml: (id) => `<span class="chip">${escapeHtml(id?.name || "Agent")}</span>`,
+      renderWorkDividerHtml: () => "",
+      getVisibleMemoriesForRun: () => [],
+      pendingUndoMemoryIds: new Set(),
+    };
+    vm.runInNewContext(`${renderFnSrc}\nthis.renderAgentTaskHtml = renderAgentTaskHtml;`, renderCtx);
+    const htmlClosed = renderCtx.renderAgentTaskHtml(brokenRun, { identity: { name: "ComputerAnything", palette: {} } }, vmBroken);
+    assert.ok(
+      htmlClosed.includes("This task stopped because something went wrong on our side. Nothing else was done. Send it again to retry."),
+      "a8-broken-error: visible chat must show plain error line"
+    );
+    assert.ok(htmlClosed.includes("Details"), "a8-broken-error: visible chat must offer Details toggle");
+    assert.ok(!htmlClosed.includes("no JSON object"), "a8-broken-error: raw error text must NOT appear in visible chat before Details is opened");
+    assert.ok(!htmlClosed.includes("Something broke:"), "a8-broken-error: raw 'Something broke:' must NOT appear before Details is opened");
+    assert.ok(!htmlClosed.includes("✓"), "a8-broken-error: stopped children must NOT show ✓");
+    const quietStopCount = (htmlClosed.match(/chat-quiet-stop/g) || []).length;
+    assert.equal(quietStopCount, 2, "a8-broken-error: each stopped child must show one quiet stop line under its name");
+    const sideCount = (htmlClosed.match(/something went wrong on our side/g) || []).length;
+    assert.equal(sideCount, 1, "a8-broken-error: parent error line must appear only once for the task");
+
+    const errKeyMatch = htmlClosed.match(/data-error-key="([^"]+)"/);
+    assert.ok(errKeyMatch, "a8-broken-error: Details button must expose data-error-key");
+    openErrorDetailIds.add(errKeyMatch[1]);
+    const htmlOpen = renderCtx.renderAgentTaskHtml(brokenRun, { identity: { name: "ComputerAnything", palette: {} } }, vmBroken);
+    assert.ok(
+      htmlOpen.includes("Something broke: no JSON object in model reply (line 1 col 1)"),
+      "a8-broken-error: raw error text must appear once Details is opened"
+    );
   }
 }
 
