@@ -1217,7 +1217,28 @@
     .file-search-results { display: flex; flex-direction: column; max-height: 200px; overflow-y: auto; }
     .file-hit { display: flex; flex-direction: column; align-items: flex-start; }
     .file-hit-where { font-size: 12px; line-height: 16px; color: var(--text-muted); }
-    .panel-footer { display: flex; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line-divider); }
+    .panel-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line-divider); }
+    .footer-kbd-hint { font-size: 12px; line-height: 16px; color: var(--text-muted); margin-left: auto; text-align: right; }
+    .live-status-line { font-size: 12px; line-height: 16px; color: var(--text-secondary); min-height: 16px; }
+    .live-status-line:empty { display: none; }
+    .thread-mode-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; line-height: 16px; color: var(--text-secondary); padding: 2px 4px; }
+    .thread-mode-bar.hidden { display: none; }
+    .thread-mode-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .global-stop-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line-divider); }
+    .global-stop-copy { font-size: 12px; line-height: 16px; color: var(--text-secondary); min-width: 0; flex: 1; }
+    .starter-section { display: flex; flex-direction: column; gap: 4px; }
+    .starter-list { display: flex; flex-direction: column; gap: 2px; }
+    .starter-btn { width: 100%; height: auto; min-height: 32px; justify-content: flex-start; text-align: left; padding: 6px 8px; white-space: normal; color: var(--text-primary); }
+    .permission-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+    .permission-copy { font-size: 12px; line-height: 16px; color: var(--state-warning); flex: 1; min-width: 180px; }
+    .outputs-section { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line-divider); }
+    .output-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+    .output-title { font-size: 12px; line-height: 16px; color: var(--text-primary); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .output-actions { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .thread-chat-section { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line-divider); }
+    .thread-msg-row { font-size: 13px; line-height: 18px; color: var(--text-primary); overflow-wrap: anywhere; }
+    .thread-msg-who { font-weight: 600; margin-right: 6px; color: var(--text-secondary); }
+    .help-block.is-focused { background: var(--bg-raised); border-radius: 8px; padding: 6px 8px; }
     .side-view { display: flex; flex-direction: column; gap: 12px; }
     .side-head { display: flex; align-items: center; justify-content: space-between; }
     .side-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
@@ -1372,6 +1393,8 @@
           </button>
         </div>
 
+        <div id="thread-mode-bar" class="thread-mode-bar hidden"></div>
+
         <div id="link-input-row" class="inline-input-row hidden">
           <input
             type="url"
@@ -1415,9 +1438,12 @@
         </div>
       </div>
 
+      <div id="panel-live-status" class="live-status-line" role="status" aria-live="polite"></div>
+
       <div class="panel-footer">
         <button type="button" class="btn" data-side="analytics">Analytics</button>
-        <button type="button" class="btn" data-side="settings">Settings</button>
+        <button type="button" class="btn" id="open-settings-btn" data-open-settings="1">Settings</button>
+        <span class="footer-kbd-hint">Option-Space opens &middot; Enter sends &middot; Esc closes</span>
       </div>
     </div>
   </div>
@@ -1880,15 +1906,24 @@
           }
         }
 
-        async function openWorkspace(fixtureName) {
+        async function openWorkspace(fixtureName, options = {}) {
+          const view = options && options.view ? String(options.view) : "";
           if (hasShellBridge()) {
-            return callShell("openWorkspace", fixtureName ? { fixture: fixtureName } : {});
+            const payload = { mode: "sheet" };
+            if (fixtureName) payload.fixture = fixtureName;
+            if (view) payload.view = view;
+            return callShell("openWorkspace", payload);
           }
           const url = new URL("./workspace.html", window.location.href);
           if (fixtureName) url.searchParams.set("fixture", fixtureName);
+          if (view) url.searchParams.set("view", view);
           if (queryToken) url.searchParams.set("t", queryToken);
           window.open(url.toString(), "_blank", "noopener");
           return { ok: true };
+        }
+
+        function openLegacyChatWindow(runId) {
+          if (runId) post("openChat", { run: runId });
         }
 
         return {
@@ -1900,6 +1935,7 @@
           pickFiles,
           post,
           openWorkspace,
+          openLegacyChatWindow,
         };
       })();
 
@@ -2425,6 +2461,245 @@
             if (unapplied) return unapplied;
           }
           return null;
+        }
+
+        const PERMISSION_RULES = [
+          {
+            key: "accessibility",
+            label: "Accessibility",
+            section: "Privacy_Accessibility",
+            buttonText: "Open Accessibility settings",
+            message: "Accessibility permission needed to inspect and interact with windows.",
+            pattern: /\b(accessibility|axui|axerror|not trusted|assistive)\b/i,
+          },
+          {
+            key: "screen_recording",
+            label: "Screen Recording",
+            section: "Privacy_ScreenCapture",
+            buttonText: "Open Screen Recording settings",
+            message: "Screen Recording permission needed to capture the screen.",
+            pattern: /(screen\s*recording|screen\s*capture|cgwindowlist|screencapture|cannot record|screenrecording)/i,
+          },
+          {
+            key: "automation",
+            label: "Automation",
+            section: "Privacy_Automation",
+            buttonText: "Open Automation settings",
+            message: "Automation permission needed to control apps on this Mac.",
+            pattern: /(automation|apple\s*event|-1743|not authorized to send apple events)/i,
+          },
+          {
+            key: "microphone",
+            label: "Microphone",
+            section: "Privacy_Microphone",
+            buttonText: "Open Microphone settings",
+            message: "Microphone permission needed for audio input.",
+            pattern: /\bmicrophone\b/i,
+          },
+          {
+            key: "speech",
+            label: "Speech Recognition",
+            section: "Privacy_SpeechRecognition",
+            buttonText: "Open Speech settings",
+            message: "Speech Recognition permission needed for dictation.",
+            pattern: /(speech\s*recognition|sfspeech)/i,
+          },
+          {
+            key: "files",
+            label: "Full Disk Access",
+            section: "Privacy_AllFiles",
+            buttonText: "Open Privacy settings",
+            message: "Full Disk Access permission may be needed for this file.",
+            pattern: /(full disk access|operation not permitted)/i,
+          },
+        ];
+
+        function detectPermissionIssue(parent, allRunsInGroup, detailsById, state) {
+          if (state === "verified") return null;
+          const texts = [];
+          if (parent.result?.error) texts.push(String(parent.result.error));
+          if (parent.result?.summary && state === "failed") texts.push(String(parent.result.summary));
+          for (const r of allRunsInGroup) {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            for (const ev of [...evs].reverse()) {
+              if (!ev) continue;
+              if (ev.kind === "error" || ev.kind === "warn") {
+                if (ev.error) texts.push(String(ev.error));
+                if (ev.msg) texts.push(String(ev.msg));
+                if (ev.permission) texts.push(String(ev.permission));
+              }
+            }
+          }
+          const combined = texts.join("\n");
+          if (!combined) return null;
+          for (const rule of PERMISSION_RULES) {
+            if (rule.pattern.test(combined)) {
+              return {
+                key: rule.key,
+                label: rule.label,
+                section: rule.section,
+                buttonText: rule.buttonText,
+                message: rule.message,
+              };
+            }
+          }
+          return null;
+        }
+
+        function formatBriefText(brief) {
+          if (!brief || typeof brief !== "object") return String(brief || "");
+          const lines = [];
+          if (brief.headline || brief.tagline) lines.push(String(brief.headline || brief.tagline));
+          if (brief.summary) lines.push(String(brief.summary));
+          if (Array.isArray(brief.audience)) lines.push(`Audience: ${brief.audience.join(", ")}`);
+          if (Array.isArray(brief.highlights) || Array.isArray(brief.points)) {
+            const pts = brief.highlights || brief.points;
+            pts.forEach((p) => lines.push(`- ${typeof p === "string" ? p : JSON.stringify(p)}`));
+          }
+          return lines.length ? lines.join("\n") : JSON.stringify(brief, null, 2);
+        }
+
+        function basenameOfPath(p) {
+          const clean = String(p || "").trim();
+          if (!clean) return "";
+          const parts = clean.split(/[\\/]/).filter(Boolean);
+          return parts[parts.length - 1] || clean;
+        }
+
+        function extractProducedOutputs(parent, allRunsInGroup, detailsById) {
+          const outputs = [];
+          const seenKeys = new Set();
+          const addOutput = (item) => {
+            const k = `${item.kind}:${item.title}:${item.openPath || ""}:${item.openUrl || ""}`;
+            if (seenKeys.has(k)) return;
+            seenKeys.add(k);
+            outputs.push({ id: `out-${outputs.length + 1}`, ...item });
+          };
+
+          for (const r of allRunsInGroup) {
+            const evs = Array.isArray(detailsById[r.id]?.events) ? detailsById[r.id].events : [];
+            evs.forEach((ev) => {
+              if (!ev) return;
+              if (ev.kind === "patch" && (ev.diff || ev.path || ev.file)) {
+                const filePath = ev.path || ev.file || "";
+                const title = filePath ? `Patch: ${basenameOfPath(filePath)}` : "Code patch";
+                const text = String(ev.diff || filePath || "").trim();
+                if (text) {
+                  addOutput({
+                    kind: "patch",
+                    title,
+                    copyText: text,
+                    previewText: String(ev.diff || "").trim(),
+                    openPath: filePath,
+                    openUrl: "",
+                  });
+                }
+              } else if (ev.kind === "artifact") {
+                const filePath = String(ev.path || ev.file || "").trim();
+                const openUrl = String(ev.url || "").trim();
+                const rawBrief = ev.brief && typeof ev.brief === "object" ? ev.brief : null;
+                const text = String(
+                  ev.text || ev.content || (rawBrief ? formatBriefText(rawBrief) : "") || ev.tagline || filePath || openUrl
+                ).trim();
+                const title = ev.tagline
+                  ? `Brief: ${String(ev.tagline).trim()}`
+                  : filePath
+                  ? `File: ${basenameOfPath(filePath)}`
+                  : "Produced output";
+                if (text || openUrl || filePath) {
+                  addOutput({
+                    kind: rawBrief || ev.tagline ? "brief" : "file",
+                    title,
+                    copyText: text || filePath || openUrl,
+                    previewText: rawBrief ? formatBriefText(rawBrief) : String(ev.text || ev.content || "").trim(),
+                    openPath: filePath,
+                    openUrl,
+                  });
+                }
+              } else if (ev.kind === "commit" && ev.ok) {
+                const sha = String(ev.sha || ev.hash || "").trim();
+                const msg = String(ev.message || "").trim();
+                const text = [sha, msg].filter(Boolean).join(" · ");
+                if (text) {
+                  addOutput({
+                    kind: "commit",
+                    title: msg ? `Commit: ${msg}` : `Commit ${sha.slice(0, 7)}`,
+                    copyText: sha || msg,
+                    previewText: text,
+                    openPath: "",
+                    openUrl: "",
+                  });
+                }
+              }
+            });
+          }
+
+          if (parent.result?.brief) {
+            const text = formatBriefText(parent.result.brief);
+            if (text) {
+              addOutput({
+                kind: "brief",
+                title: parent.result.brief.headline || parent.result.brief.tagline || "Marketing brief",
+                copyText: text,
+                previewText: text,
+                openPath: String(parent.result.brief.path || "").trim(),
+                openUrl: String(parent.result.brief.url || "").trim(),
+              });
+            }
+          }
+          if (Array.isArray(parent.result?.files)) {
+            parent.result.files.forEach((f) => {
+              const p = typeof f === "string" ? f : f?.path || "";
+              if (!p) return;
+              addOutput({
+                kind: "file",
+                title: `File: ${basenameOfPath(p)}`,
+                copyText: p,
+                previewText: "",
+                openPath: p,
+                openUrl: typeof f === "object" && f?.url ? String(f.url) : "",
+              });
+            });
+          }
+          return outputs;
+        }
+
+        function normalizeTranscriptRows(rawRows) {
+          if (!Array.isArray(rawRows)) return [];
+          return rawRows
+            .filter((row) => row && String(row.text || "").trim())
+            .map((row, idx) => {
+              const role = row.role === "user" ? "user" : row.role === "step" ? "step" : "agent";
+              const rawName = role === "user" ? "You" : String(row.agent || row.role || "Agent").trim();
+              const resolved = role === "agent" ? resolvePrimaryAgentDisplay(rawName, row.color || row.body) : null;
+              return {
+                id: String(row.id || `msg-${idx}`),
+                role,
+                who: resolved ? resolved.name : rawName,
+                text: String(row.text || "").trim(),
+                color: resolved?.color || row.color || row.body || "",
+                edge: row.edge || "",
+              };
+            });
+        }
+
+        function buildCopyResultText({ stateSymbolWord, stateFact, speakText, evidenceText, outputs }) {
+          const parts = [];
+          if (stateSymbolWord) {
+            parts.push(stateFact ? `${stateSymbolWord} · ${stateFact}` : stateSymbolWord);
+          } else if (stateFact) {
+            parts.push(stateFact);
+          }
+          if (speakText && speakText !== stateFact && speakText !== evidenceText) {
+            parts.push(speakText);
+          }
+          if (evidenceText) {
+            parts.push(`Verified on screen: ${evidenceText}`);
+          }
+          if (!parts.length && Array.isArray(outputs) && outputs.length) {
+            parts.push(outputs[0].copyText);
+          }
+          return parts.join("\n").trim();
         }
 
         function extractSpeakText(allRunsInGroup, detailsById) {
@@ -3023,6 +3298,17 @@
               ? buildLiveStepForRun(parent, rawChildren.length ? rawChildren : [parent], detailsById, stepById)
               : null;
             const digest = buildDigestForRun(parent, rawChildren, detailsById, stepById, costsById[parent.id], state);
+            const permissionIssue = detectPermissionIssue(parent, groupRuns, detailsById, state);
+            const producedOutputs = extractProducedOutputs(parent, groupRuns, detailsById);
+            const copyResultText = buildCopyResultText({
+              stateSymbolWord,
+              stateFact,
+              speakText,
+              evidenceText,
+              outputs: producedOutputs,
+            });
+            const transcriptRows = normalizeTranscriptRows(meta.transcriptsById?.[parent.id]);
+            const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
 
             return {
               id: parent.id,
@@ -3048,14 +3334,22 @@
               digest,
               steps,
               pendingHelp,
+              permissionIssue,
+              producedOutputs,
+              copyResultText,
+              transcriptRows,
+              activePendingHelpCountdown,
             };
           });
+
+          const pendingHelpRun = mappedRuns.find((r) => r.pendingHelp.some((h) => !h.isExpired)) || null;
 
           return {
             connectionStatus: meta.connectionStatus,
             connectionError: meta.connectionError || "",
             isSampleData: Boolean(meta.isSampleData),
             liveAgents,
+            pendingHelpRunId: pendingHelpRun ? pendingHelpRun.id : "",
             runs: mappedRuns,
           };
         }
@@ -3088,6 +3382,14 @@
       const timelineScroll = document.getElementById("timeline-scroll");
       const micBtn = document.getElementById("mic-btn");
       const voiceStatusBar = document.getElementById("voice-status-bar");
+      const threadModeBar = document.getElementById("thread-mode-bar");
+      const panelLiveStatus = document.getElementById("panel-live-status");
+
+      const STARTER_PROMPTS = [
+        "Open Calculator and verify that 8 units at $31 equals 248",
+        "Confirm Display Settings resolution is set to Default on Built-in Display",
+        "Open Safari and check the local workspace summary",
+      ];
 
       /* Attachment limits mirrored from backend/computeranything/core/attach.py (MAX_IMAGES = 3)
          and backend/computeranything/api/server.py (MAX_FILE = 50 * 1024 * 1024). */
@@ -3154,6 +3456,13 @@
       let stopProbeKey = "";
       const stopNoticesByRunId = new Map();
       const pendingStopIds = new Set();
+      let isStoppingAll = false;
+      let globalStopSummary = "";
+      let composerThreadId = null;
+      const openOutputPreviewIds = new Set();
+      const copiedItemIds = new Set();
+      const dirtyTranscriptRunIds = new Set();
+      let lastHandledFocusTs = 0;
       let memoryItems = [];
       let memoryRouteMissing = false;
       let memoryProbeKey = "";
@@ -3196,12 +3505,131 @@
         return fixtureParam ? `fixture:${fixtureParam}` : "live";
       }
 
+      function announceStatus(message) {
+        if (!panelLiveStatus) return;
+        const clean = String(message || "").trim();
+        if (!clean) return;
+        if (panelLiveStatus.textContent === clean) {
+          panelLiveStatus.textContent = "";
+          requestAnimationFrame(() => {
+            if (panelLiveStatus) panelLiveStatus.textContent = clean;
+          });
+        } else {
+          panelLiveStatus.textContent = clean;
+        }
+      }
+
+      async function copyTextWithFeedback(text, copyKey, statusMessage) {
+        const clean = String(text || "");
+        if (!clean) return false;
+        let ok = false;
+        try {
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            await navigator.clipboard.writeText(clean);
+            ok = true;
+          }
+        } catch {
+          ok = false;
+        }
+        if (!ok && typeof document !== "undefined") {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = clean;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+          } catch {
+            ok = false;
+          }
+        }
+        if (ok && copyKey) {
+          copiedItemIds.add(copyKey);
+          renderNow();
+          setTimeout(() => {
+            copiedItemIds.delete(copyKey);
+            if (lastViewModel) renderNow();
+          }, 1800);
+        }
+        announceStatus(ok ? (statusMessage || "Copied to clipboard") : "Could not copy to clipboard");
+        return ok;
+      }
+
+      function syncThreadModeBar() {
+        if (!threadModeBar) return;
+        const activeRun = composerThreadId
+          ? (lastViewModel?.runs || []).find((r) => r.id === composerThreadId)
+          : null;
+        if (!composerThreadId || !activeRun) {
+          if (composerThreadId && !activeRun && hasLoadedOnce) {
+            composerThreadId = null;
+          }
+          threadModeBar.classList.add("hidden");
+          threadModeBar.innerHTML = "";
+          if (promptInput) promptInput.placeholder = "Ask your agents…";
+          return;
+        }
+        threadModeBar.classList.remove("hidden");
+        threadModeBar.innerHTML = `
+          <span class="thread-mode-label">Follow-up in: ${escapeHtml(activeRun.goal)}</span>
+          <button type="button" class="btn" id="clear-followup-btn">New task</button>
+        `;
+        if (promptInput) promptInput.placeholder = "Follow up on this task…";
+      }
+
+      function focusPendingApprovalInPanel(targetRunId) {
+        const preferredRunId = targetRunId || lastViewModel?.pendingHelpRunId || "";
+        if (!preferredRunId) return false;
+        if (selectedRunId !== preferredRunId) {
+          selectedRunId = preferredRunId;
+          stopStepReplay();
+          renderNow();
+        }
+        requestAnimationFrame(() => {
+          const helpEl = timelineScroll.querySelector(".help-block:not(.is-expired)");
+          if (helpEl) {
+            helpEl.classList.add("is-focused");
+            helpEl.scrollIntoView({ block: "nearest" });
+            const approveBtn = helpEl.querySelector('button[data-action="answer-help"]:not(:disabled)');
+            if (approveBtn) approveBtn.focus();
+          }
+        });
+        return true;
+      }
+
+      function applyStoredFocusTarget() {
+        try {
+          if (typeof localStorage === "undefined") return;
+          const raw = localStorage.getItem("ca.focusTarget");
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (!parsed || !parsed.ts || parsed.ts <= lastHandledFocusTs) return;
+          lastHandledFocusTs = parsed.ts;
+          if (parsed.run) {
+            selectedRunId = String(parsed.run);
+            composerThreadId = String(parsed.run);
+          }
+          setState("expanded", { instant: true, focusRunId: parsed.run ? String(parsed.run) : "" });
+        } catch {
+          // Ignore invalid stored focus target
+        }
+      }
+
       function resetCapabilityState() {
         finalCostsFetched.clear();
         stopRouteSupported = false;
         stopProbeKey = "";
         stopNoticesByRunId.clear();
         pendingStopIds.clear();
+        isStoppingAll = false;
+        globalStopSummary = "";
+        composerThreadId = null;
+        openOutputPreviewIds.clear();
+        copiedItemIds.clear();
+        dirtyTranscriptRunIds.clear();
         memoryItems = [];
         memoryRouteMissing = false;
         memoryProbeKey = "";
@@ -3379,8 +3807,9 @@
       }
 
       function setState(nextState, options = {}) {
-        const { instant = false } = options;
+        const { instant = false, focusRunId = "" } = options;
         const normalized = nextState === "expanded" ? "expanded" : "collapsed";
+        const prevState = getCurrentState();
         if (instant) {
           document.body.classList.add("instant-motion");
         } else {
@@ -3391,13 +3820,24 @@
         syncSizeAndBridge(true, instant);
 
         if (normalized === "expanded") {
+          const targetPendingId = focusRunId || lastViewModel?.pendingHelpRunId || "";
+          if (targetPendingId) {
+            selectedRunId = targetPendingId;
+            if (lastViewModel) renderNow();
+          }
           requestAnimationFrame(() => {
             mountAllAgentChips();
-            if (connectionStatus === "disconnected") {
-              const connectInput = document.getElementById("connect-url-input");
-              if (connectInput) connectInput.focus();
-            } else {
-              promptInput.focus();
+            const landedOnApproval = targetPendingId ? focusPendingApprovalInPanel(targetPendingId) : false;
+            if (!landedOnApproval) {
+              if (connectionStatus === "disconnected") {
+                const connectInput = document.getElementById("connect-url-input");
+                if (connectInput) connectInput.focus();
+              } else {
+                promptInput.focus();
+              }
+            }
+            if (prevState !== "expanded") {
+              announceStatus(landedOnApproval ? "Workspace opened · Approval needed" : "Workspace opened");
             }
             syncSizeAndBridge(false, instant);
           });
@@ -3405,6 +3845,9 @@
           destroyAllAgentChips();
           if (voiceState === "listening") {
             Transport.post("stopDictation");
+          }
+          if (prevState !== "collapsed") {
+            announceStatus("Workspace closed");
           }
         }
       }
@@ -4151,8 +4594,63 @@
       }
 
       /* ---------------- SUBMIT PROMPT ---------------- */
-      async function submitTask(rawPrompt, attachedItems) {
+      if (threadModeBar) {
+        threadModeBar.addEventListener("click", (e) => {
+          if (e.target.closest("#clear-followup-btn")) {
+            composerThreadId = null;
+            syncThreadModeBar();
+            promptInput.focus();
+            announceStatus("Ready for a new task");
+          }
+        });
+      }
+
+      async function submitTask(rawPrompt, attachedItems, options = {}) {
         sendErrorText = "";
+        globalStopSummary = "";
+
+        const explicitThread = options.thread !== undefined ? options.thread : composerThreadId;
+        const threadTarget =
+          explicitThread && !String(explicitThread).startsWith("optimistic-") ? String(explicitThread) : "";
+
+        if (threadTarget) {
+          if (!Array.isArray(transcriptsById[threadTarget])) {
+            transcriptsById[threadTarget] = [];
+          }
+          transcriptsById[threadTarget] = [
+            ...transcriptsById[threadTarget],
+            {
+              id: `local-${Date.now()}`,
+              ts: Math.floor(Date.now() / 1000),
+              run: threadTarget,
+              role: "user",
+              agent: "",
+              kind: "msg",
+              text: rawPrompt,
+            },
+          ];
+          selectedRunId = threadTarget;
+          dirtyTranscriptRunIds.add(threadTarget);
+          renderNow();
+          try {
+            await submitTaskRequest({ rawPrompt, attachedItems, thread: threadTarget });
+            announceStatus("Follow-up sent");
+            await pollAll();
+          } catch (err) {
+            if (err.code === "AUTH") {
+              Transport.clearConnection();
+              rememberedAgentsById = {};
+              costsById = {};
+              connectionStatus = "disconnected";
+              connectionError = "Token rejected · Paste the address again";
+            } else {
+              sendErrorText = err.message || "Could not send follow-up";
+              announceStatus(sendErrorText);
+            }
+            renderNow();
+          }
+          return;
+        }
 
         const tempId = `optimistic-${Date.now()}`;
         optimisticRuns.push({
@@ -4166,6 +4664,7 @@
           result: null,
         });
         selectedRunId = tempId;
+        composerThreadId = null;
         renderNow();
 
         try {
@@ -4174,8 +4673,10 @@
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
           if (created?.run) {
             selectedRunId = created.run;
-            Transport.post("openChat", { run: created.thread || created.run });
+            composerThreadId = created.thread || created.run;
+            dirtyTranscriptRunIds.add(created.run);
           }
+          announceStatus("Task sent");
           await pollAll();
         } catch (err) {
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
@@ -4187,6 +4688,7 @@
             connectionError = "Token rejected · Paste the address again";
           } else {
             sendErrorText = err.message || "Could not send task";
+            announceStatus(sendErrorText);
           }
           renderNow();
         }
@@ -4243,6 +4745,34 @@
           setPillHtml(`
             <span class="state-text state-working">&#9679; Speaking</span>
             <span class="pill-sub">&middot; Click to stop</span>
+          `);
+          return;
+        }
+
+        const pendingRun = vm.pendingHelpRunId
+          ? vm.runs.find((r) => r.id === vm.pendingHelpRunId) || null
+          : vm.runs.find((r) => r.pendingHelp.some((h) => !h.isExpired)) || null;
+        if (pendingRun) {
+          const activeHelp = pendingRun.pendingHelp.find((h) => !h.isExpired);
+          const pendingAgents = pendingRun.steps
+            .filter((s) => s.agentIdentity?.hasAgentColor)
+            .map((s) => s.agentIdentity)
+            .slice(0, 3);
+          const pendingDotsHtml = pendingAgents.length
+            ? `<span class="pill-agent-dots">${pendingAgents
+                .map(
+                  (a) =>
+                    `<span class="pill-agent-dot" title="${escapeHtml(a.name)}" style="--dot-bg: ${escapeHtml(a.color)}; --dot-edge: ${escapeHtml(a.edge)};"></span>`
+                )
+                .join("")}</span>`
+            : "";
+          const countdownSuffix = activeHelp?.countdownText
+            ? `<span class="pill-sub">&middot; ${escapeHtml(activeHelp.countdownText)}</span>`
+            : "";
+          setPillHtml(`
+            ${pendingDotsHtml}
+            <span class="state-text state-warning">! Needs you</span>
+            ${countdownSuffix}
           `);
           return;
         }
@@ -4334,13 +4864,29 @@
           .map((r) => `${r.id}:${r.stateSymbolWord}:${r.goal}`)
           .join("|");
 
+        const outputKey = activeRun.producedOutputs
+          .map((o) => `${o.id}:${openOutputPreviewIds.has(`${activeRun.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${activeRun.id}:${o.id}`) ? 1 : 0}`)
+          .join("|");
+        const transcriptKey = activeRun.transcriptRows
+          .map((t) => `${t.id}:${t.role}:${t.who}:${t.text}`)
+          .join("|");
+        const liveRunsCount = vm.runs.filter((r) => !r.isFinished).length;
+
         return [
           vm.connectionStatus,
           vm.isSampleData ? 1 : 0,
           sendErrorText,
           stopRouteSupported ? 1 : 0,
+          isStoppingAll ? 1 : 0,
+          globalStopSummary,
+          liveRunsCount,
+          composerThreadId || "",
           pendingStopIds.has(activeRun.id) ? 1 : 0,
           stopNoticesByRunId.get(activeRun.id) || "",
+          copiedItemIds.has(`result:${activeRun.id}`) ? 1 : 0,
+          activeRun.permissionIssue ? activeRun.permissionIssue.key : "",
+          outputKey,
+          transcriptKey,
           activeRun.id,
           activeRun.goal,
           activeRun.appLabel,
@@ -4366,6 +4912,7 @@
       function renderPanel(vm) {
         lastViewModel = vm;
         sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
+        syncThreadModeBar();
 
         if (vm.connectionStatus === "loading" && !hasLoadedOnce) {
           lastPanelStructureKey = "loading";
@@ -4429,14 +4976,52 @@
         if (!vm.runs.length) {
           lastPanelStructureKey = `empty:${vm.connectionStatus}:${sendErrorText}`;
           destroyAllAgentChips();
+          const starterHtml = STARTER_PROMPTS.map(
+            (promptText, idx) => `
+              <div class="output-row">
+                <button
+                  type="button"
+                  class="btn starter-btn"
+                  data-action="pick-starter"
+                  data-prompt="${escapeHtml(promptText)}"
+                >${idx + 1}. ${escapeHtml(promptText)}</button>
+                <button
+                  type="button"
+                  class="btn"
+                  data-action="run-starter"
+                  data-prompt="${escapeHtml(promptText)}"
+                  aria-label="Run starter ${idx + 1}"
+                >Run</button>
+              </div>
+            `
+          ).join("");
           blocks.push(`
             <div class="timeline-row">
               <span class="state-text state-neutral">&cir; No runs yet</span>
+            </div>
+            <div class="starter-section">
+              <div class="section-heading">Starter prompts</div>
+              <div class="starter-list">${starterHtml}</div>
             </div>
           `);
           timelineScroll.innerHTML = blocks.join("");
           syncSizeAndBridge();
           return;
+        }
+
+        const liveRuns = vm.runs.filter((r) => !r.isFinished);
+        if (stopRouteSupported && (liveRuns.length > 0 || globalStopSummary)) {
+          const stopStatusLabel = liveRuns.length > 0
+            ? `${liveRuns.length} running task${liveRuns.length === 1 ? "" : "s"}`
+            : globalStopSummary;
+          blocks.push(`
+            <div class="global-stop-bar">
+              <span class="global-stop-copy">${escapeHtml(stopStatusLabel)}</span>
+              ${liveRuns.length > 0
+                ? `<button type="button" class="btn" data-action="stop-all" ${isStoppingAll ? "disabled" : ""}>${isStoppingAll ? "Stopping…" : "Stop all"}</button>`
+                : ""}
+            </div>
+          `);
         }
 
         const newestId = vm.runs[0].id;
@@ -4656,9 +5241,20 @@
           );
           if (stopRouteSupported) {
             outcomeActionParts.push(
-              `<button type="button" class="btn" data-action="stop-run" data-run-id="${escapeHtml(activeRun.id)}" ${pendingStopIds.has(activeRun.id) ? "disabled" : ""}>Stop all</button>`
+              `<button type="button" class="btn" data-action="stop-run" data-run-id="${escapeHtml(activeRun.id)}" ${pendingStopIds.has(activeRun.id) ? "disabled" : ""}>Stop</button>`
             );
           }
+        }
+        if (activeRun.copyResultText) {
+          const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
+          outcomeActionParts.push(
+            `<button type="button" class="btn" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}">${isCopiedResult ? "✓ Copied" : "Copy result"}</button>`
+          );
+        }
+        if (!String(activeRun.id).startsWith("optimistic-")) {
+          outcomeActionParts.push(
+            `<button type="button" class="btn" data-action="reply-run" data-run-id="${escapeHtml(activeRun.id)}">Follow up</button>`
+          );
         }
         if (activeRun.state === "failed") {
           outcomeActionParts.push(
@@ -4667,6 +5263,68 @@
         }
         const runOutcomeActionsHtml = outcomeActionParts.length
           ? `<div class="run-outcome-actions">${outcomeActionParts.join("")}</div>`
+          : "";
+
+        const permissionHtml = activeRun.permissionIssue
+          ? `
+            <div class="permission-row">
+              <span class="permission-copy">! ${escapeHtml(activeRun.permissionIssue.message)}</span>
+              <button
+                type="button"
+                class="btn"
+                data-action="open-privacy"
+                data-section="${escapeHtml(activeRun.permissionIssue.section)}"
+                data-label="${escapeHtml(activeRun.permissionIssue.label)}"
+              >${escapeHtml(activeRun.permissionIssue.buttonText)}</button>
+            </div>
+          `
+          : "";
+
+        const outputsHtml = activeRun.producedOutputs.length
+          ? `
+            <div class="outputs-section">
+              <div class="section-heading" style="padding: 0;">Produced results</div>
+              ${activeRun.producedOutputs
+                .map((out) => {
+                  const previewKey = `${activeRun.id}:${out.id}`;
+                  const isPreviewOpen = openOutputPreviewIds.has(previewKey);
+                  const isCopiedOut = copiedItemIds.has(`out:${activeRun.id}:${out.id}`);
+                  const canOpenInPage = Boolean(out.openUrl || out.previewText);
+                  return `
+                    <div>
+                      <div class="output-row">
+                        <span class="output-title" title="${escapeHtml(out.openPath || out.title)}">${escapeHtml(out.title)}</span>
+                        <span class="output-actions">
+                          <button type="button" class="btn" data-action="copy-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}">${isCopiedOut ? "✓ Copied" : "Copy"}</button>
+                          ${canOpenInPage ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}" aria-expanded="${out.previewText ? (isPreviewOpen ? "true" : "false") : "false"}">${isPreviewOpen ? "Hide" : "Open"}</button>` : ""}
+                        </span>
+                      </div>
+                      ${isPreviewOpen && out.previewText ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>` : ""}
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+          : "";
+
+        const transcriptHtml = activeRun.transcriptRows.length
+          ? `
+            <div class="thread-chat-section">
+              <div class="section-heading" style="padding: 0;">Conversation</div>
+              ${activeRun.transcriptRows
+                .map((row) => {
+                  const styleAttr = row.color ? ` style="color: ${escapeHtml(row.color)};"` : "";
+                  return `
+                    <div class="thread-msg-row">
+                      <span class="thread-msg-who"${styleAttr}>${escapeHtml(row.who)}:</span>
+                      <span>${escapeHtml(row.text)}</span>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
           : "";
 
         const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
@@ -4728,13 +5386,16 @@
                 ${runOutcomeActionsHtml}
               </div>
               ${stopNoticeHtml}
+              ${permissionHtml}
               ${digestRowHtml}
               ${mockBannerHtml}
               ${speakHtml}
               ${evidenceHtml}
+              ${outputsHtml}
             </div>
             ${liveStepHtml}
             ${helpHtml}
+            ${transcriptHtml}
             ${memoryNoticeHtml}
             <div class="steps-list">
               ${stepsHtml}
@@ -4834,7 +5495,144 @@
           }
           if (action === "run-again") {
             const p = actionBtn.dataset.prompt || "";
-            if (p) submitTask(p, []);
+            if (p) submitTask(p, [], { thread: "" });
+            return;
+          }
+          if (action === "pick-starter") {
+            const p = actionBtn.dataset.prompt || "";
+            if (p) {
+              composerThreadId = null;
+              syncThreadModeBar();
+              promptInput.value = p;
+              syncPromptFieldState();
+              promptInput.focus();
+              announceStatus("Starter prompt loaded");
+            }
+            return;
+          }
+          if (action === "run-starter") {
+            const p = actionBtn.dataset.prompt || "";
+            if (p) {
+              composerThreadId = null;
+              submitTask(p, [], { thread: "" });
+            }
+            return;
+          }
+          if (action === "reply-run") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            if (runId) {
+              composerThreadId = runId;
+              syncThreadModeBar();
+              promptInput.focus();
+              announceStatus("Replying in task conversation");
+            }
+            return;
+          }
+          if (action === "copy-result") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            if (runVm?.copyResultText) {
+              await copyTextWithFeedback(runVm.copyResultText, `result:${runId}`, "Copied result");
+            }
+            return;
+          }
+          if (action === "copy-output") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            const outId = actionBtn.dataset.outputId || "";
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            const out = runVm?.producedOutputs?.find((o) => o.id === outId);
+            if (out?.copyText) {
+              await copyTextWithFeedback(out.copyText, `out:${runId}:${outId}`, `Copied ${out.title}`);
+            }
+            return;
+          }
+          if (action === "open-output") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            const outId = actionBtn.dataset.outputId || "";
+            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+            const out = runVm?.producedOutputs?.find((o) => o.id === outId);
+            if (out?.openUrl && /^https?:\/\//i.test(out.openUrl)) {
+              window.open(out.openUrl, "_blank", "noopener");
+              announceStatus(`Opened ${out.title}`);
+            } else if (out?.previewText) {
+              const key = `${runId}:${outId}`;
+              if (openOutputPreviewIds.has(key)) {
+                openOutputPreviewIds.delete(key);
+              } else {
+                openOutputPreviewIds.add(key);
+              }
+              renderNow();
+            }
+            return;
+          }
+          if (action === "open-privacy") {
+            const section = actionBtn.dataset.section || "Privacy_Accessibility";
+            const label = actionBtn.dataset.label || "Privacy";
+            if (hasShellBridge()) {
+              Transport.post("openPrivacySettings", { section });
+              announceStatus(`Opening ${label} settings`);
+            } else {
+              announceStatus(`Open System Settings -> Privacy & Security -> ${label}`);
+            }
+            return;
+          }
+          if (action === "stop-all") {
+            if (isStoppingAll) return;
+            const liveParents = (lastViewModel?.runs || []).filter((r) => !r.isFinished);
+            const liveStandalone = rawRuns.filter(
+              (r) =>
+                r.state !== "done" &&
+                r.state !== "failed" &&
+                !liveParents.some((p) => p.id === r.id || p.id === r.parent)
+            );
+            const stopTargets = [...liveParents.map((r) => r.id), ...liveStandalone.map((r) => r.id)];
+            if (!stopTargets.length) return;
+            isStoppingAll = true;
+            stopTargets.forEach((id) => pendingStopIds.add(id));
+            renderNow();
+            try {
+              const results = await Promise.allSettled(
+                stopTargets.map((id) => Transport.request("POST", `/api/runs/${encodeURIComponent(id)}/stop`, {}))
+              );
+              let stoppedCount = 0;
+              let failCount = 0;
+              let changedAny = false;
+              let totalChangedActions = 0;
+              results.forEach((res, idx) => {
+                const rid = stopTargets[idx];
+                if (res.status === "fulfilled") {
+                  stoppedCount += 1;
+                  const resp = res.value;
+                  stopNoticesByRunId.set(rid, buildStopSummary(rid, resp));
+                  if (Number(resp?.changed_actions || 0) > 0) {
+                    changedAny = true;
+                    totalChangedActions += Number(resp.changed_actions);
+                  } else if (resp && typeof resp.changed === "string" && resp.changed.trim()) {
+                    changedAny = true;
+                  }
+                } else {
+                  failCount += 1;
+                }
+              });
+              const baseSummary = failCount
+                ? `Stopped ${stoppedCount} of ${stopTargets.length} tasks`
+                : `Stopped ${stoppedCount} running task${stoppedCount === 1 ? "" : "s"}`;
+              const changeNote = changedAny
+                ? totalChangedActions > 0
+                  ? `${totalChangedActions} action${totalChangedActions === 1 ? "" : "s"} already ran.`
+                  : "Some actions had already run."
+                : "Nothing was changed.";
+              globalStopSummary = `${baseSummary}. ${changeNote}`;
+              announceStatus(globalStopSummary);
+              await pollAll();
+            } catch (err) {
+              sendErrorText = err.message || "Could not stop running agents";
+              announceStatus(sendErrorText);
+            } finally {
+              isStoppingAll = false;
+              stopTargets.forEach((id) => pendingStopIds.delete(id));
+              renderNow();
+            }
             return;
           }
           if (action === "stop-run" || action === "stop-agent") {
@@ -5067,9 +5865,12 @@
             }
           }
 
-          /* Recover finished runs' agent names and colors from transcripts when /api/agents is empty */
+          /* Fetch transcript for the focused run thread and recover agent identities/colors */
           const transcriptTargets = parents.filter((p) => {
             const isActive = p.state !== "done" && p.state !== "failed";
+            if (p.id === focusParentId && (isActive || !Array.isArray(transcriptsById[p.id]) || dirtyTranscriptRunIds.has(p.id))) {
+              return true;
+            }
             if (!isActive && Array.isArray(transcriptsById[p.id])) return false;
             const groupIds = nextRuns.filter((r) => r.id === p.id || r.parent === p.id).map((r) => r.id);
             const missingColor = groupIds.some((gid) => {
@@ -5089,6 +5890,7 @@
                   );
                   if (Array.isArray(rows)) {
                     transcriptsById[p.id] = rows;
+                    dirtyTranscriptRunIds.delete(p.id);
                     for (const row of rows) {
                       if (row && row.role === "agent" && row.agent && (row.color || row.body)) {
                         const info = {
@@ -5208,9 +6010,13 @@
         if (!e.key || e.key === "ca.primaryAgent") {
           renderNow();
         }
+        if (!e.key || e.key === "ca.focusTarget") {
+          applyStoredFocusTarget();
+        }
       });
 
       window.addEventListener("focus", () => {
+        applyStoredFocusTarget();
         if (hasLoadedOnce) renderNow();
       });
 
@@ -5294,12 +6100,18 @@
         }
         setInterval(pollAll, 1000);
         setInterval(() => {
-          if (getCurrentState() !== "expanded") return;
           if (!lastViewModel) return;
+          const isExpanded = getCurrentState() === "expanded";
+          const pendingRun = lastViewModel.pendingHelpRunId
+            ? lastViewModel.runs.find((r) => r.id === lastViewModel.pendingHelpRunId)
+            : null;
           const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
-          if (!activeRun) return;
-          const hasActiveHelp = activeRun.pendingHelp.some((h) => !h.isExpired);
-          const hasLiveStep = Boolean(activeRun.liveStep);
+          if (!isExpanded && !pendingRun) return;
+          const hasActiveHelp = Boolean(
+            (activeRun && activeRun.pendingHelp.some((h) => !h.isExpired)) ||
+            (pendingRun && pendingRun.pendingHelp.some((h) => !h.isExpired))
+          );
+          const hasLiveStep = Boolean(isExpanded && activeRun && activeRun.liveStep);
           if (!hasActiveHelp && !hasLiveStep) return;
           const vmNow = WorkspaceAdapter.mapRuns([...optimisticRuns, ...rawRuns], detailsById, pendingHelp, {
             connectionStatus,
@@ -5311,7 +6123,8 @@
             transcriptsById,
           });
           lastViewModel = vmNow;
-          if (!updateLiveTicksInPlace(vmNow)) {
+          renderPill(vmNow);
+          if (isExpanded && !updateLiveTicksInPlace(vmNow)) {
             renderPanel(vmNow);
           }
         }, 250);
@@ -5393,7 +6206,7 @@
         if (b) pick(Number(b.dataset.hit));
       });
 
-      /* ---------------- side views: analytics, settings ---------------- */
+      /* ---------------- side view: analytics (Settings lives in workspace sheet) ---------------- */
       function showSide(on) {
         $("side-view").classList.toggle("hidden", !on);
         $("timeline-scroll").classList.toggle("hidden", on);
@@ -5404,14 +6217,20 @@
         <button type="button" class="btn" data-close-side>Back</button></div>`;
       document.addEventListener("click", async (e) => {
         if (e.target.closest("[data-close-side]")) return showSide(false);
+        const settingsTrigger = e.target.closest("[data-open-settings]");
+        if (settingsTrigger) {
+          showSide(false);
+          ca().Transport.openWorkspace(new URLSearchParams(window.location.search).get("fixture") || "", { view: "settings" });
+          return;
+        }
         const b = e.target.closest("[data-side]");
         if (!b) return;
         const v = $("side-view");
-        const title = b.dataset.side === "analytics" ? "Analytics" : "Settings";
+        const title = "Analytics";
         v.innerHTML = sideHead(title) + `<div class="timeline-fact">Loading…</div>`;
         showSide(true);
         try {
-          v.innerHTML = sideHead(title) + (b.dataset.side === "analytics" ? await analyticsHtml() : await settingsHtml());
+          v.innerHTML = sideHead(title) + (await analyticsHtml());
         } catch (err) {
           v.innerHTML = sideHead(title) + `<div class="state-text state-danger">Could not load: ${esc(err.message)}</div>`;
         }
@@ -5437,39 +6256,6 @@
           `<dt>${esc(r.role)}</dt><dd>${r.ok || 0} of ${r.runs} finished, ${Math.round(r.mean_seconds || 0)} s each</dd>`).join("");
         return block("Today", day) + block("All time", all) + (roles ? `<dl class="kv">${roles}</dl>` : "");
       }
-
-      async function settingsHtml() {
-        const p = await req("GET", "/api/profile");
-        const field = (key, label, hint) => `
-          <label>${label}
-            <input class="inline-text-input" name="${key}" value="${esc(p[key] || "")}" placeholder="${esc(hint)}" />
-          </label>`;
-        return `
-          <form class="settings-form" id="settings-form">
-            ${field("call_me", "What should your agents call you?", "Your first name")}
-            ${field("voice_id", "Voice (ElevenLabs voice id)", "Default: Sunny")}
-            ${field("model", "Model", "google/gemini-4-argon")}
-            ${field("decide_model", "Faster model for each step (blank uses Model)", "e.g. google/gemini-3.5-flash-lite")}
-            <div class="settings-actions">
-              <button type="submit" class="btn btn-primary">Save settings</button>
-              <span id="settings-msg" class="timeline-fact" aria-live="polite"></span>
-            </div>
-          </form>`;
-      }
-      document.addEventListener("submit", async (e) => {
-        if (e.target.id !== "settings-form") return;
-        e.preventDefault();
-        const msg = $("settings-msg");
-        const body = Object.fromEntries(new FormData(e.target).entries());
-        try {
-          await req("POST", "/api/profile", body);
-          msg.className = "state-text state-success";
-          msg.textContent = "✓ Saved";
-        } catch (err) {
-          msg.className = "state-text state-danger";
-          msg.textContent = err.message;
-        }
-      });
 
       /* ---------------- views in their own windows ---------------- */
       window.__caBootView = function (mode, state) {
@@ -5745,7 +6531,7 @@
                 <span>${esc(h.question)}</span>
                 ${h.detail ? `<div class="note-detail">${esc(typeof h.detail === "string" ? h.detail : JSON.stringify(h.detail))}</div>` : ""}
                 <div class="note-actions">
-                  <button type="button" class="btn" data-open="${esc(h.thread)}">Open chat</button>
+                  <button type="button" class="btn" data-focus-run="${esc(h.thread || h.run)}" data-focus-help="${esc(h.id)}">Open approval</button>
                   ${h.options.map((o, i) => `<button type="button" class="btn${i === 0 ? " btn-primary" : ""}" data-help="${esc(h.id)}" data-choice="${esc(o)}">${esc(o[0].toUpperCase() + o.slice(1))}</button>`).join("")}
                 </div>
               </div>`;
@@ -5754,7 +6540,7 @@
                 <span class="note-title"><span class="state-text ${n.ok === false ? "state-danger" : "state-success"}">${n.ok === false ? "× Failed" : "✓ Done"}</span> ${esc(n.title)}</span>
                 <span>${esc(n.text)}</span>
                 <div class="note-actions">
-                  <button type="button" class="btn" data-open="${esc(n.thread)}">Open chat</button>
+                  <button type="button" class="btn" data-focus-run="${esc(n.thread || n.run)}">Open in panel</button>
                   <button type="button" class="btn" data-dismiss="${esc(n.id)}">Dismiss</button>
                 </div>
               </div>`).join("");
@@ -5767,7 +6553,19 @@
         document.addEventListener("click", async (e) => {
           const t = e.target.closest("button");
           if (!t) return;
-          if (t.dataset.open) ca().Transport.post("openChat", { run: t.dataset.open });
+          if (t.dataset.focusRun) {
+            try {
+              localStorage.setItem(
+                "ca.focusTarget",
+                JSON.stringify({ run: t.dataset.focusRun, helpId: t.dataset.focusHelp || "", ts: Date.now() })
+              );
+            } catch {
+              // Ignore storage errors
+            }
+            if (new URLSearchParams(window.location.search).get("legacyChat") === "1") {
+              ca().Transport.openLegacyChatWindow(t.dataset.focusRun);
+            }
+          }
           if (t.dataset.help) await req("POST", `/api/help/${encodeURIComponent(t.dataset.help)}`, { choice: t.dataset.choice }).catch(() => {});
           if (t.dataset.dismiss) await req("POST", `/api/notifications/${encodeURIComponent(t.dataset.dismiss)}/dismiss`, {}).catch(() => {});
           poll();
