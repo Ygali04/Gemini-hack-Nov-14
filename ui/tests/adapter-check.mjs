@@ -81,7 +81,7 @@ function runChecks() {
       agentsById: fx.agents,
       nowSec,
     });
-    assert.equal(vmSample.runs[0].stateSymbolWord, "✓ Verified (mock)", "qa-loop-verified: sample mode must label mock verification");
+    assert.equal(vmSample.runs[0].stateSymbolWord, "Finished · sample run, not verified", "qa-loop-verified: sample mode must label mock verification");
   }
 
   {
@@ -261,13 +261,13 @@ function runChecks() {
 
     assert.equal(vmReal.runs.length, 1);
     const r = vmReal.runs[0];
-    assert.equal(r.state, "verified");
-    assert.equal(r.stateSymbolWord, "✓ Verified");
-    assert.equal(r.evidenceText, "mock");
+    assert.equal(r.state, "unverified");
+    assert.equal(r.stateSymbolWord, "Finished · sample run, not verified");
+    assert.equal(r.evidenceText, "");
     assert.equal(r.steps.length, 1);
     assert.equal(r.steps[0].agentIdentity.name, "CU 1");
     assert.equal(r.steps[0].agentIdentity.color, "#B5D0EB");
-    assert.equal(r.steps[0].stateSymbolWord, "✓ Verified");
+    assert.equal(r.steps[0].stateSymbolWord, "Finished · sample run, not verified");
 
     // Also verify when /api/agents is empty `{}` (after overlay.release(run.id) runs in cu_agent.py finally block)
     const vmEmptyAgents = WorkspaceAdapter.mapRuns(
