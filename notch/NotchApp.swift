@@ -186,6 +186,10 @@ final class ShellWebView: WKWebView {
         return false
     }
 
+    func deliverDroppedURLs(_ urls: [URL]) {
+        deliverURLs(urls)
+    }
+
     private func deliverURLs(_ urls: [URL]) {
         if let onFileURLs {
             onFileURLs(urls)
@@ -657,11 +661,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             handleSpeak(text)
         case "stopSpeaking":
             handleStopSpeaking()
-        case "openPrivacySettings":
-            let section = body["section"] as? String ?? "Privacy_SpeechRecognition"
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(section)") {
-                NSWorkspace.shared.open(url)
-            }
         case "openSettingsPane":
             handleOpenSettingsPane(body, to: senderWebView)
         case "setConnection":
@@ -718,20 +717,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         ], to: senderWebView)
     }
 
-    private func workspaceTargetURL(fixtureName: String?) -> URL? {
+    private func workspaceTargetURL(fixtureName: String?, viewName: String? = nil) -> URL? {
         guard let wsFileURL = resolveWorkspaceFileURL() else { return nil }
         var components = URLComponents(url: wsFileURL, resolvingAgainstBaseURL: true)
         var queryItems = [URLQueryItem(name: "shell", value: "notch")]
-        if let fixtureName = fixtureName {
+        if let fixtureName = fixtureName, !fixtureName.isEmpty {
             queryItems.append(URLQueryItem(name: "fixture", value: fixtureName))
+        }
+        if let viewName = viewName, !viewName.isEmpty {
+            queryItems.append(URLQueryItem(name: "view", value: viewName))
         }
         components?.queryItems = queryItems
         return components?.url ?? wsFileURL
     }
 
-    private func loadWorkspaceContent(into wv: WKWebView, fixtureName: String?) {
+    private func loadWorkspaceContent(into wv: WKWebView, fixtureName: String?, viewName: String? = nil) {
         if let wsFileURL = resolveWorkspaceFileURL(),
-           let targetURL = workspaceTargetURL(fixtureName: fixtureName) {
+           let targetURL = workspaceTargetURL(fixtureName: fixtureName, viewName: viewName) {
             let uiDir = wsFileURL.deletingLastPathComponent()
             if wv.url?.standardizedFileURL != targetURL.standardizedFileURL {
                 wv.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
@@ -754,6 +756,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let reqFixture = (body["fixture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let envFixture = ProcessInfo.processInfo.environment["CA_FIXTURE"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fixtureName = (reqFixture?.isEmpty == false ? reqFixture : (envFixture?.isEmpty == false ? envFixture : nil))
+        let reqView = (body["view"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let viewName = (reqView?.isEmpty == false ? reqView : nil)
         let mode = (body["mode"] as? String ?? "").lowercased()
 
         if mode == "sheet" {
@@ -781,7 +785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
             if let sheet = workspaceSheetPanel, let wv = workspaceSheetWebView {
                 let wasHidden = !sheet.isVisible
-                loadWorkspaceContent(into: wv, fixtureName: fixtureName)
+                loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
                 if wasHidden {
                     rememberFrontApp()
                     if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -830,7 +834,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
 
         if let workspaceWebView = workspaceWebView {
-            loadWorkspaceContent(into: workspaceWebView, fixtureName: fixtureName)
+            loadWorkspaceContent(into: workspaceWebView, fixtureName: fixtureName, viewName: viewName)
         }
 
         NSApp.activate(ignoringOtherApps: true)
@@ -1787,6 +1791,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 postToWeb(["type": "hotkey"], to: webView)
             }
             writeInspectResponse(["id": reqId, "ok": true])
+        case "openWorkspace", "workspace":
+            var wsBody: [String: Any] = [
+                "mode": req["mode"] as? String ?? "sheet",
+                "instant": req["instant"] as? Bool ?? true
+            ]
+            if let view = (req["view"] as? String) ?? (req["tab"] as? String), !view.isEmpty {
+                wsBody["view"] = view
+            }
+            if let fixture = (req["fixture"] as? String) ?? (req["sample"] as? String), !fixture.isEmpty {
+                wsBody["fixture"] = fixture
+            }
+            if let width = req["width"] { wsBody["width"] = width }
+            if let height = req["height"] { wsBody["height"] = height }
+            handleOpenWorkspace(wsBody, to: nil)
+            writeInspectResponse(["id": reqId, "ok": true, "mode": wsBody["mode"] ?? "sheet"])
+        case "drop":
+            guard ProcessInfo.processInfo.environment["CA_INSPECT"] == "1" else {
+                writeInspectResponse(["id": reqId, "ok": false, "error": "Inspect mode disabled"])
+                return
+            }
+            let rawPaths = (req["paths"] as? [String]) ?? (req["files"] as? [String]) ?? []
+            guard !rawPaths.isEmpty else {
+                writeInspectResponse(["id": reqId, "ok": false, "error": "No file paths provided"])
+                return
+            }
+            let target = req["target"] as? String ?? "notch"
+            let targetWebView: ShellWebView? = (target == "workspace")
+                ? ((workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? (workspaceWebView as? ShellWebView))
+                : (webView as? ShellWebView)
+            guard let dropWebView = targetWebView else {
+                writeInspectResponse(["id": reqId, "ok": false, "error": "Target webView not available"])
+                return
+            }
+            let urls = rawPaths.map { URL(fileURLWithPath: $0) }
+            dropWebView.deliverDroppedURLs(urls)
+            writeInspectResponse(["id": reqId, "ok": true, "count": urls.count])
+        case "capture":
+            let surface = (req["surface"] as? String ?? req["target"] as? String ?? "panel")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let outPath = (req["path"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !outPath.isEmpty else {
+                writeInspectResponse(["id": reqId, "ok": false, "error": "Missing capture path"])
+                return
+            }
+            let wv: WKWebView?
+            switch surface {
+            case "panel", "notch":
+                wv = webView
+            case "notes":
+                wv = notesWeb
+            case "workspace", "sheet", "workspace sheet", "workspace-sheet", "workspace_sheet":
+                wv = (workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? workspaceWebView
+            default:
+                writeInspectResponse(["id": reqId, "ok": false, "error": "Unknown surface: \(surface)"])
+                return
+            }
+            guard let targetWebView = wv else {
+                writeInspectResponse(["id": reqId, "ok": false, "error": "Surface webView not available"])
+                return
+            }
+            let outURL = URL(fileURLWithPath: outPath)
+            targetWebView.takeSnapshot(with: nil) { [weak self] image, error in
+                guard let self else { return }
+                if let error {
+                    self.writeInspectResponse(["id": reqId, "ok": false, "error": error.localizedDescription])
+                    return
+                }
+                guard let image,
+                      let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let pngData = rep.representation(using: .png, properties: [:]) else {
+                    self.writeInspectResponse(["id": reqId, "ok": false, "error": "Failed to encode PNG snapshot"])
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try pngData.write(to: outURL)
+                    self.writeInspectResponse([
+                        "id": reqId,
+                        "ok": true,
+                        "surface": surface,
+                        "path": outURL.path,
+                        "width": Int(image.size.width),
+                        "height": Int(image.size.height)
+                    ])
+                } catch {
+                    self.writeInspectResponse(["id": reqId, "ok": false, "error": error.localizedDescription])
+                }
+            }
         case "quit":
             writeInspectResponse(["id": reqId, "ok": true])
             NSApplication.shared.terminate(nil)
