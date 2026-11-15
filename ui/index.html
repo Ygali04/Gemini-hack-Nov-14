@@ -1903,6 +1903,93 @@
       gap: 4px;
       flex-shrink: 0;
     }
+    .chat-task-block {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .chat-date-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0 2px;
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--text-muted);
+      user-select: text;
+    }
+    .chat-date-divider::before,
+    .chat-date-divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line-divider);
+    }
+    .chat-task-sep {
+      height: 1px;
+      background: var(--line-divider);
+      margin: 4px 0 2px;
+    }
+    .agent-inline-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line-divider);
+      border-radius: 10px;
+      background: var(--bg-raised);
+      margin-bottom: 6px;
+    }
+    .agent-form-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .agent-swatch-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .agent-swatch-btn {
+      width: 24px;
+      height: 24px;
+      padding: 0;
+      border-radius: 50%;
+      border: 2px solid var(--sw-edge, rgba(255, 255, 255, 0.28));
+      background: var(--sw-bg, #5c6b7a);
+      cursor: pointer;
+      display: inline-grid;
+      place-items: center;
+      transition: transform 100ms ease, box-shadow 100ms ease;
+    }
+    .agent-swatch-btn[aria-checked="true"] {
+      box-shadow: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--focus-ring);
+      transform: scale(1.06);
+    }
+    .agent-swatch-btn:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+    .agent-form-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .agent-form-error {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--state-warning);
+    }
+    .agent-form-btns {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
   </style>
 </head>
 <body data-state="collapsed">
@@ -2154,6 +2241,9 @@
               isSampleData: true,
               initialDroppedFiles: fixtureState?.droppedFiles || [],
               seenFailedRunIds: fixtureState?.seenFailedRunIds || [],
+              caAgents: fixtureState?.caAgents || null,
+              primaryThread: fixtureState?.primaryThread || "",
+              lastAgentId: fixtureState?.lastAgentId || "",
               ...voiceMeta,
             };
           }
@@ -2253,6 +2343,9 @@
             isDictating: Boolean(parsed.isDictating),
             isSpeaking: Boolean(parsed.isSpeaking),
             speakText: parsed.speakText ? String(parsed.speakText) : "",
+            caAgents: Array.isArray(parsed.caAgents) ? parsed.caAgents : null,
+            primaryThread: parsed.primaryThread ? String(parsed.primaryThread) : "",
+            lastAgentId: parsed.lastAgentId ? String(parsed.lastAgentId) : "",
           };
         }
 
@@ -4039,6 +4132,8 @@
 
           return {
             id: childRun.id,
+            role: childRun.role ? String(childRun.role) : "",
+            isOrchestrator: !childRun.role || String(childRun.role).toLowerCase() === "orchestrator",
             goal: childRun.goal ? String(childRun.goal) : "",
             elapsedText: formatSeconds(childRun.elapsed),
             app,
@@ -4294,11 +4389,15 @@
             rootParentByRunId.set(r.id, cur ? (cur.parent && !byId.has(cur.parent) ? cur.id : cur.parent || cur.id) : r.id);
           }
 
-          /* Group child runs under parent orchestrator runs */
+          /* Group child runs (including follow-up orchestrator grandchildren) under root parent runs */
           const parents = runsList.filter((r) => !r.parent || !byId.has(r.parent));
           const childrenByParent = new Map();
           for (const r of runsList) {
-            if (r.parent && byId.has(r.parent)) {
+            const rootId = rootParentByRunId.get(r.id);
+            if (rootId && rootId !== r.id && byId.has(rootId)) {
+              if (!childrenByParent.has(rootId)) childrenByParent.set(rootId, []);
+              childrenByParent.get(rootId).push(r);
+            } else if (r.parent && byId.has(r.parent)) {
               if (!childrenByParent.has(r.parent)) childrenByParent.set(r.parent, []);
               childrenByParent.get(r.parent).push(r);
             }
@@ -4622,20 +4721,31 @@
             const approvalHistory = buildApprovalHistoryForGroup(groupRuns, detailsById, rawGroupTranscript);
             const activePendingHelpCountdown = activePendingHelp[0]?.countdownText || "";
             const lastTranscriptRow = transcriptRows.length ? transcriptRows[transcriptRows.length - 1] : null;
+            const meaningfulTranscriptRow =
+              [...transcriptRows]
+                .reverse()
+                .find((tr) => tr && tr.text && !/^Finished\.?$/i.test(String(tr.text).trim())) || null;
             const lastTsFromTranscript =
               lastTranscriptRow && lastTranscriptRow.ts != null ? Number(lastTranscriptRow.ts) : 0;
+            const firstTsFromTranscript =
+              transcriptRows[0] && transcriptRows[0].ts != null ? Number(transcriptRows[0].ts) : 0;
             const rawTs = Number(parent.ts || parent.updated || parent.created || parent.started || 0);
+            const rawStartTs = Number(parent.started || parent.started_at || parent.created || firstTsFromTranscript || rawTs || 0);
             const sortTs = Math.max(rawTs, lastTsFromTranscript);
+            const startTs = rawStartTs || sortTs;
             const listClockText = formatShortClock(sortTs);
+            const plainFactForPreview =
+              stateFact && !/^Finished\.?$/i.test(String(stateFact).trim()) ? stateFact : "";
             const lastLinePreview =
-              (lastTranscriptRow && lastTranscriptRow.text) ||
+              (meaningfulTranscriptRow && meaningfulTranscriptRow.text) ||
               (activePendingHelp[0]?.question) ||
-              (state === "failed" ? stateSymbolWord : stateFact) ||
+              (state === "failed" ? stateSymbolWord : plainFactForPreview) ||
               parent.goal ||
               "Untitled chat";
 
             return {
               id: parent.id,
+              parent: parent.parent || null,
               goal: parent.goal || "Untitled run",
               apps,
               appLabel: apps.join(", "),
@@ -4669,6 +4779,7 @@
               copyResultText,
               transcriptRows,
               approvalHistory,
+              startTs,
               sortTs,
               lastLinePreview,
               activePendingHelpCountdown,
@@ -4687,8 +4798,218 @@
           };
         }
 
+        const DEFAULT_AGENT_SWATCHES = [
+          { key: "lagoon", name: "Lagoon", color: "#B5D0EB", edge: "#D6E9FF", ink: "#2F647C" },
+          { key: "rose",   name: "Rose",   color: "#EECED6", edge: "#FFF0F1", ink: "#963F59" },
+          { key: "mint",   name: "Mint",   color: "#C0DED0", edge: "#E6FFF0", ink: "#396C5A" },
+          { key: "lilac",  name: "Lilac",  color: "#E1CDE8", edge: "#FBE8F7", ink: "#71388B" },
+          { key: "amber",  name: "Amber",  color: "#F0D9BE", edge: "#FFFCE0", ink: "#865733" },
+        ];
+
+        const SUGGESTED_AGENT_NAMES = ["Aria", "Milo", "Sora", "Kai", "Nora", "Leo", "Sage", "Zoe"];
+
+        function normalizeAgentSwatch(swatchVal, fallbackIdx = 0) {
+          const clean = String(swatchVal || "").trim();
+          const lower = clean.toLowerCase();
+          const upper = clean.toUpperCase();
+          const found = clean
+            ? DEFAULT_AGENT_SWATCHES.find((s) => s.key === lower || s.name.toLowerCase() === lower || s.color === upper)
+            : null;
+          return found || DEFAULT_AGENT_SWATCHES[Math.abs(Number(fallbackIdx) || 0) % DEFAULT_AGENT_SWATCHES.length];
+        }
+
+        function suggestAgentName(existingNames = []) {
+          const used = new Set((existingNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean));
+          for (const candidate of SUGGESTED_AGENT_NAMES) {
+            if (!used.has(candidate.toLowerCase())) return candidate;
+          }
+          let n = 2;
+          while (used.has(`agent ${n}`)) n += 1;
+          return `Agent ${n}`;
+        }
+
+        function suggestAgentSwatch(existingSwatches = []) {
+          const used = new Set((existingSwatches || []).map((s) => normalizeAgentSwatch(s).key));
+          for (const sw of DEFAULT_AGENT_SWATCHES) {
+            if (!used.has(sw.key)) return sw.key;
+          }
+          return DEFAULT_AGENT_SWATCHES[(existingSwatches?.length || 1) % DEFAULT_AGENT_SWATCHES.length].key;
+        }
+
+        function isFinishedNoise(text) {
+          return /^Finished\.?$/i.test(String(text || "").trim());
+        }
+
+        function pickConversationLastLine(latestTask, waitingTask) {
+          if (!latestTask) return "No tasks yet";
+          const activeQ = waitingTask?.pendingHelp?.find((h) => !h.isExpired)?.question;
+          if (activeQ && !isFinishedNoise(activeQ)) return activeQ;
+          if (latestTask.isFinished && latestTask.state !== "failed") {
+            if (latestTask.stateFact && !isFinishedNoise(latestTask.stateFact)) return latestTask.stateFact;
+            if (latestTask.speakText && !isFinishedNoise(latestTask.speakText)) return latestTask.speakText;
+          }
+          if (latestTask.state === "failed" && latestTask.stateSymbolWord && !isFinishedNoise(latestTask.stateSymbolWord)) {
+            return latestTask.stateSymbolWord;
+          }
+          const rows = Array.isArray(latestTask.transcriptRows) ? latestTask.transcriptRows : [];
+          for (let i = rows.length - 1; i >= 0; i -= 1) {
+            const txt = String(rows[i]?.text || "").trim();
+            if (txt && !isFinishedNoise(txt)) return txt;
+          }
+          if (latestTask.lastLinePreview && !isFinishedNoise(latestTask.lastLinePreview)) {
+            return latestTask.lastLinePreview;
+          }
+          return latestTask.goal || "No tasks yet";
+        }
+
+        function buildAgentConversations(vm, opts = {}) {
+          const runs = Array.isArray(vm?.runs) ? vm.runs : [];
+          const hiddenSet = opts.hiddenRunIds instanceof Set
+            ? opts.hiddenRunIds
+            : new Set(Array.isArray(opts.hiddenRunIds) ? opts.hiddenRunIds : []);
+          const primarySwatch = normalizeAgentSwatch(opts.primaryIdentity?.color || opts.primaryIdentity?.palette?.body || "lagoon", 0);
+          const primaryName = String(opts.primaryIdentity?.name || "ComputerAnything").trim() || "ComputerAnything";
+          const primaryIdentity = opts.primaryIdentity && opts.primaryIdentity.palette
+            ? { ...opts.primaryIdentity, name: primaryName }
+            : {
+                name: primaryName,
+                color: primarySwatch.color,
+                hasAgentColor: true,
+                rawEdge: primarySwatch.edge,
+                rawInk: primarySwatch.ink,
+                palette: { body: primarySwatch.color, edge: primarySwatch.edge, ink: primarySwatch.ink },
+              };
+          const primaryThreads = [
+            opts.primaryThread,
+            ...(Array.isArray(opts.primaryThreads) ? opts.primaryThreads : []),
+          ].filter(Boolean);
+          const createdAgents = Array.isArray(opts.createdAgents) ? opts.createdAgents : [];
+          const optimisticMap = opts.optimisticAgentByRunId && typeof opts.optimisticAgentByRunId === "object"
+            ? opts.optimisticAgentByRunId
+            : {};
+
+          const list = [];
+          const byId = new Map();
+          const claimMap = new Map();
+
+          const primaryConv = {
+            id: "__primary__",
+            isPrimary: true,
+            name: primaryIdentity.name,
+            swatch: primarySwatch.key,
+            identity: primaryIdentity,
+            thread: String(opts.primaryThread || "").trim(),
+            threads: Array.from(new Set(primaryThreads)),
+            _taskEntries: [],
+            tasks: [],
+          };
+          list.push(primaryConv);
+          byId.set(primaryConv.id, primaryConv);
+
+          createdAgents.forEach((ag, idx) => {
+            if (!ag || !ag.id) return;
+            const sw = normalizeAgentSwatch(ag.swatch, idx + 1);
+            const cleanName = String(ag.name || "").trim() || `Agent ${idx + 2}`;
+            const claimed = Array.from(new Set([
+              ag.thread,
+              ...(Array.isArray(ag.threads) ? ag.threads : []),
+            ].map((t) => String(t || "").trim()).filter(Boolean)));
+            const conv = {
+              id: String(ag.id),
+              isPrimary: false,
+              name: cleanName,
+              swatch: sw.key,
+              identity: {
+                name: cleanName,
+                color: sw.color,
+                hasAgentColor: true,
+                rawEdge: sw.edge,
+                rawInk: sw.ink,
+                palette: { body: sw.color, edge: sw.edge, ink: sw.ink },
+              },
+              thread: String(ag.thread || claimed[0] || "").trim(),
+              threads: claimed,
+              _taskEntries: [],
+              tasks: [],
+            };
+            list.push(conv);
+            byId.set(conv.id, conv);
+            for (const t of claimed) {
+              claimMap.set(t, conv.id);
+            }
+          });
+
+          runs.forEach((runVm, vmIdx) => {
+            if (!runVm || !runVm.id || hiddenSet.has(runVm.id)) return;
+            let ownerId = optimisticMap[runVm.id] || claimMap.get(runVm.id) || "";
+            if (!ownerId && Array.isArray(runVm.steps)) {
+              for (const s of runVm.steps) {
+                if (s && s.id && claimMap.has(s.id)) {
+                  ownerId = claimMap.get(s.id);
+                  break;
+                }
+              }
+            }
+            if (!ownerId || !byId.has(ownerId)) {
+              ownerId = "__primary__";
+            }
+            byId.get(ownerId)._taskEntries.push({ run: runVm, vmIdx });
+          });
+
+          for (const conv of list) {
+            conv._taskEntries.sort((a, b) => {
+              const aTs = Number(a.run.startTs || a.run.sortTs || 0);
+              const bTs = Number(b.run.startTs || b.run.sortTs || 0);
+              if (aTs && bTs && aTs !== bTs) return aTs - bTs;
+              return b.vmIdx - a.vmIdx;
+            });
+            conv.tasks = conv._taskEntries.map((e) => e.run);
+            delete conv._taskEntries;
+
+            const latestTask = conv.tasks.length ? conv.tasks[conv.tasks.length - 1] : null;
+            const waitingTask = conv.tasks.find((t) => t.state === "waiting") || null;
+            const workingTask = conv.tasks.find((t) => t.state === "working") || null;
+            conv.hasWaiting = Boolean(waitingTask);
+            conv.hasWorking = Boolean(workingTask);
+            conv.state = waitingTask ? "waiting" : workingTask ? "working" : (latestTask ? latestTask.state : "idle");
+            conv.badge = waitingTask
+              ? { text: "! Needs you", cls: "state-warning" }
+              : workingTask
+              ? { text: "● Working", cls: "state-working" }
+              : null;
+            conv.latestTask = latestTask;
+            conv.pendingHelpTaskId = waitingTask ? waitingTask.id : "";
+            conv.lastLinePreview = pickConversationLastLine(latestTask, waitingTask);
+            conv.listClockText = latestTask ? latestTask.listClockText : "";
+            conv.latestSortTs = latestTask ? Number(latestTask.sortTs || 0) : 0;
+            conv.liveRunIds = conv.tasks.filter((t) => !t.isFinished).map((t) => t.id);
+            conv.allRunIds = conv.tasks.map((t) => t.id);
+
+            let copyText = "";
+            for (let i = conv.tasks.length - 1; i >= 0; i -= 1) {
+              const t = conv.tasks[i];
+              if (t.copyResultText && !isFinishedNoise(t.copyResultText)) {
+                copyText = t.copyResultText;
+                break;
+              }
+              if (t.stateFact && !isFinishedNoise(t.stateFact)) {
+                copyText = t.stateFact;
+                break;
+              }
+            }
+            conv.copyResultText = copyText || (conv.lastLinePreview !== "No tasks yet" ? conv.lastLinePreview : "");
+          }
+
+          return { list, byId };
+        }
+
         return {
           mapRuns,
+          DEFAULT_AGENT_SWATCHES,
+          normalizeAgentSwatch,
+          suggestAgentName,
+          suggestAgentSwatch,
+          buildAgentConversations,
           deriveStoppedLabel,
           getApprovalKindWarning,
           isMoneyOrSendApproval,
@@ -4795,6 +5116,9 @@
       let isComposingNewChat = false;
       let lastScrolledRunKey = "";
       const LAST_THREAD_STORAGE_KEY = "ca.lastThreadId";
+      const CA_AGENTS_STORAGE_KEY = "ca.agents";
+      const CA_PRIMARY_THREAD_STORAGE_KEY = "ca.primaryThread";
+      const CA_LAST_AGENT_STORAGE_KEY = "ca.lastAgentId";
       const SEEN_FAILED_STORAGE_KEY = "ca.seenFailedRuns";
       const HIDDEN_CHATS_STORAGE_KEY = "ca.hiddenChatIds";
       let hasInitializedFailureBaseline = false;
@@ -4802,7 +5126,116 @@
       let pillFailureTimer = null;
       let openRowMenuKey = "";
       let confirmDeleteRunId = "";
+      let confirmDeleteAgentId = "";
+      let selectedAgentId = "__primary__";
+      let agentFormState = null; // { mode: "create" | "edit", agentId, name, swatch, returnView, error }
+      let fixtureCreatedAgentsOverride = null;
+      let fixturePrimaryThreadOverride = "";
+      let fixtureLastAgentIdOverride = "";
+      const optimisticAgentByRunId = Object.create(null);
       const openResultDetailIds = new Set();
+
+      function sanitizeCreatedAgent(entry) {
+        if (!entry || typeof entry !== "object") return null;
+        const id = String(entry.id || "").trim();
+        const name = String(entry.name || "").trim();
+        if (!id || !name) return null;
+        const sw = WorkspaceAdapter.normalizeAgentSwatch(entry.swatch, 0);
+        const thread = String(entry.thread || "").trim();
+        const threads = Array.from(new Set([
+          thread,
+          ...(Array.isArray(entry.threads) ? entry.threads : []),
+        ].map((t) => String(t || "").trim()).filter(Boolean)));
+        return {
+          id,
+          name,
+          swatch: sw.key,
+          thread: thread || threads[0] || "",
+          threads,
+        };
+      }
+
+      function readCreatedAgents() {
+        if (fixtureParam && Array.isArray(fixtureCreatedAgentsOverride)) {
+          return fixtureCreatedAgentsOverride.map(sanitizeCreatedAgent).filter(Boolean);
+        }
+        try {
+          if (typeof localStorage === "undefined") return [];
+          const raw = localStorage.getItem(CA_AGENTS_STORAGE_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed.map(sanitizeCreatedAgent).filter(Boolean) : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function writeCreatedAgents(agents) {
+        const clean = (Array.isArray(agents) ? agents : []).map(sanitizeCreatedAgent).filter(Boolean);
+        if (fixtureParam && Array.isArray(fixtureCreatedAgentsOverride)) {
+          fixtureCreatedAgentsOverride = clean;
+          return;
+        }
+        if (fixtureParam) {
+          fixtureCreatedAgentsOverride = clean;
+        }
+        try {
+          if (typeof localStorage !== "undefined") {
+            localStorage.setItem(CA_AGENTS_STORAGE_KEY, JSON.stringify(clean));
+          }
+        } catch {
+          // Ignore storage errors
+        }
+      }
+
+      function readPrimaryThreadId() {
+        if (fixtureParam && fixturePrimaryThreadOverride) return fixturePrimaryThreadOverride;
+        try {
+          if (typeof localStorage === "undefined") return "";
+          return String(localStorage.getItem(CA_PRIMARY_THREAD_STORAGE_KEY) || "").trim();
+        } catch {
+          return "";
+        }
+      }
+
+      function savePrimaryThreadId(threadId) {
+        const clean = String(threadId || "").trim();
+        if (fixtureParam) {
+          fixturePrimaryThreadOverride = clean;
+          return;
+        }
+        try {
+          if (typeof localStorage === "undefined") return;
+          if (clean) localStorage.setItem(CA_PRIMARY_THREAD_STORAGE_KEY, clean);
+          else localStorage.removeItem(CA_PRIMARY_THREAD_STORAGE_KEY);
+        } catch {
+          // Ignore storage errors
+        }
+      }
+
+      function readLastAgentId() {
+        if (fixtureParam && fixtureLastAgentIdOverride) return fixtureLastAgentIdOverride;
+        try {
+          if (typeof localStorage === "undefined") return "";
+          return String(localStorage.getItem(CA_LAST_AGENT_STORAGE_KEY) || "").trim();
+        } catch {
+          return "";
+        }
+      }
+
+      function saveLastAgentId(agentId) {
+        const clean = String(agentId || "__primary__").trim() || "__primary__";
+        if (fixtureParam) {
+          fixtureLastAgentIdOverride = clean;
+          return;
+        }
+        try {
+          if (typeof localStorage === "undefined") return;
+          localStorage.setItem(CA_LAST_AGENT_STORAGE_KEY, clean);
+        } catch {
+          // Ignore storage errors
+        }
+      }
 
       function readHiddenChatIds() {
         if (fixtureParam) return new Set();
@@ -5036,21 +5469,123 @@
         return ok;
       }
 
+      function getConversationsForVm(vm) {
+        return WorkspaceAdapter.buildAgentConversations(vm, {
+          primaryIdentity: getPrimaryAgentRowIdentity(),
+          primaryThread: readPrimaryThreadId(),
+          createdAgents: readCreatedAgents(),
+          hiddenRunIds: hiddenChatIds,
+          optimisticAgentByRunId,
+        });
+      }
+
+      function resolveActiveConversation(convs) {
+        const map = convs?.byId;
+        const list = convs?.list || [];
+        if (selectedAgentId && map && map.has(selectedAgentId)) {
+          return map.get(selectedAgentId);
+        }
+        const rememberedId = readLastAgentId();
+        if (rememberedId && map && map.has(rememberedId)) {
+          return map.get(rememberedId);
+        }
+        return list[0] || null;
+      }
+
+      function openAgentConversation(agentId, options = {}) {
+        const cleanId = String(agentId || "__primary__").trim() || "__primary__";
+        selectedAgentId = cleanId;
+        viewMode = "chat";
+        isComposingNewChat = false;
+        openRowMenuKey = "";
+        confirmDeleteRunId = "";
+        confirmDeleteAgentId = "";
+        agentFormState = null;
+        saveLastAgentId(cleanId);
+        if (options.render !== false) renderNow();
+      }
+
+      function formatTaskDividerLabel(prevTs, curTs) {
+        const curNum = Number(curTs || 0);
+        if (!Number.isFinite(curNum) || curNum < 1000000000) return "";
+        const prevNum = Number(prevTs || 0);
+        const sameDay =
+          prevNum >= 1000000000 &&
+          new Date(prevNum * 1000).toDateString() === new Date(curNum * 1000).toDateString();
+        if (sameDay && Math.abs(curNum - prevNum) < 300) return "";
+        try {
+          const d = new Date(curNum * 1000);
+          const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+          const now = new Date();
+          if (d.toDateString() === now.toDateString()) {
+            return sameDay ? timeStr : `Today · ${timeStr}`;
+          }
+          const yest = new Date(now);
+          yest.setDate(now.getDate() - 1);
+          if (d.toDateString() === yest.toDateString()) {
+            return `Yesterday · ${timeStr}`;
+          }
+          const dateStr = d.toLocaleDateString([], { month: "short", day: "numeric" });
+          return `${dateStr} · ${timeStr}`;
+        } catch {
+          return "";
+        }
+      }
+
+      function renderAgentFormHtml() {
+        if (!agentFormState) return "";
+        const isEdit = agentFormState.mode === "edit";
+        const swSelected = WorkspaceAdapter.normalizeAgentSwatch(agentFormState.swatch, 0);
+        const swatchesHtml = PRIMARY_AGENT_SWATCHES.map((sw) => {
+          const isChecked = sw.key === swSelected.key;
+          return `<button
+            type="button"
+            class="agent-swatch-btn"
+            role="radio"
+            aria-checked="${isChecked ? "true" : "false"}"
+            aria-label="${escapeHtml(sw.name)}"
+            title="${escapeHtml(sw.name)}"
+            data-action="pick-agent-swatch"
+            data-swatch="${escapeHtml(sw.key)}"
+            style="--sw-bg: ${escapeHtml(sw.color)}; --sw-edge: ${escapeHtml(sw.edge)};"
+          ></button>`;
+        }).join("");
+        return `
+          <form id="agent-inline-form" class="agent-inline-form" novalidate>
+            <div class="agent-form-row">
+              <input
+                type="text"
+                id="agent-name-input"
+                class="inline-text-input"
+                value="${escapeHtml(agentFormState.name || "")}"
+                placeholder="Agent name"
+                aria-label="Agent name"
+                maxlength="40"
+              />
+            </div>
+            <div class="agent-swatch-row" role="radiogroup" aria-label="Agent color">
+              ${swatchesHtml}
+            </div>
+            <div class="agent-form-actions">
+              ${agentFormState.error ? `<span class="agent-form-error" role="alert">${escapeHtml(agentFormState.error)}</span>` : "<span></span>"}
+              <span class="agent-form-btns">
+                <button type="button" class="btn" data-action="cancel-agent-form">Cancel</button>
+                <button type="submit" class="btn">${isEdit ? "Save" : "Create"}</button>
+              </span>
+            </div>
+          </form>
+        `;
+      }
+
       function syncThreadModeBar() {
         if (!promptInput) return;
         let label = "Ask your agents…";
         if (viewMode === "chat") {
-          if (!lastViewModel?.runs?.length || isComposingNewChat) {
-            const primary = getPrimaryAgentRowIdentity();
-            if (primary?.name) {
-              label = `Ask ${primary.name}…`;
-            }
-          } else {
-            const activeRun = lastViewModel.runs.find((r) => r.id === selectedRunId) || lastViewModel.runs[0];
-            const firstStepName = activeRun?.steps?.[0]?.agentIdentity?.name || getPrimaryAgentRowIdentity().name;
-            if (firstStepName) {
-              label = `Ask ${firstStepName}…`;
-            }
+          const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+          const activeConv = convs ? resolveActiveConversation(convs) : null;
+          const name = activeConv?.name || getPrimaryAgentRowIdentity().name;
+          if (name) {
+            label = `Ask ${name}…`;
           }
         }
         promptInput.placeholder = label;
@@ -5059,12 +5594,13 @@
       function focusPendingApprovalInPanel(targetRunId) {
         const preferredRunId = targetRunId || lastViewModel?.pendingHelpRunId || "";
         if (!preferredRunId) return false;
-        if (selectedRunId !== preferredRunId || viewMode !== "chat" || isComposingNewChat) {
+        const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+        const ownerConv = convs?.list?.find((c) => c.allRunIds.includes(preferredRunId)) || convs?.list?.[0] || null;
+        const targetAgentId = ownerConv ? ownerConv.id : "__primary__";
+        if (selectedAgentId !== targetAgentId || selectedRunId !== preferredRunId || viewMode !== "chat" || isComposingNewChat) {
           selectedRunId = preferredRunId;
-          viewMode = "chat";
-          isComposingNewChat = false;
           saveLastThreadId(preferredRunId);
-          renderNow();
+          openAgentConversation(targetAgentId, { render: true });
         }
         requestAnimationFrame(() => {
           const waitBtn = timelineScroll.querySelector('.help-wait-row:not(.is-expired) .help-wait-btn');
@@ -5086,8 +5622,12 @@
           lastHandledFocusTs = parsed.ts;
           if (parsed.run) {
             selectedRunId = String(parsed.run);
+            const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+            const ownerConv = convs?.list?.find((c) => c.allRunIds.includes(selectedRunId));
+            if (ownerConv) selectedAgentId = ownerConv.id;
             viewMode = "chat";
             isComposingNewChat = false;
+            saveLastAgentId(selectedAgentId);
             saveLastThreadId(selectedRunId);
           }
           setState("expanded", { instant: true, focusRunId: parsed.run ? String(parsed.run) : "" });
@@ -5451,10 +5991,17 @@
       window.addEventListener("keydown", (e) => {
         if (e.isComposing || e.keyCode === 229) return;
         if (e.key === "Escape") {
-          if (openRowMenuKey || confirmDeleteRunId) {
+          if (agentFormState) {
+            e.preventDefault();
+            agentFormState = null;
+            renderNow();
+            return;
+          }
+          if (openRowMenuKey || confirmDeleteRunId || confirmDeleteAgentId) {
             e.preventDefault();
             openRowMenuKey = "";
             confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
             renderNow();
             return;
           }
@@ -6079,16 +6626,50 @@
       }
 
       /* ---------------- SUBMIT PROMPT ---------------- */
+      function recordAgentThread(agentId, threadId, runId) {
+        const cleanThread = String(threadId || "").trim();
+        const cleanRun = String(runId || "").trim();
+        const aid = String(agentId || "__primary__").trim() || "__primary__";
+        if (aid === "__primary__") {
+          if (cleanThread) savePrimaryThreadId(cleanThread);
+          return;
+        }
+        const list = readCreatedAgents();
+        const idx = list.findIndex((a) => a.id === aid);
+        if (idx === -1) return;
+        const ag = list[idx];
+        const nextThreads = Array.from(new Set([
+          ...(Array.isArray(ag.threads) ? ag.threads : []),
+          ag.thread,
+          cleanThread,
+          cleanRun,
+        ].map((t) => String(t || "").trim()).filter(Boolean)));
+        list[idx] = {
+          ...ag,
+          thread: cleanThread || cleanRun || ag.thread || "",
+          threads: nextThreads,
+        };
+        writeCreatedAgents(list);
+      }
+
+      function resolveThreadTargetForAgent(agentId) {
+        const aid = String(agentId || "__primary__").trim() || "__primary__";
+        if (aid === "__primary__") return readPrimaryThreadId();
+        const ag = readCreatedAgents().find((a) => a.id === aid);
+        return ag?.thread ? String(ag.thread).trim() : "";
+      }
+
       async function submitTask(rawPrompt, attachedItems, options = {}) {
         sendErrorText = "";
         globalStopSummary = "";
 
+        const targetAgentId =
+          options.agentId ||
+          (viewMode === "chat" ? (selectedAgentId || readLastAgentId() || "__primary__") : "__primary__");
         const explicitThread =
           options.thread !== undefined
             ? options.thread
-            : (viewMode === "list" || isComposingNewChat)
-            ? ""
-            : selectedRunId;
+            : resolveThreadTargetForAgent(targetAgentId);
         const threadTarget =
           explicitThread && !String(explicitThread).startsWith("optimistic-") ? String(explicitThread) : "";
 
@@ -6109,13 +6690,29 @@
             },
           ];
           selectedRunId = threadTarget;
-          viewMode = "chat";
-          isComposingNewChat = false;
           saveLastThreadId(threadTarget);
           dirtyTranscriptRunIds.add(threadTarget);
-          renderNow();
+          openAgentConversation(targetAgentId, { render: true });
           try {
-            await submitTaskRequest({ rawPrompt, attachedItems, thread: threadTarget });
+            let created = null;
+            try {
+              created = await submitTaskRequest({ rawPrompt, attachedItems, thread: threadTarget });
+            } catch (threadErr) {
+              const errMsg = String(threadErr?.message || threadErr?.data?.error || "");
+              if (/no such conversation|unknown conversation|not found/i.test(errMsg)) {
+                created = await submitTaskRequest({ rawPrompt, attachedItems, thread: "" });
+              } else {
+                throw threadErr;
+              }
+            }
+            const nextThread = String(created?.thread || created?.run || threadTarget).trim();
+            recordAgentThread(targetAgentId, nextThread, created?.run || "");
+            if (created?.run) {
+              selectedRunId = created.run;
+              saveLastThreadId(created.run);
+              dirtyTranscriptRunIds.add(created.run);
+            }
+            if (nextThread) dirtyTranscriptRunIds.add(nextThread);
             announceStatus("Message sent");
             await pollAll();
           } catch (err) {
@@ -6135,6 +6732,7 @@
         }
 
         const tempId = `optimistic-${Date.now()}`;
+        optimisticAgentByRunId[tempId] = targetAgentId;
         optimisticRuns.push({
           id: tempId,
           goal: rawPrompt,
@@ -6146,25 +6744,27 @@
           result: null,
         });
         selectedRunId = tempId;
-        viewMode = "chat";
-        isComposingNewChat = false;
-        renderNow();
+        openAgentConversation(targetAgentId, { render: true });
 
         try {
           const created = await submitTaskRequest({ rawPrompt, attachedItems });
 
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+          delete optimisticAgentByRunId[tempId];
           if (created?.run) {
+            const nextThread = String(created.thread || created.run).trim();
+            recordAgentThread(targetAgentId, nextThread, created.run);
             selectedRunId = created.run;
-            viewMode = "chat";
-            isComposingNewChat = false;
             saveLastThreadId(created.run);
             dirtyTranscriptRunIds.add(created.run);
+            if (nextThread) dirtyTranscriptRunIds.add(nextThread);
+            openAgentConversation(targetAgentId, { render: false });
           }
           announceStatus("Task sent");
           await pollAll();
         } catch (err) {
           optimisticRuns = optimisticRuns.filter((r) => r.id !== tempId);
+          delete optimisticAgentByRunId[tempId];
           if (err.code === "AUTH") {
             Transport.clearConnection();
             rememberedAgentsById = {};
@@ -6288,80 +6888,108 @@
 
       function updateLiveTicksInPlace(vm) {
         if (viewMode !== "chat" || isComposingNewChat) return false;
-        const visibleRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
-        const activeRun = visibleRuns.find((r) => r.id === selectedRunId) || visibleRuns[0];
-        if (!activeRun) return false;
+        const convs = getConversationsForVm(vm);
+        const activeConv = resolveActiveConversation(convs);
+        const tasks = activeConv?.tasks || [];
+        if (!tasks.length) return false;
 
         let expiryCrossed = false;
-        for (const h of activeRun.pendingHelp) {
-          const el = timelineScroll.querySelector(`[data-help-row-id="${CSS.escape(h.id)}"]`);
-          if (h.isExpired) {
-            if (el && !el.classList.contains("is-expired")) {
+        for (const task of tasks) {
+          for (const h of task.pendingHelp) {
+            const el = timelineScroll.querySelector(`[data-help-row-id="${CSS.escape(h.id)}"]`);
+            if (h.isExpired && el && !el.classList.contains("is-expired")) {
               expiryCrossed = true;
             }
           }
-        }
-
-        const liveList = Array.isArray(activeRun.liveSteps) && activeRun.liveSteps.length
-          ? activeRun.liveSteps
-          : activeRun.liveStep
-          ? [activeRun.liveStep]
-          : [];
-        for (const item of liveList) {
-          const liveEl = timelineScroll.querySelector(`[data-live-step-key="${CSS.escape(item.key)}"]`);
-          if (liveEl) {
-            liveEl.classList.toggle("is-faded", isLiveStepFaded(item));
+          const liveList = Array.isArray(task.liveSteps) && task.liveSteps.length
+            ? task.liveSteps
+            : task.liveStep
+            ? [task.liveStep]
+            : [];
+          for (const item of liveList) {
+            const liveEl = timelineScroll.querySelector(`[data-live-step-key="${CSS.escape(item.key)}"]`);
+            if (liveEl) {
+              liveEl.classList.toggle("is-faded", isLiveStepFaded(item));
+            }
           }
         }
 
         return !expiryCrossed;
       }
 
-      function buildPanelStructureKey(vm, activeRun) {
-        const primaryRaw = readPrimaryAgentStorageRaw();
-        if (vm.connectionStatus === "loading" && !hasLoadedOnce) return `loading:${primaryRaw}`;
-        if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}:${primaryRaw}`;
-        const listSummaryKey = vm.runs
-          .filter((r) => !hiddenChatIds.has(r.id))
-          .map((r) => `${r.id}:${r.state}:${r.stateSymbolWord}:${isFailedRunSeen(r.id) ? 1 : 0}:${r.lastLinePreview}:${r.elapsedText}`)
-          .join("|");
-        if (viewMode === "list") {
-          return `list:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${openRowMenuKey}:${confirmDeleteRunId}:${hiddenChatIds.size}:${listSummaryKey}`;
-        }
-        if (isComposingNewChat || !activeRun) {
-          return `new:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${isComposingNewChat ? 1 : 0}:${vm.runs.length}:${hiddenChatIds.size}`;
-        }
-
-        const helpKey = activeRun.pendingHelp
+      function buildTaskStructureKey(task) {
+        if (!task) return "";
+        const helpKey = task.pendingHelp
           .map((h) => `${h.id}:${h.isExpired ? "exp" : "act"}:${h.kindWarning}`)
           .join(",");
-        const historyKey = (activeRun.approvalHistory || [])
+        const historyKey = (task.approvalHistory || [])
           .map((a) => `${a.id}:${a.lineText || a.choiceText}`)
           .join(",");
-        const stepsKey = activeRun.steps
+        const stepsKey = task.steps
           .map(
             (s) =>
-              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.elapsedText}:${s.workStepCount}:${s.workSteps.length}:${openWorkKeys.has(`${activeRun.id}:${s.id}`) ? 1 : 0}`
+              `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.elapsedText}:${s.workStepCount}:${s.workSteps.length}:${openWorkKeys.has(`${task.id}:${s.id}`) ? 1 : 0}`
           )
           .join("|");
-        const memoryKey = getVisibleMemoriesForRun(activeRun)
+        const memoryKey = getVisibleMemoriesForRun(task)
           .map((m) => `${m.id}:${m.text || ""}:${pendingUndoMemoryIds.has(m.id) ? 1 : 0}`)
           .join("|");
-        const outputKey = activeRun.producedOutputs
-          .map((o) => `${o.id}:${openOutputPreviewIds.has(`${activeRun.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${activeRun.id}:${o.id}`) ? 1 : 0}`)
+        const outputKey = task.producedOutputs
+          .map((o) => `${o.id}:${openOutputPreviewIds.has(`${task.id}:${o.id}`) ? 1 : 0}:${copiedItemIds.has(`out:${task.id}:${o.id}`) ? 1 : 0}`)
           .join("|");
-        const resultDetailKey = openResultDetailIds.has(activeRun.id) ? 1 : 0;
-        const transcriptKey = activeRun.transcriptRows
+        const resultDetailKey = openResultDetailIds.has(task.id) ? 1 : 0;
+        const transcriptKey = task.transcriptRows
           .map((t) => `${t.id}:${t.role}:${t.who}:${t.color}:${t.text}`)
           .join("|");
-
         const liveStepsKey =
-          Array.isArray(activeRun.liveSteps) && activeRun.liveSteps.length
-            ? activeRun.liveSteps.map((l) => l.fingerprint).join("|")
-            : activeRun.liveStep
-            ? activeRun.liveStep.fingerprint
+          Array.isArray(task.liveSteps) && task.liveSteps.length
+            ? task.liveSteps.map((l) => l.fingerprint).join("|")
+            : task.liveStep
+            ? task.liveStep.fingerprint
             : "";
+        return [
+          task.id,
+          pendingStopIds.has(task.id) ? 1 : 0,
+          stopNoticesByRunId.get(task.id) || "",
+          copiedItemIds.has(`result:${task.id}`) ? 1 : 0,
+          resultDetailKey,
+          task.permissionIssue ? task.permissionIssue.key : "",
+          outputKey,
+          transcriptKey,
+          task.goal,
+          task.state,
+          task.stopKind,
+          task.stateSymbolWord,
+          task.stateFact,
+          task.speakText,
+          task.evidenceText,
+          task.elapsedText,
+          task.digest.costText,
+          task.digest.liveCostText || "",
+          liveStepsKey,
+          helpKey,
+          historyKey,
+          memoryKey,
+          stepsKey,
+        ].join("::");
+      }
 
+      function buildPanelStructureKey(vm, activeConv) {
+        const primaryRaw = readPrimaryAgentStorageRaw();
+        const formKey = agentFormState
+          ? `${agentFormState.mode}:${agentFormState.agentId}:${agentFormState.swatch}:${agentFormState.error || ""}`
+          : "";
+        if (vm.connectionStatus === "loading" && !hasLoadedOnce) return `loading:${primaryRaw}`;
+        if (vm.connectionStatus === "disconnected") return `disconnected:${vm.connectionError}:${primaryRaw}`;
+        const convs = getConversationsForVm(vm);
+        const listSummaryKey = convs.list
+          .map((c) => `${c.id}:${c.name}:${c.swatch}:${c.badge?.text || ""}:${c.lastLinePreview}:${c.listClockText}:${c.tasks.length}`)
+          .join("|");
+        if (viewMode === "list") {
+          return `list:${primaryRaw}:${vm.connectionStatus}:${sendErrorText}:${vm.liveAgents.length}:${stopRouteSupported ? 1 : 0}:${openRowMenuKey}:${confirmDeleteAgentId}:${hiddenChatIds.size}:${formKey}:${listSummaryKey}`;
+        }
+        const conv = activeConv || resolveActiveConversation(convs);
+        const tasksKey = (conv?.tasks || []).map(buildTaskStructureKey).join("||");
         return [
           "chat",
           primaryRaw,
@@ -6370,29 +6998,10 @@
           vm.liveAgents.length,
           sendErrorText,
           stopRouteSupported ? 1 : 0,
-          pendingStopIds.has(activeRun.id) ? 1 : 0,
-          stopNoticesByRunId.get(activeRun.id) || "",
-          copiedItemIds.has(`result:${activeRun.id}`) ? 1 : 0,
-          resultDetailKey,
-          activeRun.permissionIssue ? activeRun.permissionIssue.key : "",
-          outputKey,
-          transcriptKey,
-          activeRun.id,
-          activeRun.goal,
-          activeRun.state,
-          activeRun.stopKind,
-          activeRun.stateSymbolWord,
-          activeRun.stateFact,
-          activeRun.speakText,
-          activeRun.evidenceText,
-          activeRun.elapsedText,
-          activeRun.digest.costText,
-          activeRun.digest.liveCostText || "",
-          liveStepsKey,
-          helpKey,
-          historyKey,
-          memoryKey,
-          stepsKey,
+          ttsSpeaking ? 1 : 0,
+          formKey,
+          conv ? `${conv.id}:${conv.name}:${conv.swatch}` : "none",
+          tasksKey,
         ].join("::");
       }
 
@@ -6404,7 +7013,8 @@
         if (buttonOptions && buttonOptions.action) {
           const ariaLabel = buttonOptions.ariaLabel || `Agent settings for ${id.name}`;
           const title = buttonOptions.title || "Agent settings";
-          return `<button type="button" class="agent-chip agent-chip-btn" data-action="${escapeHtml(buttonOptions.action)}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(title)}" ${styleAttr} ${dataAttrs}><span class="agent-chip-label">${escapeHtml(id.name)}</span></button>`;
+          const agentAttr = buttonOptions.agentId ? `data-agent-id="${escapeHtml(buttonOptions.agentId)}"` : "";
+          return `<button type="button" class="agent-chip agent-chip-btn" data-action="${escapeHtml(buttonOptions.action)}" ${agentAttr} aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(title)}" ${styleAttr} ${dataAttrs}><span class="agent-chip-label">${escapeHtml(id.name)}</span></button>`;
         }
         return `<span class="agent-chip" ${styleAttr} ${dataAttrs}><span class="agent-chip-label">${escapeHtml(id.name)}</span></span>`;
       }
@@ -6445,40 +7055,39 @@
         return null;
       }
 
-      function renderRowMenuHtml(menuKey, runObj) {
-        if (openRowMenuKey !== menuKey) return "";
-        if (runObj && confirmDeleteRunId === runObj.id) {
+      function renderRowMenuHtml(conv) {
+        if (!conv || openRowMenuKey !== conv.id) return "";
+        if (!conv.isPrimary && confirmDeleteAgentId === conv.id) {
           return `
-            <div class="chat-row-menu" role="menu" aria-label="Confirm delete chat">
+            <div class="chat-row-menu" role="menu" aria-label="Confirm delete agent">
               <div class="chat-row-confirm">
-                <span>Delete this chat? Removes it from this list.</span>
+                <span>Delete ${escapeHtml(conv.name)}? Removes this agent and hides its chat.</span>
                 <span class="chat-row-confirm-acts">
-                  <button type="button" class="btn btn-danger chat-row-menu-item" data-action="confirm-delete-chat" data-run-id="${escapeHtml(runObj.id)}">Delete</button>
-                  <button type="button" class="btn chat-row-menu-item" data-action="cancel-delete-chat">Keep</button>
+                  <button type="button" class="btn btn-danger chat-row-menu-item" data-action="confirm-delete-agent" data-agent-id="${escapeHtml(conv.id)}">Delete</button>
+                  <button type="button" class="btn chat-row-menu-item" data-action="cancel-delete-agent">Keep</button>
                 </span>
               </div>
             </div>
           `;
         }
-        const openAction = runObj ? `data-action="select-chat" data-run-id="${escapeHtml(runObj.id)}"` : `data-action="new-primary-chat"`;
-        const canStop = Boolean(runObj && !runObj.isFinished && stopRouteSupported);
+        const canStop = Boolean(conv.liveRunIds.length > 0 && stopRouteSupported);
         return `
-          <div class="chat-row-menu" role="menu" aria-label="Chat options">
-            <button type="button" class="btn chat-row-menu-item" role="menuitem" ${openAction}>Open</button>
+          <div class="chat-row-menu" role="menu" aria-label="Agent options">
+            <button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="select-agent" data-agent-id="${escapeHtml(conv.id)}">Open</button>
             ${
-              runObj && (runObj.copyResultText || runObj.lastLinePreview)
-                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-copy-result" data-run-id="${escapeHtml(runObj.id)}">Copy last result</button>`
+              conv.copyResultText
+                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-copy-result" data-agent-id="${escapeHtml(conv.id)}">Copy last result</button>`
                 : ""
             }
-            <button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-agent-settings">Agent settings</button>
+            <button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-agent-settings" data-agent-id="${escapeHtml(conv.id)}">Agent settings</button>
             ${
               canStop
-                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-stop-chat" data-run-id="${escapeHtml(runObj.id)}">Stop</button>`
+                ? `<button type="button" class="btn chat-row-menu-item" role="menuitem" data-action="menu-stop-agent-conv" data-agent-id="${escapeHtml(conv.id)}">Stop</button>`
                 : ""
             }
             ${
-              runObj
-                ? `<button type="button" class="btn btn-danger chat-row-menu-item" role="menuitem" data-action="menu-ask-delete" data-run-id="${escapeHtml(runObj.id)}">Delete</button>`
+              !conv.isPrimary
+                ? `<button type="button" class="btn btn-danger chat-row-menu-item" role="menuitem" data-action="menu-ask-delete" data-agent-id="${escapeHtml(conv.id)}">Delete</button>`
                 : ""
             }
           </div>
@@ -6486,98 +7095,43 @@
       }
 
       function renderChatListHtml(vm) {
-        const primary = getPrimaryAgentRowIdentity();
-        const primaryLabel = primary.name || "ComputerAnything";
-        const primaryMenuOpen = openRowMenuKey === "__primary__";
-        const primaryRowHtml = `
-          <div class="chat-list-item ${primaryMenuOpen ? "is-menu-open" : ""}" data-row-key="__primary__">
-            <div class="chat-list-row-wrap">
-              <div role="button" tabindex="0" class="chat-list-row" data-action="new-primary-chat" data-row-key="__primary__" aria-label="Start new chat with ${escapeHtml(primaryLabel)}">
-                ${renderAvatarHtml(primary, true)}
-                <div class="chat-list-mid">
-                  <div class="chat-list-name-row">
-                    <span class="chat-list-name">${escapeHtml(primaryLabel)}</span>
-                  </div>
-                  <div class="chat-list-preview">Start a new chat</div>
-                </div>
-                <div class="chat-list-rt">&nbsp;</div>
-              </div>
-              <button
-                type="button"
-                class="btn btn-icon chat-row-more-btn"
-                data-action="toggle-row-menu"
-                data-row-key="__primary__"
-                aria-label="More options for ${escapeHtml(primaryLabel)}"
-                aria-expanded="${primaryMenuOpen ? "true" : "false"}"
-                title="More options"
-              >&middot;&middot;&middot;</button>
-            </div>
-            ${renderRowMenuHtml("__primary__", null)}
-          </div>
-        `;
-
-        const indexed = vm.runs
-          .filter((r) => !hiddenChatIds.has(r.id))
-          .map((r, idx) => ({ r, idx }));
-        indexed.sort((a, b) => {
-          const aNeeds = a.r.state === "waiting" ? 0 : 1;
-          const bNeeds = b.r.state === "waiting" ? 0 : 1;
-          if (aNeeds !== bNeeds) return aNeeds - bNeeds;
-          if (a.r.sortTs !== b.r.sortTs) return b.r.sortTs - a.r.sortTs;
-          return a.idx - b.idx;
-        });
-
-        const runRowsHtml = indexed
-          .map(({ r }) => {
-            const seenNames = new Set();
-            const rowIdentities = [];
-            for (const s of r.steps) {
-              const nm = s.agentIdentity?.name || "";
-              if (nm && !seenNames.has(nm)) {
-                seenNames.add(nm);
-                rowIdentities.push(s.agentIdentity);
-              }
-            }
-            const leadIdentity = rowIdentities[0] || primary;
-            const displayNames = rowIdentities.length
-              ? rowIdentities.map((id) => id.name).join(", ")
-              : primary.name;
-            const badge = formatListStateBadge(r);
-            const timeText = r.listClockText || (r.elapsedText && r.elapsedText !== "—" ? r.elapsedText : "");
-            const isMenuOpen = openRowMenuKey === r.id;
+        const convs = getConversationsForVm(vm);
+        const rowsHtml = convs.list
+          .map((conv) => {
+            const isMenuOpen = openRowMenuKey === conv.id;
             return `
-              <div class="chat-list-item ${isMenuOpen ? "is-menu-open" : ""}" data-row-key="${escapeHtml(r.id)}">
+              <div class="chat-list-item ${isMenuOpen ? "is-menu-open" : ""}" data-row-key="${escapeHtml(conv.id)}">
                 <div class="chat-list-row-wrap">
-                  <div role="button" tabindex="0" class="chat-list-row" data-action="select-chat" data-run-id="${escapeHtml(r.id)}" data-row-key="${escapeHtml(r.id)}" aria-label="Open chat with ${escapeHtml(displayNames)}">
-                    ${renderAvatarHtml(leadIdentity, false)}
+                  <div role="button" tabindex="0" class="chat-list-row" data-action="select-agent" data-agent-id="${escapeHtml(conv.id)}" data-row-key="${escapeHtml(conv.id)}" aria-label="Open conversation with ${escapeHtml(conv.name)}">
+                    ${renderAvatarHtml(conv.identity)}
                     <div class="chat-list-mid">
                       <div class="chat-list-name-row">
-                        <span class="chat-list-name">${escapeHtml(displayNames)}</span>
+                        <span class="chat-list-name">${escapeHtml(conv.name)}</span>
                       </div>
-                      <div class="chat-list-preview">${escapeHtml(r.lastLinePreview || r.goal)}</div>
+                      <div class="chat-list-preview">${escapeHtml(conv.lastLinePreview)}</div>
                     </div>
                     <div class="chat-list-rt">
-                      ${badge ? `<span class="state-text ${escapeHtml(badge.cls)}">${escapeHtml(badge.text)}</span>` : ""}
-                      ${timeText ? `<span class="chat-list-time">${escapeHtml(timeText)}</span>` : ""}
+                      ${conv.badge ? `<span class="state-text ${escapeHtml(conv.badge.cls)}">${escapeHtml(conv.badge.text)}</span>` : ""}
+                      ${conv.listClockText ? `<span class="chat-list-time">${escapeHtml(conv.listClockText)}</span>` : ""}
                     </div>
                   </div>
                   <button
                     type="button"
                     class="btn btn-icon chat-row-more-btn"
                     data-action="toggle-row-menu"
-                    data-row-key="${escapeHtml(r.id)}"
-                    aria-label="More options for ${escapeHtml(displayNames)}"
+                    data-row-key="${escapeHtml(conv.id)}"
+                    aria-label="More options for ${escapeHtml(conv.name)}"
                     aria-expanded="${isMenuOpen ? "true" : "false"}"
                     title="More options"
                   >&middot;&middot;&middot;</button>
                 </div>
-                ${renderRowMenuHtml(r.id, r)}
+                ${renderRowMenuHtml(conv)}
               </div>
             `;
           })
           .join("");
 
-        return `<div class="chat-list">${primaryRowHtml}${runRowsHtml}</div>`;
+        return `${agentFormState ? renderAgentFormHtml() : ""}<div class="chat-list">${rowsHtml}</div>`;
       }
 
       function renderWorkDividerHtml(runId, step, runVm) {
@@ -6652,6 +7206,335 @@
         return `<button type="button" class="btn btn-danger" data-action="stop-all" ${isStoppingAll ? "disabled" : ""}>Stop all</button>`;
       }
 
+      function renderAgentTaskHtml(activeRun, conv, vm) {
+        const messageNodes = [];
+        const rows = activeRun.transcriptRows || [];
+        const hasInitialUserRow =
+          rows.length > 0 &&
+          rows[0].role === "user" &&
+          String(rows[0].text || "").trim() === String(activeRun.goal || "").trim();
+
+        if (!hasInitialUserRow && activeRun.goal) {
+          messageNodes.push(`
+            <div class="chat-msg-row is-user">
+              <div class="chat-bubble is-user">${escapeHtml(activeRun.goal)}</div>
+            </div>
+          `);
+        }
+
+        const stepById = new Map();
+        const stepIdentityByName = new Map();
+        for (const s of activeRun.steps) {
+          stepById.set(s.id, s);
+          if (s.agentIdentity?.name && !stepIdentityByName.has(s.agentIdentity.name)) {
+            stepIdentityByName.set(s.agentIdentity.name, s);
+          }
+        }
+        const attachedWorkStepIds = new Set();
+        const attachedStopStepIds = new Set();
+        const bubbledStepIds = new Set();
+        const primaryIdentity = getPrimaryAgentRowIdentity();
+        const leadIdentity = conv?.identity || primaryIdentity;
+        const introducedAgents = new Set([leadIdentity.name, primaryIdentity.name, "ComputerAnything"].filter(Boolean));
+        const buildHandoffLineHtml = (agentName, targetApp) => {
+          const cleanName = String(agentName || "").trim();
+          if (!cleanName || introducedAgents.has(cleanName)) return "";
+          introducedAgents.add(cleanName);
+          const cleanApp = String(targetApp || "").trim();
+          const introCopy = cleanApp
+            ? `Asked ${cleanName} to do this in ${cleanApp}`
+            : `Asked ${cleanName} to help`;
+          return `<div class="chat-handoff-line">${escapeHtml(introCopy)}</div>`;
+        };
+
+        let renderedAgentBubble = false;
+        rows.forEach((row, idx) => {
+          if (row.role === "user") {
+            messageNodes.push(`
+              <div class="chat-msg-row is-user">
+                <div class="chat-bubble is-user">${escapeHtml(row.text)}</div>
+              </div>
+            `);
+            return;
+          }
+          if (/^Finished\.?$/i.test(String(row.text || "").trim())) {
+            return;
+          }
+          renderedAgentBubble = true;
+          const matchingStep = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
+          if (matchingStep) bubbledStepIds.add(matchingStep.id);
+          const isLeadLine = Boolean(
+            (matchingStep && matchingStep.isOrchestrator) ||
+            (!matchingStep && (!row.who || row.who === "ComputerAnything" || row.who === primaryIdentity.name || row.who === leadIdentity.name))
+          );
+          const chipId = `tr-${activeRun.id}-${idx}`;
+          const chipIdentity = isLeadLine
+            ? leadIdentity
+            : matchingStep
+            ? matchingStep.agentIdentity
+            : {
+                name: row.who || leadIdentity.name,
+                color: row.color || leadIdentity.color,
+                hasAgentColor: Boolean(row.color || leadIdentity.hasAgentColor),
+                palette: {
+                  body: row.color || leadIdentity.color,
+                  edge: row.edge || leadIdentity.rawEdge,
+                  ink: "#1E2630",
+                },
+              };
+          const handoffLineHtml = isLeadLine ? "" : buildHandoffLineHtml(chipIdentity.name, matchingStep?.app || "");
+          let workHtml = "";
+          if (matchingStep && !attachedWorkStepIds.has(matchingStep.id)) {
+            attachedWorkStepIds.add(matchingStep.id);
+            workHtml = renderWorkDividerHtml(activeRun.id, matchingStep, activeRun);
+          }
+          let inlineStopHtml = "";
+          if (matchingStep && matchingStep.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(matchingStep.id)) {
+            attachedStopStepIds.add(matchingStep.id);
+            const isStoppingAgent = pendingStopIds.has(matchingStep.id);
+            inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(matchingStep.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(chipIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
+          }
+          messageNodes.push(`
+            ${handoffLineHtml}
+            <div class="chat-msg-row is-agent">
+              <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}${inlineStopHtml}</div>
+              <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
+              ${workHtml}
+            </div>
+          `);
+        });
+
+        for (const step of activeRun.steps) {
+          const needsWork = !attachedWorkStepIds.has(step.id);
+          const needsBubble = !bubbledStepIds.has(step.id) && (!renderedAgentBubble || !step.isOrchestrator);
+          if (!needsWork && !needsBubble) continue;
+          const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step, activeRun) : "";
+          const stepChipIdentity = step.isOrchestrator ? leadIdentity : step.agentIdentity;
+          let greetingText = "";
+          if (needsBubble) {
+            if (step.goal && activeRun.steps.length > 1) {
+              greetingText = step.goal;
+            } else if (step.isWorking) {
+              greetingText = step.app ? `Working in ${step.app}` : "Working on it";
+            } else if (activeRun.speakText && !/^Finished\.?$/i.test(activeRun.speakText) && activeRun.steps.length === 1) {
+              greetingText = activeRun.speakText;
+            } else if (step.latestSummary && !step.latestSummaryIsAction && !/^Finished\.?$/i.test(step.latestSummary)) {
+              greetingText = step.latestSummary;
+            } else if (activeRun.stateFact && activeRun.steps.length === 1) {
+              greetingText = activeRun.stateFact;
+            } else if (!workHtml) {
+              greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
+            }
+          }
+          if (greetingText || workHtml) {
+            attachedWorkStepIds.add(step.id);
+            const handoffLineHtml =
+              !step.isOrchestrator && (greetingText || workHtml)
+                ? buildHandoffLineHtml(stepChipIdentity?.name, step.app)
+                : "";
+            let inlineStopHtml = "";
+            if (greetingText && step.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(step.id)) {
+              attachedStopStepIds.add(step.id);
+              const isStoppingAgent = pendingStopIds.has(step.id);
+              inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(stepChipIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
+            }
+            messageNodes.push(`
+              ${handoffLineHtml}
+              <div class="chat-msg-row is-agent">
+                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(stepChipIdentity, `step-${activeRun.id}-${step.id}`)}${inlineStopHtml}</div>` : ""}
+                ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
+                ${workHtml}
+              </div>
+            `);
+          }
+        }
+
+        const approvalHistoryHtml = (activeRun.approvalHistory || [])
+          .map(
+            (item) =>
+              `<div class="chat-approval-history">${escapeHtml(item.lineText || `Asked “${item.question}” · ${item.choiceText}`)}</div>`
+          )
+          .join("");
+
+        const helpHtml = activeRun.pendingHelp
+          .map((h) =>
+            h.isExpired
+              ? `<div class="help-wait-row is-expired" data-help-row-id="${escapeHtml(h.id)}"><span class="state-text state-neutral">Timed out waiting for you</span></div>`
+              : `<div class="help-wait-row" data-help-row-id="${escapeHtml(h.id)}"><button type="button" class="help-wait-btn" data-action="bring-approval-forward" data-help-id="${escapeHtml(h.id)}">&#9684; Waiting for you</button></div>`
+          )
+          .join("");
+
+        const permissionHtml = activeRun.permissionIssue
+          ? `
+            <div class="permission-row">
+              <span class="permission-copy">! ${escapeHtml(activeRun.permissionIssue.message)}</span>
+              ${
+                activeRun.permissionIssue.pane && activeRun.permissionIssue.buttonText
+                  ? `<button
+                type="button"
+                class="btn"
+                data-action="open-privacy"
+                data-pane="${escapeHtml(activeRun.permissionIssue.pane)}"
+                data-label="${escapeHtml(activeRun.permissionIssue.label)}"
+              >${escapeHtml(activeRun.permissionIssue.buttonText)}</button>`
+                  : ""
+              }
+            </div>
+          `
+          : "";
+
+        const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
+        const stopNoticeHtml =
+          stopNoticeText && activeRun.state !== "failed"
+            ? `<div class="stop-notice-line">${escapeHtml(stopNoticeText)}</div>`
+            : "";
+        let outcomeHtml = "";
+        let failureHtml = "";
+        let outputsHtml = "";
+        if (activeRun.isFinished) {
+          if (activeRun.state === "failed") {
+            const noticeCopy = activeRun.isRealFailure
+              ? activeRun.failureLineText
+              : stopNoticeText || activeRun.failureLineText;
+            const retryBtnHtml = activeRun.isRealFailure
+              ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}" data-agent-id="${escapeHtml(conv?.id || "__primary__")}">Try again</button>`
+              : "";
+            failureHtml = `
+              <div class="chat-failure-event">
+                <span class="chat-failure-copy">${escapeHtml(noticeCopy)}</span>
+                ${retryBtnHtml}
+              </div>
+            `;
+          } else {
+            const isVerified = activeRun.state === "verified";
+            const compactFact = isVerified
+              ? activeRun.evidenceText || activeRun.stateFact || "Done"
+              : activeRun.stateFact || activeRun.stateSymbolWord || "Finished";
+            const detailSentence =
+              activeRun.stateFact &&
+              activeRun.stateFact.toLowerCase() !== compactFact.toLowerCase() &&
+              !compactFact.toLowerCase().includes(activeRun.stateFact.toLowerCase())
+                ? activeRun.stateFact
+                : "";
+            const isDetailOpen = Boolean(detailSentence && openResultDetailIds.has(activeRun.id));
+            const inlineParts = [compactFact];
+            if (activeRun.elapsedText && activeRun.elapsedText !== "—") {
+              inlineParts.push(activeRun.elapsedText);
+            }
+            if (
+              isVerified &&
+              activeRun.digest?.costText &&
+              activeRun.digest.costText !== "—" &&
+              !activeRun.isMock
+            ) {
+              inlineParts.push(activeRun.digest.costText);
+            }
+            const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
+            const firstOpenableOutput = activeRun.producedOutputs.find((o) => o.openUrl || o.previewText) || null;
+            const firstPreviewKey = firstOpenableOutput ? `${activeRun.id}:${firstOpenableOutput.id}` : "";
+            const isFirstPreviewOpen = firstPreviewKey ? openOutputPreviewIds.has(firstPreviewKey) : false;
+            const copyIconHtml = isCopiedResult
+              ? `<span class="state-success">&#10003;</span>`
+              : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3.5C11 2.95 10.55 2.5 10 2.5H3.5C2.95 2.5 2.5 2.95 2.5 3.5V10C2.5 10.55 2.95 11 3.5 11H5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+
+            outcomeHtml = `
+              <div class="chat-result-line ${isVerified ? "is-verified" : ""}">
+                <div class="chat-result-body">
+                  <div
+                    class="chat-result-main ${detailSentence ? "is-expandable" : ""}"
+                    ${
+                      detailSentence
+                        ? `role="button" tabindex="0" data-action="toggle-result-detail" data-run-id="${escapeHtml(activeRun.id)}" aria-expanded="${isDetailOpen ? "true" : "false"}"`
+                        : ""
+                    }
+                  >${isVerified ? `<span class="state-success">&#10003;</span> ` : ""}${escapeHtml(inlineParts.join(" · "))}</div>
+                  ${isDetailOpen ? `<div class="chat-result-detail">${escapeHtml(detailSentence)}</div>` : ""}
+                </div>
+                <div class="chat-result-acts">
+                  ${
+                    activeRun.copyResultText
+                      ? `<button type="button" class="btn btn-icon" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}" aria-label="${isCopiedResult ? "Copied result" : "Copy result"}" title="${isCopiedResult ? "Copied" : "Copy result"}">${copyIconHtml}</button>`
+                      : ""
+                  }
+                  ${
+                    firstOpenableOutput
+                      ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(firstOpenableOutput.id)}" aria-expanded="${firstOpenableOutput.previewText ? (isFirstPreviewOpen ? "true" : "false") : "false"}">${isFirstPreviewOpen ? "Hide" : "Open"}</button>`
+                      : ""
+                  }
+                </div>
+              </div>
+            `;
+
+            if (activeRun.producedOutputs.length) {
+              outputsHtml = activeRun.producedOutputs
+                .map((out) => {
+                  const previewKey = `${activeRun.id}:${out.id}`;
+                  const isPreviewOpen = openOutputPreviewIds.has(previewKey);
+                  if (out === firstOpenableOutput && activeRun.producedOutputs.length === 1) {
+                    return isPreviewOpen && out.previewText
+                      ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>`
+                      : "";
+                  }
+                  const isCopiedOut = copiedItemIds.has(`out:${activeRun.id}:${out.id}`);
+                  const canOpenInPage = Boolean(out.openUrl || out.previewText);
+                  return `
+                    <div>
+                      <div class="output-row">
+                        <span class="output-title" title="${escapeHtml(out.openPath || out.title)}">${escapeHtml(out.title)}</span>
+                        <span class="output-actions">
+                          <button type="button" class="btn" data-action="copy-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}">${isCopiedOut ? "✓ Copied" : "Copy"}</button>
+                          ${canOpenInPage ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}" aria-expanded="${out.previewText ? (isPreviewOpen ? "true" : "false") : "false"}">${isPreviewOpen ? "Hide" : "Open"}</button>` : ""}
+                        </span>
+                      </div>
+                      ${isPreviewOpen && out.previewText ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>` : ""}
+                    </div>
+                  `;
+                })
+                .filter(Boolean)
+                .join("");
+            }
+          }
+        }
+
+        const visibleMemories = getVisibleMemoriesForRun(activeRun);
+        const memoryNoticeHtml = visibleMemories
+          .map((m) => {
+            const rawText = String(m.text || m.summary || m.content || "").trim();
+            const label = /^i['’]ll remember/i.test(rawText)
+              ? rawText
+              : rawText
+              ? `I'll remember: ${rawText}`
+              : "I'll remember this for next time.";
+            return `
+              <div class="memory-notice-row" data-memory-id="${escapeHtml(m.id)}">
+                <span class="memory-notice-text">${escapeHtml(label)}</span>
+                <button type="button" class="btn" data-action="undo-memory" data-memory-id="${escapeHtml(m.id)}" ${pendingUndoMemoryIds.has(String(m.id)) ? "disabled" : ""}>Undo</button>
+              </div>
+            `;
+          })
+          .join("");
+
+        const mockBannerHtml =
+          activeRun.mockNote && !vm.isSampleData
+            ? `<div class="sample-tag">${escapeHtml(activeRun.mockNote)}</div>`
+            : "";
+
+        return `
+          <div class="chat-task-block" data-task-id="${escapeHtml(activeRun.id)}">
+            ${messageNodes.join("")}
+            ${approvalHistoryHtml}
+            ${helpHtml}
+            ${stopNoticeHtml}
+            ${permissionHtml}
+            ${mockBannerHtml}
+            ${outcomeHtml}
+            ${failureHtml}
+            ${outputsHtml}
+            ${memoryNoticeHtml}
+          </div>
+        `;
+      }
+
       function renderPanel(vm) {
         lastViewModel = vm;
         sampleBanner.style.display = vm.isSampleData ? "flex" : "none";
@@ -6722,25 +7605,25 @@
         }
 
         const stopAllBtnHtml = renderStopAllButtonHtml(vm);
+        const convs = getConversationsForVm(vm);
 
         if (viewMode === "list") {
           lastPanelStructureKey = buildPanelStructureKey(vm, null);
           destroyAllAgentChips();
-          const visibleListRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
-          const workingCount = visibleListRuns.filter((r) => r.state === "working").length;
+          const workingCount = convs.list.filter((c) => c.hasWorking).length;
           setPanelHeaderHtml(`
-            <span class="list-nav-title">Chats</span>
+            <span class="list-nav-title">Agents</span>
             <span style="flex:1"></span>
             <span class="panel-header-right">
               ${workingCount > 0 ? `<span class="state-text state-working">${escapeHtml(String(workingCount))} working</span>` : ""}
               ${stopAllBtnHtml}
               <button type="button" class="btn btn-icon" data-action="open-app-settings" aria-label="App settings" title="App settings">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4"/>
-                  <path d="M8 2.2V3.6M8 12.4V13.8M13.8 8H12.4M3.6 8H2.2M12.1 3.9L11.1 4.9M4.9 11.1L3.9 12.1M12.1 12.1L11.1 11.1M4.9 4.9L3.9 3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.35"/>
+                  <path d="M6.8 1.8H9.2L9.5 3.3L10.6 3.9L12 3.2L13.2 5.2L12 6.2V9.8L13.2 10.8L12 12.8L10.6 12.1L9.5 12.7L9.2 14.2H6.8L6.5 12.7L5.4 12.1L4 12.8L2.8 10.8L4 9.8V6.2L2.8 5.2L4 3.2L5.4 3.9L6.5 3.3Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
                 </svg>
               </button>
-              <button type="button" class="btn btn-icon" data-action="new-primary-chat" aria-label="New chat" title="New chat">
+              <button type="button" class="btn btn-icon" data-action="open-new-agent-form" aria-label="New agent" title="New agent">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                   <path d="M7 2.5V11.5M2.5 7H11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
@@ -6755,62 +7638,21 @@
           return;
         }
 
-        const visibleRuns = vm.runs.filter((r) => !hiddenChatIds.has(r.id));
-        if (visibleRuns.length) {
-          const newestId = visibleRuns[0].id;
-          if (latestSeenRunId === null) {
-            latestSeenRunId = newestId;
-            const storedThreadId = readStoredLastThreadId();
-            if (storedThreadId && visibleRuns.some((r) => r.id === storedThreadId)) {
-              selectedRunId = storedThreadId;
-            } else if (!selectedRunId || !visibleRuns.some((r) => r.id === selectedRunId)) {
-              selectedRunId = newestId;
-            }
-          } else {
-            latestSeenRunId = newestId;
-            if (!selectedRunId || (!visibleRuns.some((r) => r.id === selectedRunId) && !optimisticRuns.length)) {
-              selectedRunId = newestId;
-            }
+        const activeConv = resolveActiveConversation(convs);
+        selectedAgentId = activeConv ? activeConv.id : "__primary__";
+        const tasks = activeConv?.tasks || [];
+        const latestTask = activeConv?.latestTask || null;
+        if (latestTask) {
+          selectedRunId = latestTask.id;
+        }
+
+        if (getCurrentState() === "expanded") {
+          for (const t of tasks) {
+            if (t.isRealFailure) markFailedRunSeen(t.id);
           }
         }
 
-        if (!visibleRuns.length || isComposingNewChat) {
-          lastPanelStructureKey = buildPanelStructureKey(vm, null);
-          destroyAllAgentChips();
-          const primary = getPrimaryAgentRowIdentity();
-          setPanelHeaderHtml(`
-            <div class="chat-nav-left">
-              <button type="button" class="btn btn-icon" data-action="open-chat-list" aria-label="Back to chats" title="Back to chats">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              ${renderAgentChipHtml(primary, "empty-chat-header", {
-                action: "open-agent-settings",
-                ariaLabel: `Agent settings for ${primary.name}`,
-                title: "Agent settings",
-              })}
-            </div>
-            <span class="panel-header-right">
-              ${stopAllBtnHtml}
-              <button type="button" class="btn btn-esc" data-action="close-notch" aria-label="Close notch" title="Close (Esc)">Esc</button>
-            </span>
-          `);
-          blocks.push(`<div class="chat-empty-note">Ask your agent anything to start this chat.</div>`);
-          timelineScroll.innerHTML = blocks.join("");
-          mountAllAgentChips();
-          syncSizeAndBridge();
-          return;
-        }
-
-        const activeRun = visibleRuns.find((r) => r.id === selectedRunId) || visibleRuns[0];
-        selectedRunId = activeRun.id;
-
-        if (getCurrentState() === "expanded" && activeRun.isRealFailure) {
-          markFailedRunSeen(activeRun.id);
-        }
-
-        const nextStructureKey = buildPanelStructureKey(vm, activeRun);
+        const nextStructureKey = buildPanelStructureKey(vm, activeConv);
         if (nextStructureKey === lastPanelStructureKey) {
           if (updateLiveTicksInPlace(vm)) {
             return;
@@ -6818,21 +7660,22 @@
         }
         lastPanelStructureKey = nextStructureKey;
 
-        const primaryForHeader = getPrimaryAgentRowIdentity();
-        const headerAgent = activeRun.steps?.[0]?.agentIdentity || primaryForHeader;
+        const headerIdentity = activeConv?.identity || getPrimaryAgentRowIdentity();
+        const headerGoal = latestTask?.goal || "";
         setPanelHeaderHtml(`
           <div class="chat-nav-left">
-            <button type="button" class="btn btn-icon" data-action="open-chat-list" aria-label="Back to chats" title="Back to chats">
+            <button type="button" class="btn btn-icon" data-action="open-chat-list" aria-label="Back to agents" title="Back to agents">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                 <path d="M8.75 3.25L5 7L8.75 10.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            ${renderAgentChipHtml(headerAgent, `chathead-${activeRun.id}`, {
+            ${renderAgentChipHtml(headerIdentity, `convhead-${activeConv?.id || "primary"}`, {
               action: "open-agent-settings",
-              ariaLabel: `Agent settings for ${headerAgent.name}`,
+              agentId: activeConv?.id || "__primary__",
+              ariaLabel: `Agent settings for ${headerIdentity.name}`,
               title: "Agent settings",
             })}
-            <span class="chat-nav-title" title="${escapeHtml(activeRun.goal)}">${escapeHtml(activeRun.goal)}</span>
+            ${headerGoal ? `<span class="chat-nav-title" title="${escapeHtml(headerGoal)}">${escapeHtml(headerGoal)}</span>` : ""}
           </div>
           <span class="panel-header-right">
             ${stopAllBtnHtml}
@@ -6840,342 +7683,32 @@
           </span>
         `);
 
-        const messageNodes = [];
-        const rows = activeRun.transcriptRows || [];
-        const hasInitialUserRow =
-          rows.length > 0 &&
-          rows[0].role === "user" &&
-          String(rows[0].text || "").trim() === String(activeRun.goal || "").trim();
-
-        if (!hasInitialUserRow && activeRun.goal) {
-          messageNodes.push(`
-            <div class="chat-msg-row is-user">
-              <div class="chat-bubble is-user">${escapeHtml(activeRun.goal)}</div>
-            </div>
-          `);
+        if (agentFormState && agentFormState.mode === "edit") {
+          blocks.push(renderAgentFormHtml());
         }
 
-        const stepById = new Map();
-        const stepIdentityByName = new Map();
-        for (const s of activeRun.steps) {
-          stepById.set(s.id, s);
-          if (s.agentIdentity?.name && !stepIdentityByName.has(s.agentIdentity.name)) {
-            stepIdentityByName.set(s.agentIdentity.name, s);
-          }
+        if (!tasks.length) {
+          blocks.push(`<div class="chat-empty-note">Ask ${escapeHtml(headerIdentity.name)} anything to start.</div>`);
+          destroyAllAgentChips();
+          timelineScroll.innerHTML = blocks.join("");
+          mountAllAgentChips();
+          syncSizeAndBridge();
+          return;
         }
-        const renderLiveStepHtml = (liveItem) => {
-          if (!liveItem) return "";
-          const labelText = liveItem.localText || liveItem.text;
-          return `
-            <div
-              class="live-step-line ${isLiveStepFaded(liveItem) ? "is-faded" : ""}"
-              data-live-step-key="${escapeHtml(liveItem.key)}"
-            >
-              <span
-                class="agent-dot"
-                style="--dot-bg: ${escapeHtml(liveItem.agentColor)}; --dot-edge: ${escapeHtml(liveItem.agentEdge)};"
-              ></span>
-              <span class="live-step-text" title="${escapeHtml(liveItem.text || labelText)}">${escapeHtml(labelText)}</span>
-            </div>
-          `;
-        };
-        const lastRowIdxByStepId = new Map();
-        rows.forEach((row, idx) => {
-          if (row.role === "user" || /^Finished\.?$/i.test(String(row.text || "").trim())) return;
-          const match = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
-          if (match) lastRowIdxByStepId.set(match.id, idx);
-        });
-        const attachedWorkStepIds = new Set();
-        const attachedStopStepIds = new Set();
-        const attachedLiveStepIds = new Set();
-        const primaryIdentity = getPrimaryAgentRowIdentity();
-        const introducedAgents = new Set([headerAgent.name, primaryIdentity.name, "ComputerAnything"].filter(Boolean));
-        const buildHandoffLineHtml = (agentName, targetApp) => {
-          const cleanName = String(agentName || "").trim();
-          if (!cleanName || introducedAgents.has(cleanName)) return "";
-          introducedAgents.add(cleanName);
-          const cleanApp = String(targetApp || "").trim();
-          const introCopy = cleanApp
-            ? `Asked ${cleanName} to do this in ${cleanApp}`
-            : `Asked ${cleanName} to help`;
-          return `<div class="chat-handoff-line">${escapeHtml(introCopy)}</div>`;
-        };
 
-        let renderedAgentBubble = false;
-        rows.forEach((row, idx) => {
-          if (row.role === "user") {
-            messageNodes.push(`
-              <div class="chat-msg-row is-user">
-                <div class="chat-bubble is-user">${escapeHtml(row.text)}</div>
-              </div>
-            `);
-            return;
+        const taskHtmlParts = tasks.map((task, idx) => {
+          let sepHtml = "";
+          if (idx > 0) {
+            const prevTask = tasks[idx - 1];
+            const divLabel = formatTaskDividerLabel(prevTask.startTs || prevTask.sortTs, task.startTs || task.sortTs);
+            sepHtml = divLabel
+              ? `<div class="chat-date-divider">${escapeHtml(divLabel)}</div>`
+              : `<div class="chat-task-sep" aria-hidden="true"></div>`;
           }
-          if (/^Finished\.?$/i.test(String(row.text || "").trim())) {
-            return;
-          }
-          renderedAgentBubble = true;
-          const matchingStep = (row.run && stepById.get(row.run)) || stepIdentityByName.get(row.who) || null;
-          const chipId = `tr-${activeRun.id}-${idx}`;
-          const chipIdentity = matchingStep
-            ? matchingStep.agentIdentity
-            : {
-                name: row.who || primaryIdentity.name,
-                color: row.color || primaryIdentity.color,
-                hasAgentColor: Boolean(row.color || primaryIdentity.hasAgentColor),
-                palette: matchingStep?.agentIdentity?.palette || {
-                  body: row.color || primaryIdentity.color,
-                  edge: row.edge || primaryIdentity.rawEdge,
-                  ink: "#1E2630",
-                },
-              };
-          const handoffLineHtml = buildHandoffLineHtml(chipIdentity.name, matchingStep?.app || "");
-          let workHtml = "";
-          if (matchingStep && !attachedWorkStepIds.has(matchingStep.id)) {
-            attachedWorkStepIds.add(matchingStep.id);
-            workHtml = renderWorkDividerHtml(activeRun.id, matchingStep, activeRun);
-          }
-          let inlineStopHtml = "";
-          if (matchingStep && matchingStep.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(matchingStep.id)) {
-            attachedStopStepIds.add(matchingStep.id);
-            const isStoppingAgent = pendingStopIds.has(matchingStep.id);
-            inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(matchingStep.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(chipIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
-          }
-          messageNodes.push(`
-            ${handoffLineHtml}
-            <div class="chat-msg-row is-agent">
-              <div class="chat-msg-head">${renderAgentChipHtml(chipIdentity, chipId)}${inlineStopHtml}</div>
-              <div class="chat-bubble is-agent">${escapeHtml(row.text)}</div>
-              ${workHtml}
-            </div>
-          `);
+          return `${sepHtml}${renderAgentTaskHtml(task, activeConv, vm)}`;
         });
 
-        for (const step of activeRun.steps) {
-          const needsWork = !attachedWorkStepIds.has(step.id);
-          if (!needsWork && renderedAgentBubble) continue;
-          const workHtml = needsWork ? renderWorkDividerHtml(activeRun.id, step, activeRun) : "";
-          let greetingText = "";
-          if (!renderedAgentBubble) {
-            if (step.goal && activeRun.steps.length > 1) {
-              greetingText = step.goal;
-            } else if (step.isWorking) {
-              greetingText = step.app ? `Working in ${step.app}` : "Working on it";
-            } else if (activeRun.speakText && !/^Finished\.?$/i.test(activeRun.speakText) && activeRun.steps.length === 1) {
-              greetingText = activeRun.speakText;
-            } else if (step.latestSummary && !step.latestSummaryIsAction && !/^Finished\.?$/i.test(step.latestSummary)) {
-              greetingText = step.latestSummary;
-            } else if (activeRun.stateFact && activeRun.steps.length === 1) {
-              greetingText = activeRun.stateFact;
-            } else if (!workHtml) {
-              greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
-            }
-          }
-          if (greetingText || workHtml) {
-            attachedWorkStepIds.add(step.id);
-            const handoffLineHtml = greetingText ? buildHandoffLineHtml(step.agentIdentity?.name, step.app) : "";
-            let inlineStopHtml = "";
-            if (greetingText && step.isWorking && stopRouteSupported && !workHtml && !attachedStopStepIds.has(step.id)) {
-              attachedStopStepIds.add(step.id);
-              const isStoppingAgent = pendingStopIds.has(step.id);
-              inlineStopHtml = `<button type="button" class="btn btn-danger work-stop-btn" data-action="stop-agent" data-run-id="${escapeHtml(step.id)}" ${isStoppingAgent ? "disabled" : ""} aria-label="Stop ${escapeHtml(step.agentIdentity.name)}">${isStoppingAgent ? "Stopping…" : "Stop"}</button>`;
-            }
-            messageNodes.push(`
-              ${handoffLineHtml}
-              <div class="chat-msg-row is-agent">
-                ${greetingText ? `<div class="chat-msg-head">${renderAgentChipHtml(step.agentIdentity, `step-${activeRun.id}-${step.id}`)}${inlineStopHtml}</div>` : ""}
-                ${greetingText ? `<div class="chat-bubble is-agent">${escapeHtml(greetingText)}</div>` : ""}
-                ${workHtml}
-              </div>
-            `);
-          }
-        }
-
-        const approvalHistoryHtml = (activeRun.approvalHistory || [])
-          .map(
-            (item) =>
-              `<div class="chat-approval-history">${escapeHtml(item.lineText || `Asked “${item.question}” · ${item.choiceText}`)}</div>`
-          )
-          .join("");
-
-        const helpHtml = activeRun.pendingHelp
-          .map((h) =>
-            h.isExpired
-              ? `<div class="help-wait-row is-expired" data-help-row-id="${escapeHtml(h.id)}"><span class="state-text state-neutral">Timed out waiting for you</span></div>`
-              : `<div class="help-wait-row" data-help-row-id="${escapeHtml(h.id)}"><button type="button" class="help-wait-btn" data-action="bring-approval-forward" data-help-id="${escapeHtml(h.id)}">&#9684; Waiting for you</button></div>`
-          )
-          .join("");
-
-        const permissionHtml = activeRun.permissionIssue
-          ? `
-            <div class="permission-row">
-              <span class="permission-copy">! ${escapeHtml(activeRun.permissionIssue.message)}</span>
-              ${
-                activeRun.permissionIssue.pane && activeRun.permissionIssue.buttonText
-                  ? `<button
-                type="button"
-                class="btn"
-                data-action="open-privacy"
-                data-pane="${escapeHtml(activeRun.permissionIssue.pane)}"
-                data-label="${escapeHtml(activeRun.permissionIssue.label)}"
-              >${escapeHtml(activeRun.permissionIssue.buttonText)}</button>`
-                  : ""
-              }
-            </div>
-          `
-          : "";
-
-        const stopNoticeText = stopNoticesByRunId.get(activeRun.id) || "";
-        const stopNoticeHtml =
-          stopNoticeText && activeRun.state !== "failed"
-            ? `<div class="stop-notice-line">${escapeHtml(stopNoticeText)}</div>`
-            : "";
-        let outcomeHtml = "";
-        let failureHtml = "";
-        let outputsHtml = "";
-        if (activeRun.isFinished) {
-          if (activeRun.state === "failed") {
-            const noticeCopy = activeRun.isRealFailure
-              ? activeRun.failureLineText
-              : stopNoticeText || activeRun.failureLineText;
-            const retryBtnHtml = activeRun.isRealFailure
-              ? `<button type="button" class="btn" data-action="run-again" data-prompt="${escapeHtml(activeRun.goal)}">Try again</button>`
-              : "";
-            failureHtml = `
-              <div class="chat-failure-event">
-                <span class="chat-failure-copy">${escapeHtml(noticeCopy)}</span>
-                ${retryBtnHtml}
-              </div>
-            `;
-          } else {
-            const isVerified = activeRun.state === "verified";
-            const compactFact = isVerified
-              ? activeRun.evidenceText || activeRun.stateFact || "Done"
-              : activeRun.stateFact || activeRun.stateSymbolWord || "Finished";
-            const detailSentence =
-              activeRun.stateFact &&
-              activeRun.stateFact.toLowerCase() !== compactFact.toLowerCase() &&
-              !compactFact.toLowerCase().includes(activeRun.stateFact.toLowerCase())
-                ? activeRun.stateFact
-                : "";
-            const isDetailOpen = Boolean(detailSentence && openResultDetailIds.has(activeRun.id));
-            const inlineParts = [compactFact];
-            if (activeRun.elapsedText && activeRun.elapsedText !== "—") {
-              inlineParts.push(activeRun.elapsedText);
-            }
-            if (
-              isVerified &&
-              activeRun.digest?.costText &&
-              activeRun.digest.costText !== "—" &&
-              !activeRun.isMock
-            ) {
-              inlineParts.push(activeRun.digest.costText);
-            }
-            const isCopiedResult = copiedItemIds.has(`result:${activeRun.id}`);
-            const firstOpenableOutput = activeRun.producedOutputs.find((o) => o.openUrl || o.previewText) || null;
-            const firstPreviewKey = firstOpenableOutput ? `${activeRun.id}:${firstOpenableOutput.id}` : "";
-            const isFirstPreviewOpen = firstPreviewKey ? openOutputPreviewIds.has(firstPreviewKey) : false;
-            const copyIconHtml = isCopiedResult
-              ? `<span class="state-success">&#10003;</span>`
-              : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M11 5V3.5C11 2.95 10.55 2.5 10 2.5H3.5C2.95 2.5 2.5 2.95 2.5 3.5V10C2.5 10.55 2.95 11 3.5 11H5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`;
-
-            outcomeHtml = `
-              <div class="chat-result-line ${isVerified ? "is-verified" : ""}">
-                <div class="chat-result-body">
-                  <div
-                    class="chat-result-main ${detailSentence ? "is-expandable" : ""}"
-                    ${
-                      detailSentence
-                        ? `role="button" tabindex="0" data-action="toggle-result-detail" data-run-id="${escapeHtml(activeRun.id)}" aria-expanded="${isDetailOpen ? "true" : "false"}"`
-                        : ""
-                    }
-                  >${isVerified ? `<span class="state-success">&#10003;</span> ` : ""}${escapeHtml(inlineParts.join(" · "))}</div>
-                  ${isDetailOpen ? `<div class="chat-result-detail">${escapeHtml(detailSentence)}</div>` : ""}
-                </div>
-                <div class="chat-result-acts">
-                  ${
-                    activeRun.copyResultText
-                      ? `<button type="button" class="btn btn-icon" data-action="copy-result" data-run-id="${escapeHtml(activeRun.id)}" aria-label="${isCopiedResult ? "Copied result" : "Copy result"}" title="${isCopiedResult ? "Copied" : "Copy result"}">${copyIconHtml}</button>`
-                      : ""
-                  }
-                  ${
-                    firstOpenableOutput
-                      ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(firstOpenableOutput.id)}" aria-expanded="${firstOpenableOutput.previewText ? (isFirstPreviewOpen ? "true" : "false") : "false"}">${isFirstPreviewOpen ? "Hide" : "Open"}</button>`
-                      : ""
-                  }
-                </div>
-              </div>
-            `;
-
-            const extraOutputs = activeRun.producedOutputs.length > 1 || (firstOpenableOutput && isFirstPreviewOpen && firstOpenableOutput.previewText);
-            if (activeRun.producedOutputs.length) {
-              outputsHtml = activeRun.producedOutputs
-                .map((out) => {
-                  const previewKey = `${activeRun.id}:${out.id}`;
-                  const isPreviewOpen = openOutputPreviewIds.has(previewKey);
-                  if (out === firstOpenableOutput && activeRun.producedOutputs.length === 1) {
-                    return isPreviewOpen && out.previewText
-                      ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>`
-                      : "";
-                  }
-                  const isCopiedOut = copiedItemIds.has(`out:${activeRun.id}:${out.id}`);
-                  const canOpenInPage = Boolean(out.openUrl || out.previewText);
-                  return `
-                    <div>
-                      <div class="output-row">
-                        <span class="output-title" title="${escapeHtml(out.openPath || out.title)}">${escapeHtml(out.title)}</span>
-                        <span class="output-actions">
-                          <button type="button" class="btn" data-action="copy-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}">${isCopiedOut ? "✓ Copied" : "Copy"}</button>
-                          ${canOpenInPage ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(out.id)}" aria-expanded="${out.previewText ? (isPreviewOpen ? "true" : "false") : "false"}">${isPreviewOpen ? "Hide" : "Open"}</button>` : ""}
-                        </span>
-                      </div>
-                      ${isPreviewOpen && out.previewText ? `<pre class="step-detail-mono">${escapeHtml(out.previewText)}</pre>` : ""}
-                    </div>
-                  `;
-                })
-                .filter(Boolean)
-                .join("");
-            }
-          }
-        }
-
-        const visibleMemories = getVisibleMemoriesForRun(activeRun);
-        const memoryNoticeHtml = visibleMemories
-          .map((m) => {
-            const rawText = String(m.text || m.summary || m.content || "").trim();
-            const label = /^i['’]ll remember/i.test(rawText)
-              ? rawText
-              : rawText
-              ? `I'll remember: ${rawText}`
-              : "I'll remember this for next time.";
-            return `
-              <div class="memory-notice-row" data-memory-id="${escapeHtml(m.id)}">
-                <span class="memory-notice-text">${escapeHtml(label)}</span>
-                <button type="button" class="btn" data-action="undo-memory" data-memory-id="${escapeHtml(m.id)}" ${pendingUndoMemoryIds.has(String(m.id)) ? "disabled" : ""}>Undo</button>
-              </div>
-            `;
-          })
-          .join("");
-
-        const mockBannerHtml =
-          activeRun.mockNote && !vm.isSampleData
-            ? `<div class="sample-tag">${escapeHtml(activeRun.mockNote)}</div>`
-            : "";
-
-        blocks.push(`
-          <div class="chat-thread">
-            ${messageNodes.join("")}
-            ${approvalHistoryHtml}
-            ${helpHtml}
-            ${stopNoticeHtml}
-            ${permissionHtml}
-            ${mockBannerHtml}
-            ${outcomeHtml}
-            ${failureHtml}
-            ${outputsHtml}
-            ${memoryNoticeHtml}
-          </div>
-        `);
+        blocks.push(`<div class="chat-thread">${taskHtmlParts.join("")}</div>`);
 
         destroyAllAgentChips();
         const prevScrollTop = timelineScroll.scrollTop;
@@ -7184,7 +7717,8 @@
         timelineScroll.innerHTML = blocks.join("");
 
         mountAllAgentChips();
-        const scrollKey = `${activeRun.id}:${rows.length}`;
+        const totalRowsLen = tasks.reduce((sum, t) => sum + (t.transcriptRows?.length || 0), 0);
+        const scrollKey = `${selectedAgentId}:${tasks.length}:${totalRowsLen}`;
         if (scrollKey !== lastScrolledRunKey || wasNearBottom) {
           lastScrolledRunKey = scrollKey;
           timelineScroll.scrollTop = timelineScroll.scrollHeight;
@@ -7252,7 +7786,7 @@
         }
         if (actionBtn) {
           const action = actionBtn.dataset.action;
-          if (action === "select-chat" || action === "new-primary-chat") {
+          if (action === "select-agent" || action === "select-chat" || action === "new-primary-chat") {
             const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
             if (sel && !sel.isCollapsed && String(sel).trim()) {
               const anchorInRow = sel.anchorNode && actionBtn.contains(sel.anchorNode);
@@ -7266,15 +7800,86 @@
             setState("collapsed", { instant: true });
             return;
           }
-          if (action === "open-agent-settings" || action === "menu-agent-settings") {
+          if (action === "open-new-agent-form") {
             openRowMenuKey = "";
             confirmDeleteRunId = "";
-            Transport.openWorkspace(fixtureParam || "", { view: "agent-settings" });
+            confirmDeleteAgentId = "";
+            const primary = getPrimaryAgentRowIdentity();
+            const existingAgents = readCreatedAgents();
+            const usedNames = [primary.name, ...existingAgents.map((a) => a.name)];
+            const usedSwatches = [primary.color, ...existingAgents.map((a) => a.swatch)];
+            agentFormState = {
+              mode: "create",
+              agentId: "",
+              name: WorkspaceAdapter.suggestAgentName(usedNames),
+              swatch: WorkspaceAdapter.suggestAgentSwatch(usedSwatches),
+              returnView: "list",
+              error: "",
+            };
+            renderNow();
+            requestAnimationFrame(() => {
+              const nameInp = document.getElementById("agent-name-input");
+              if (nameInp) {
+                nameInp.focus();
+                nameInp.select();
+              }
+            });
+            return;
+          }
+          if (action === "pick-agent-swatch") {
+            if (agentFormState) {
+              const nameInp = document.getElementById("agent-name-input");
+              if (nameInp) agentFormState.name = nameInp.value;
+              agentFormState.swatch = actionBtn.dataset.swatch || agentFormState.swatch;
+              agentFormState.error = "";
+              renderNow();
+            }
+            return;
+          }
+          if (action === "cancel-agent-form") {
+            agentFormState = null;
+            renderNow();
+            return;
+          }
+          if (action === "open-agent-settings" || action === "menu-agent-settings") {
+            const targetAgentId =
+              actionBtn.dataset.agentId ||
+              (viewMode === "chat" ? selectedAgentId : "__primary__") ||
+              "__primary__";
+            openRowMenuKey = "";
+            confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
+            if (targetAgentId === "__primary__") {
+              Transport.openWorkspace(fixtureParam || "", { view: "agent-settings" });
+              return;
+            }
+            const ag = readCreatedAgents().find((a) => a.id === targetAgentId);
+            if (!ag) {
+              Transport.openWorkspace(fixtureParam || "", { view: "agent-settings" });
+              return;
+            }
+            agentFormState = {
+              mode: "edit",
+              agentId: ag.id,
+              name: ag.name,
+              swatch: ag.swatch,
+              returnView: viewMode,
+              error: "",
+            };
+            renderNow();
+            requestAnimationFrame(() => {
+              const nameInp = document.getElementById("agent-name-input");
+              if (nameInp) {
+                nameInp.focus();
+                nameInp.select();
+              }
+            });
             return;
           }
           if (action === "open-app-settings") {
             openRowMenuKey = "";
             confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
             Transport.openWorkspace(fixtureParam || "", { view: "app-settings" });
             return;
           }
@@ -7283,16 +7888,28 @@
             isComposingNewChat = false;
             openRowMenuKey = "";
             confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
+            agentFormState = null;
             renderNow();
             return;
           }
+          if (action === "select-agent") {
+            const agentId = actionBtn.dataset.agentId || "__primary__";
+            openAgentConversation(agentId, { render: true });
+            const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+            const conv = convs?.byId?.get(agentId);
+            if (conv) {
+              for (const t of conv.tasks) {
+                if (t.isRealFailure) markFailedRunSeen(t.id);
+              }
+            }
+            if (getCurrentState() === "expanded" && promptInput) {
+              promptInput.focus();
+            }
+            return;
+          }
           if (action === "new-primary-chat") {
-            selectedRunId = null;
-            viewMode = "chat";
-            isComposingNewChat = true;
-            openRowMenuKey = "";
-            confirmDeleteRunId = "";
-            renderNow();
+            openAgentConversation("__primary__", { render: true });
             promptInput.focus();
             return;
           }
@@ -7300,13 +7917,11 @@
             const runId = actionBtn.dataset.runId || "";
             if (runId) {
               selectedRunId = runId;
-              viewMode = "chat";
-              isComposingNewChat = false;
-              openRowMenuKey = "";
-              confirmDeleteRunId = "";
+              const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+              const owner = convs?.list?.find((c) => c.allRunIds.includes(runId));
               saveLastThreadId(runId);
               markFailedRunSeen(runId);
-              renderNow();
+              openAgentConversation(owner ? owner.id : "__primary__", { render: true });
             }
             return;
           }
@@ -7316,39 +7931,119 @@
               if (openRowMenuKey === rowKey) {
                 openRowMenuKey = "";
                 confirmDeleteRunId = "";
+                confirmDeleteAgentId = "";
               } else {
                 openRowMenuKey = rowKey;
                 confirmDeleteRunId = "";
+                confirmDeleteAgentId = "";
               }
               renderNow();
             }
             return;
           }
           if (action === "menu-copy-result") {
+            const agentId = actionBtn.dataset.agentId || "";
             const runId = actionBtn.dataset.runId || "";
-            const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
-            const text = runVm?.copyResultText || runVm?.lastLinePreview || "";
+            let text = "";
+            if (agentId && lastViewModel) {
+              const conv = getConversationsForVm(lastViewModel)?.byId?.get(agentId);
+              text = conv?.copyResultText || (conv?.lastLinePreview !== "No tasks yet" ? conv?.lastLinePreview : "") || "";
+            } else if (runId) {
+              const runVm = lastViewModel?.runs?.find((r) => r.id === runId);
+              text = runVm?.copyResultText || runVm?.lastLinePreview || "";
+            }
             openRowMenuKey = "";
             confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
             if (text) {
-              await copyTextWithFeedback(text, `result:${runId}`, "Copied result");
+              await copyTextWithFeedback(text, `result:${agentId || runId}`, "Copied result");
             } else {
               renderNow();
             }
             return;
           }
-          if (action === "menu-ask-delete") {
-            const runId = actionBtn.dataset.runId || "";
-            if (runId) {
-              openRowMenuKey = runId;
-              confirmDeleteRunId = runId;
+          if (action === "menu-stop-agent-conv") {
+            const agentId = actionBtn.dataset.agentId || "";
+            openRowMenuKey = "";
+            confirmDeleteAgentId = "";
+            const conv = agentId && lastViewModel ? getConversationsForVm(lastViewModel)?.byId?.get(agentId) : null;
+            const liveIds = conv?.liveRunIds || [];
+            if (!liveIds.length) {
+              renderNow();
+              return;
+            }
+            liveIds.forEach((id) => pendingStopIds.add(id));
+            renderNow();
+            try {
+              const results = await Promise.allSettled(
+                liveIds.map((id) => Transport.request("POST", `/api/runs/${encodeURIComponent(id)}/stop`, {}))
+              );
+              results.forEach((res, idx) => {
+                const rid = liveIds[idx];
+                if (res.status === "fulfilled") {
+                  stopNoticesByRunId.set(rid, buildStopSummary(rid, res.value));
+                }
+              });
+              await pollAll();
+            } catch (err) {
+              sendErrorText = err.message || "Could not stop";
+            } finally {
+              liveIds.forEach((id) => pendingStopIds.delete(id));
               renderNow();
             }
             return;
           }
-          if (action === "cancel-delete-chat") {
+          if (action === "menu-ask-delete") {
+            const agentId = actionBtn.dataset.agentId || "";
+            if (agentId && agentId !== "__primary__") {
+              openRowMenuKey = agentId;
+              confirmDeleteAgentId = agentId;
+              renderNow();
+            }
+            return;
+          }
+          if (action === "cancel-delete-agent" || action === "cancel-delete-chat") {
             confirmDeleteRunId = "";
+            confirmDeleteAgentId = "";
             openRowMenuKey = "";
+            renderNow();
+            return;
+          }
+          if (action === "confirm-delete-agent") {
+            const agentId = actionBtn.dataset.agentId || "";
+            if (!agentId || agentId === "__primary__") return;
+            const conv = lastViewModel ? getConversationsForVm(lastViewModel)?.byId?.get(agentId) : null;
+            const existingAgents = readCreatedAgents();
+            const targetAgent = existingAgents.find((a) => a.id === agentId);
+            const liveIds = conv?.liveRunIds || [];
+            if (liveIds.length && stopRouteSupported && !isSampleData && Transport.isConnected()) {
+              liveIds.forEach((id) => pendingStopIds.add(id));
+              try {
+                await Promise.allSettled(
+                  liveIds.map((id) => Transport.request("POST", `/api/runs/${encodeURIComponent(id)}/stop`, {}))
+                );
+              } finally {
+                liveIds.forEach((id) => pendingStopIds.delete(id));
+              }
+            }
+            const hideIds = [
+              ...(conv?.allRunIds || []),
+              ...(targetAgent?.threads || []),
+              targetAgent?.thread || "",
+            ].filter(Boolean);
+            for (const rid of hideIds) {
+              hiddenChatIds.add(rid);
+            }
+            persistHiddenChatIds();
+            writeCreatedAgents(existingAgents.filter((a) => a.id !== agentId));
+            openRowMenuKey = "";
+            confirmDeleteAgentId = "";
+            confirmDeleteRunId = "";
+            if (selectedAgentId === agentId) {
+              selectedAgentId = "__primary__";
+              saveLastAgentId("__primary__");
+            }
+            announceStatus("Deleted agent");
             renderNow();
             return;
           }
@@ -7410,7 +8105,8 @@
           }
           if (action === "run-again") {
             const p = actionBtn.dataset.prompt || "";
-            if (p) submitTask(p, [], { thread: "" });
+            const aid = actionBtn.dataset.agentId || selectedAgentId || "__primary__";
+            if (p) submitTask(p, [], { agentId: aid });
             return;
           }
           if (action === "reply-run") {
@@ -7655,6 +8351,69 @@
         roleBtn.click();
       });
 
+      panelView.addEventListener("submit", (e) => {
+        if (!e.target || e.target.id !== "agent-inline-form" || !agentFormState) return;
+        e.preventDefault();
+        const nameInp = document.getElementById("agent-name-input");
+        const cleanName = String(nameInp ? nameInp.value : agentFormState.name || "").trim();
+        if (!cleanName) {
+          agentFormState.name = "";
+          agentFormState.error = "Enter a name";
+          renderNow();
+          requestAnimationFrame(() => {
+            const inp = document.getElementById("agent-name-input");
+            if (inp) inp.focus();
+          });
+          return;
+        }
+        const primary = getPrimaryAgentRowIdentity();
+        const existingAgents = readCreatedAgents();
+        const lowerTarget = cleanName.toLowerCase();
+        const clash =
+          primary.name.trim().toLowerCase() === lowerTarget ||
+          existingAgents.some(
+            (a) => a.id !== agentFormState.agentId && a.name.trim().toLowerCase() === lowerTarget
+          );
+        if (clash) {
+          agentFormState.name = cleanName;
+          agentFormState.error = "That name is already used";
+          renderNow();
+          requestAnimationFrame(() => {
+            const inp = document.getElementById("agent-name-input");
+            if (inp) {
+              inp.focus();
+              inp.select();
+            }
+          });
+          return;
+        }
+
+        const sw = WorkspaceAdapter.normalizeAgentSwatch(agentFormState.swatch, 0);
+        if (agentFormState.mode === "edit") {
+          const updated = existingAgents.map((a) =>
+            a.id === agentFormState.agentId ? { ...a, name: cleanName, swatch: sw.key } : a
+          );
+          writeCreatedAgents(updated);
+          agentFormState = null;
+          announceStatus(`Saved ${cleanName}`);
+          renderNow();
+          if (viewMode === "chat" && promptInput) promptInput.focus();
+          return;
+        }
+
+        const newId = `ag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        writeCreatedAgents([
+          ...existingAgents,
+          { id: newId, name: cleanName, swatch: sw.key, thread: "", threads: [] },
+        ]);
+        agentFormState = null;
+        openAgentConversation(newId, { render: true });
+        announceStatus(`Created ${cleanName}`);
+        requestAnimationFrame(() => {
+          if (promptInput) promptInput.focus();
+        });
+      });
+
       /* ---------------- POLLING ---------------- */
       async function pollAll() {
         if (!Transport.isConnected()) {
@@ -7674,16 +8433,32 @@
           const nextHelp = Array.isArray(helpResp) ? helpResp : [];
           const nextAgents = agentsResp && typeof agentsResp === "object" ? agentsResp : {};
 
-          /* Fetch incremental event details for active/selected runs */
-          const parents = nextRuns.filter((r) => !r.parent);
+          /* Fetch incremental event details for active/selected runs (including nested children) */
+          const rawByIdPoll = new Map(nextRuns.map((r) => [r.id, r]));
+          const rootOfRun = (r) => {
+            let cur = r;
+            const seen = new Set();
+            while (cur && cur.parent && rawByIdPoll.has(cur.parent) && !seen.has(cur.id)) {
+              seen.add(cur.id);
+              cur = rawByIdPoll.get(cur.parent);
+            }
+            return cur ? cur.id : r.id;
+          };
+          const parents = nextRuns.filter((r) => !r.parent || !rawByIdPoll.has(r.parent));
           const focusParentId =
             (selectedRunId && parents.some((p) => p.id === selectedRunId) && selectedRunId) ||
             parents[0]?.id ||
             null;
 
-          const detailTargets = nextRuns.filter(
-            (r) => r.id === focusParentId || r.parent === focusParentId || !r.parent
-          );
+          const detailTargets = nextRuns.filter((r) => {
+            const rootId = rootOfRun(r);
+            return (
+              rootId === focusParentId ||
+              !r.parent ||
+              (r.state !== "done" && r.state !== "failed") ||
+              !detailsById[r.id]
+            );
+          });
 
           await Promise.all(
             detailTargets.map(async (r) => {
@@ -7992,24 +8767,10 @@
         const msg = e.detail || {};
         if (msg.type === "hotkey") {
           if (viewMode === "list") {
-            const visibleRuns = (lastViewModel?.runs || []).filter((r) => !hiddenChatIds.has(r.id));
-            const storedThreadId = readStoredLastThreadId();
-            const targetRun =
-              (storedThreadId && visibleRuns.find((r) => r.id === storedThreadId)) ||
-              visibleRuns[0] ||
-              null;
-            viewMode = "chat";
-            openRowMenuKey = "";
-            confirmDeleteRunId = "";
-            if (targetRun) {
-              selectedRunId = targetRun.id;
-              isComposingNewChat = false;
-              saveLastThreadId(targetRun.id);
-            } else {
-              selectedRunId = null;
-              isComposingNewChat = true;
-            }
-            renderNow();
+            const convs = lastViewModel ? getConversationsForVm(lastViewModel) : null;
+            const activeConv = convs ? resolveActiveConversation(convs) : null;
+            const targetId = activeConv ? activeConv.id : (readLastAgentId() || "__primary__");
+            openAgentConversation(targetId, { render: true });
           }
           setState("expanded", { instant: true });
           if (promptInput && viewMode === "chat") {
@@ -8097,7 +8858,12 @@
           if (fixtureParam) {
             fixtureSeenFailedIds = Array.isArray(state.seenFailedRunIds) ? state.seenFailedRunIds : [];
             seenFailedRuns = readSeenFailedRuns();
+            fixtureCreatedAgentsOverride = Array.isArray(state.caAgents) ? state.caAgents : null;
+            fixturePrimaryThreadOverride = state.primaryThread ? String(state.primaryThread) : "";
+            fixtureLastAgentIdOverride = state.lastAgentId ? String(state.lastAgentId) : "";
           }
+          const initialAgentId = readLastAgentId();
+          if (initialAgentId) selectedAgentId = initialAgentId;
           speechAvailable = Boolean(state.speechAvailable);
           onDeviceSpeech = Boolean(state.onDeviceSpeech);
           if (state.isDictating) voiceState = "listening";

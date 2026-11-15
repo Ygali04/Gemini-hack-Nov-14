@@ -1,0 +1,117 @@
+{
+  "caAgents": [
+    { "id": "ag-aria", "name": "Aria", "swatch": "rose", "thread": "r-aria-1", "threads": ["r-aria-1"] },
+    { "id": "ag-milo", "name": "Milo", "swatch": "mint", "thread": "r-milo-1", "threads": ["r-milo-1"] },
+    { "id": "ag-sora", "name": "Sora", "swatch": "lilac", "thread": "", "threads": [] }
+  ],
+  "primaryThread": "r-prim-1",
+  "runs": [
+    {
+      "id": "r-milo-1",
+      "goal": "Draft status update in Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 3.4,
+      "n_events": 1,
+      "started": 1763165000,
+      "ts": 1763165003,
+      "result": null
+    },
+    {
+      "id": "r-milo-cu",
+      "goal": "Type status update in Notes",
+      "role": "cu",
+      "parent": "r-milo-1",
+      "state": "acting",
+      "elapsed": 2.9,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-aria-1",
+      "goal": "Organize launch checklist in Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 5.0,
+      "n_events": 2,
+      "started": 1763164200,
+      "ts": 1763164205,
+      "result": { "ok": true, "summary": "Updated Launch Checklist note" }
+    },
+    {
+      "id": "r-aria-cu",
+      "goal": "Update checklist items in Notes",
+      "role": "cu",
+      "parent": "r-aria-1",
+      "state": "done",
+      "elapsed": 3.8,
+      "n_events": 3,
+      "result": { "ok": true, "steps": 2, "summary": "Checked 3 launch items" }
+    },
+    {
+      "id": "r-prim-1",
+      "goal": "Check system disk space",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.2,
+      "n_events": 1,
+      "started": 1763163000,
+      "ts": 1763163001,
+      "result": { "ok": true, "summary": "48 GB free on Macintosh HD" }
+    }
+  ],
+  "details": {
+    "r-milo-cu": {
+      "id": "r-milo-cu",
+      "role": "cu",
+      "parent": "r-milo-1",
+      "state": "acting",
+      "n_events": 2,
+      "events": [
+        { "kind": "route", "app": "Notes" },
+        { "kind": "act", "step": 1, "action": "type:Status update", "t": 0.6 }
+      ],
+      "result": null
+    },
+    "r-aria-cu": {
+      "id": "r-aria-cu",
+      "role": "cu",
+      "parent": "r-aria-1",
+      "state": "done",
+      "n_events": 3,
+      "events": [
+        { "kind": "route", "app": "Notes" },
+        { "kind": "act", "step": 1, "action": "click:Checklist", "t": 0.5 },
+        { "kind": "act", "step": 2, "action": "click:Done", "t": 1.4 },
+        { "kind": "verify", "achieved": true, "evidence": "Checklist saved in Notes" }
+      ],
+      "result": { "ok": true, "steps": 2, "summary": "Checked 3 launch items" }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-milo-cu": { "name": "Kira", "color": "#F0D9BE", "edge": "#FFFCE0", "ink": "#865733" },
+    "r-aria-cu": { "name": "Vera", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+  },
+  "transcripts": {
+    "r-milo-1": [
+      { "id": "m-milo-1", "ts": 1763165000, "run": "r-milo-1", "role": "user", "text": "Draft status update in Notes" },
+      { "id": "m-milo-2", "ts": 1763165001, "run": "r-milo-1", "role": "agent", "agent": "ComputerAnything", "text": "I'll ask Kira to write that in Notes." }
+    ],
+    "r-aria-1": [
+      { "id": "m-aria-1", "ts": 1763164200, "run": "r-aria-1", "role": "user", "text": "Organize launch checklist in Notes" },
+      { "id": "m-aria-2", "ts": 1763164201, "run": "r-aria-1", "role": "agent", "agent": "ComputerAnything", "text": "On it." },
+      { "id": "m-aria-3", "ts": 1763164203, "run": "r-aria-cu", "role": "agent", "agent": "Vera", "color": "#C0DED0", "text": "Checked 3 launch items in Notes." },
+      { "id": "m-aria-4", "ts": 1763164205, "run": "r-aria-1", "role": "agent", "agent": "ComputerAnything", "text": "Finished." }
+    ],
+    "r-prim-1": [
+      { "id": "m-prim-1", "ts": 1763163000, "run": "r-prim-1", "role": "user", "text": "Check system disk space" },
+      { "id": "m-prim-2", "ts": 1763163001, "run": "r-prim-1", "role": "agent", "agent": "ComputerAnything", "text": "48 GB free on Macintosh HD" },
+      { "id": "m-prim-3", "ts": 1763163001, "run": "r-prim-1", "role": "agent", "agent": "ComputerAnything", "text": "Finished." }
+    ]
+  },
+  "capabilities": { "stop": true, "memory": false }
+}

@@ -1,0 +1,119 @@
+{
+  "runs": [
+    {
+      "id": "r-prim-t5",
+      "goal": "Summarize today's release notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 4.2,
+      "n_events": 2,
+      "started": 1763164800,
+      "ts": 1763164805,
+      "result": { "ok": true, "summary": "Release notes summarized in 3 bullets" }
+    },
+    {
+      "id": "r-prim-t4",
+      "goal": "Multiply 18 by 4 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.1,
+      "n_events": 2,
+      "started": 1763161200,
+      "ts": 1763161204,
+      "result": { "ok": true, "summary": "Calculated 18 × 4 = 72" }
+    },
+    {
+      "id": "r-prim-t4-cu",
+      "goal": "Compute 18 * 4",
+      "role": "cu",
+      "parent": "r-prim-t4",
+      "state": "done",
+      "elapsed": 2.4,
+      "n_events": 3,
+      "result": { "ok": true, "steps": 2, "summary": "Calculated 72" }
+    },
+    {
+      "id": "r-prim-t3",
+      "goal": "Check open PRs",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.0,
+      "n_events": 1,
+      "started": 1763150400,
+      "ts": 1763150402,
+      "result": { "ok": true, "summary": "2 pull requests are ready for review" }
+    },
+    {
+      "id": "r-prim-t2",
+      "goal": "Find disk usage in ~/Downloads",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.8,
+      "n_events": 1,
+      "started": 1763078400,
+      "ts": 1763078402,
+      "result": { "ok": true, "summary": "Downloads uses 1.4 GB" }
+    },
+    {
+      "id": "r-prim-t1",
+      "goal": "List recent invoices",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.5,
+      "n_events": 1,
+      "started": 1763071200,
+      "ts": 1763071202,
+      "result": { "ok": true, "summary": "Found 4 invoices from November" }
+    }
+  ],
+  "details": {
+    "r-prim-t4-cu": {
+      "id": "r-prim-t4-cu",
+      "role": "cu",
+      "parent": "r-prim-t4",
+      "state": "done",
+      "n_events": 3,
+      "events": [
+        { "kind": "route", "app": "Calculator" },
+        { "kind": "act", "step": 1, "action": "click:18", "t": 0.4 },
+        { "kind": "act", "step": 2, "action": "click:=", "t": 1.2 },
+        { "kind": "verify", "achieved": true, "evidence": "Calculator displays 72" }
+      ],
+      "result": { "ok": true, "steps": 2, "summary": "Calculated 72" }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-prim-t4-cu": { "name": "Mira", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  },
+  "transcripts": {
+    "r-prim-t5": [
+      { "id": "m-t5-1", "ts": 1763164800, "run": "r-prim-t5", "role": "user", "text": "Summarize today's release notes" },
+      { "id": "m-t5-2", "ts": 1763164804, "run": "r-prim-t5", "role": "agent", "agent": "ComputerAnything", "text": "Release notes summarized in 3 bullets" },
+      { "id": "m-t5-3", "ts": 1763164805, "run": "r-prim-t5", "role": "agent", "agent": "ComputerAnything", "text": "Finished." }
+    ],
+    "r-prim-t4": [
+      { "id": "m-t4-1", "ts": 1763161200, "run": "r-prim-t4", "role": "user", "text": "Multiply 18 by 4 in Calculator" },
+      { "id": "m-t4-2", "ts": 1763161203, "run": "r-prim-t4-cu", "role": "agent", "agent": "Mira", "color": "#EECED6", "text": "Opened Calculator and entered 18 × 4." }
+    ],
+    "r-prim-t3": [
+      { "id": "m-t3-1", "ts": 1763150400, "run": "r-prim-t3", "role": "user", "text": "Check open PRs" },
+      { "id": "m-t3-2", "ts": 1763150402, "run": "r-prim-t3", "role": "agent", "agent": "ComputerAnything", "text": "2 pull requests are ready for review" }
+    ],
+    "r-prim-t2": [
+      { "id": "m-t2-1", "ts": 1763078400, "run": "r-prim-t2", "role": "user", "text": "Find disk usage in ~/Downloads" },
+      { "id": "m-t2-2", "ts": 1763078402, "run": "r-prim-t2", "role": "agent", "agent": "ComputerAnything", "text": "Downloads uses 1.4 GB" }
+    ],
+    "r-prim-t1": [
+      { "id": "m-t1-1", "ts": 1763071200, "run": "r-prim-t1", "role": "user", "text": "List recent invoices" },
+      { "id": "m-t1-2", "ts": 1763071202, "run": "r-prim-t1", "role": "agent", "agent": "ComputerAnything", "text": "Found 4 invoices from November" }
+    ]
+  },
+  "caAgents": [],
+  "capabilities": { "stop": true, "memory": false }
+}
