@@ -1,0 +1,191 @@
+{
+  "runs": [
+    {
+      "id": "r-a9-multi",
+      "goal": "Prepare quarterly report and send summary to Finance",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "waiting",
+      "elapsed": 11.2,
+      "n_events": 12,
+      "result": null
+    },
+    {
+      "id": "r-a9-step-1",
+      "goal": "Open Numbers spreadsheet",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.6,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Opened Q3-Ledger.numbers", "steps": 1 }
+    },
+    {
+      "id": "r-a9-step-2",
+      "goal": "Check revenue subtotal column",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.8,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Verified Q3 revenue subtotal", "steps": 1 }
+    },
+    {
+      "id": "r-a9-step-3",
+      "goal": "Verify expense ratio in Calculator",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.9,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Computed expense ratio 31%", "steps": 1 }
+    },
+    {
+      "id": "r-a9-step-4",
+      "goal": "Export summary PDF",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 2.1,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Exported Q3-Summary.pdf", "steps": 1 }
+    },
+    {
+      "id": "r-a9-step-5",
+      "goal": "Open Mail compose window",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.4,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Drafted email with Q3-Summary.pdf", "steps": 1 }
+    },
+    {
+      "id": "r-a9-step-6",
+      "goal": "Wait for approval before sending email",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "waiting",
+      "elapsed": 2.4,
+      "n_events": 2,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-a9-multi": {
+      "id": "r-a9-multi",
+      "goal": "Prepare quarterly report and send summary to Finance",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "waiting",
+      "elapsed": 11.2,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "app": "Numbers", "goal": "Open Numbers spreadsheet" },
+        { "t": 11.2, "kind": "state", "state": "waiting" }
+      ]
+    },
+    "r-a9-step-1": {
+      "id": "r-a9-step-1",
+      "goal": "Open Numbers spreadsheet",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.6,
+      "events": [
+        { "t": 0.2, "kind": "app_ready", "app": "Numbers", "method": "running", "seconds": 0.2 },
+        { "t": 1.5, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a9-step-2": {
+      "id": "r-a9-step-2",
+      "goal": "Check revenue subtotal column",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.8,
+      "events": [
+        { "t": 2.0, "kind": "app_ready", "app": "Numbers", "method": "running", "seconds": 0.1 },
+        { "t": 3.5, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a9-step-3": {
+      "id": "r-a9-step-3",
+      "goal": "Verify expense ratio in Calculator",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.9,
+      "events": [
+        { "t": 4.0, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.1 },
+        { "t": 5.5, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a9-step-4": {
+      "id": "r-a9-step-4",
+      "goal": "Export summary PDF",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 2.1,
+      "events": [
+        { "t": 6.0, "kind": "app_ready", "app": "Numbers", "method": "running", "seconds": 0.1 },
+        { "t": 7.8, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a9-step-5": {
+      "id": "r-a9-step-5",
+      "goal": "Open Mail compose window",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "done",
+      "elapsed": 1.4,
+      "events": [
+        { "t": 8.0, "kind": "app_ready", "app": "Mail", "method": "running", "seconds": 0.1 },
+        { "t": 9.2, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a9-step-6": {
+      "id": "r-a9-step-6",
+      "goal": "Wait for approval before sending email",
+      "role": "cu",
+      "parent": "r-a9-multi",
+      "state": "waiting",
+      "elapsed": 2.4,
+      "events": [
+        { "t": 9.5, "kind": "app_ready", "app": "Mail", "method": "running", "seconds": 0.1 },
+        { "t": 11.0, "kind": "state", "state": "waiting" }
+      ]
+    }
+  },
+  "help": [
+    {
+      "id": "h-a9-send-approval",
+      "run": "r-a9-multi",
+      "agent": "CU 1",
+      "kind": "confirm",
+      "question": "Send Q3-Summary.pdf to Finance?",
+      "options": ["Send email", "Cancel"],
+      "timeout_s": 120,
+      "created_at": 1763160000
+    }
+  ],
+  "transcript": [
+    { "id": "m-1", "role": "user", "text": "Prepare quarterly report and send summary to Finance" },
+    { "id": "m-2", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Opened Q3-Ledger.numbers" },
+    { "id": "m-3", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Verified Q3 revenue subtotal" },
+    { "id": "m-4", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Computed expense ratio 31%" },
+    { "id": "m-5", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Exported Q3-Summary.pdf" },
+    { "id": "m-6", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Drafted email in Mail" },
+    { "id": "m-7", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Ready to send to Finance" },
+    { "id": "m-8", "role": "agent", "agent": "CU 1", "text": "Waiting for confirmation before sending Q3-Summary.pdf to Finance." }
+  ],
+  "agents": {
+    "r-a9-step-1": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-2": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-3": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-4": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-5": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-6": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  }
+}

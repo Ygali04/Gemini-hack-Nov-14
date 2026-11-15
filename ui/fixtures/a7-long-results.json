@@ -1,0 +1,152 @@
+{
+  "runs": [
+    {
+      "id": "r-a7-scroll-1",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25 and summarize baggage rules and direct connections",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 14.8,
+      "n_events": 6,
+      "result": {
+        "ok": true,
+        "summary": "Collected non-stop options across three airlines, checked checked-bag fees, and wrote a comparison table in Notes.",
+        "digest": {
+          "run": "r-a7-scroll-1",
+          "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25 and summarize baggage rules and direct connections",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "Collected non-stop options across three airlines, checked checked-bag fees, and wrote a comparison table in Notes.",
+          "seconds": 14.8,
+          "steps": 4,
+          "help_requests": 0,
+          "memory_steps": 1,
+          "llm": { "calls": 4, "prompt_tokens": 2100, "completion_tokens": 310, "cost": 0.0042, "ms": 1820 },
+          "task_cost": {
+            "run": "r-a7-scroll-1",
+            "agents": 2,
+            "llm_calls": 4,
+            "prompt_tokens": 2100,
+            "completion_tokens": 310,
+            "cost_usd": 0.0042,
+            "model_seconds": 1.82
+          },
+          "children": ["r-a7-scroll-1-cu", "r-a7-scroll-1-notes"]
+        }
+      }
+    },
+    {
+      "id": "r-a7-scroll-1-cu",
+      "goal": "Open Safari and collect non-stop fares",
+      "role": "cu",
+      "parent": "r-a7-scroll-1",
+      "state": "done",
+      "elapsed": 9.2,
+      "n_events": 5,
+      "result": { "ok": true, "summary": "Captured 3 non-stop round-trip fares", "steps": 3 }
+    },
+    {
+      "id": "r-a7-scroll-1-notes",
+      "goal": "Write summary note in Notes",
+      "role": "cu",
+      "parent": "r-a7-scroll-1",
+      "state": "done",
+      "elapsed": 5.4,
+      "n_events": 4,
+      "result": { "ok": true, "summary": "Saved flight comparison note", "steps": 1 }
+    },
+    {
+      "id": "r-a7-past-2",
+      "goal": "Export October expense receipts into a CSV",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 6.1,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Exported 12 receipts to expenses-oct.csv" }
+    },
+    {
+      "id": "r-a7-past-3",
+      "goal": "Check team calendar availability for Thursday afternoon",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 4.3,
+      "n_events": 2,
+      "result": { "ok": true, "summary": "Found 2 open slots between 2 PM and 4 PM" }
+    },
+    {
+      "id": "r-a7-past-4",
+      "goal": "Sort downloads folder by file type",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.0,
+      "n_events": 2,
+      "result": { "ok": true, "summary": "Moved 18 documents into subfolders" }
+    },
+    {
+      "id": "r-a7-past-5",
+      "goal": "Verify calculator result for monthly budget",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.4,
+      "n_events": 2,
+      "result": { "ok": true, "summary": "Verified monthly total $2,480" }
+    }
+  ],
+  "details": {
+    "r-a7-scroll-1": {
+      "id": "r-a7-scroll-1",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25 and summarize baggage rules and direct connections",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 14.8,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "app": "Safari", "goal": "Open Safari and collect non-stop fares" },
+        { "t": 9.4, "kind": "route", "role": "cu", "app": "Notes", "goal": "Write summary note in Notes" },
+        { "t": 14.8, "kind": "state", "state": "done" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Collected non-stop options across three airlines, checked checked-bag fees, and wrote a comparison table in Notes."
+      }
+    },
+    "r-a7-scroll-1-cu": {
+      "id": "r-a7-scroll-1-cu",
+      "goal": "Open Safari and collect non-stop fares",
+      "role": "cu",
+      "parent": "r-a7-scroll-1",
+      "state": "done",
+      "elapsed": 9.2,
+      "events": [
+        { "t": 0.3, "kind": "app_ready", "app": "Safari", "method": "running", "seconds": 0.2 },
+        { "t": 2.1, "kind": "act", "step": 0, "source": "llm", "action": "navigate:flights", "act_ms": 210, "agent": "CU 1" },
+        { "t": 6.0, "kind": "act", "step": 1, "source": "memory", "action": "click:nonstop-filter", "act_ms": 80, "agent": "CU 1" },
+        { "t": 8.8, "kind": "verify", "achieved": true, "evidence": "Flights comparison table shows 3 airlines" },
+        { "t": 9.2, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-a7-scroll-1-notes": {
+      "id": "r-a7-scroll-1-notes",
+      "goal": "Write summary note in Notes",
+      "role": "cu",
+      "parent": "r-a7-scroll-1",
+      "state": "done",
+      "elapsed": 5.4,
+      "events": [
+        { "t": 9.5, "kind": "app_ready", "app": "Notes", "method": "running", "seconds": 0.2 },
+        { "t": 12.0, "kind": "act", "step": 2, "source": "llm", "action": "type:note-body", "act_ms": 140, "agent": "CU 2" },
+        { "t": 14.7, "kind": "state", "state": "done" }
+      ]
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-a7-scroll-1-cu": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a7-scroll-1-notes": { "name": "CU 2", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  }
+}
