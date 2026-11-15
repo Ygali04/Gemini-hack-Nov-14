@@ -77,7 +77,7 @@ def point_at(bounds, label, cursor="main"):
         me["greeted"] = True
     pt = {"op": "point", "cursor": cursor, "x": x, "y": y, "label": label[:40]}
     if hello and me.get("name"):
-        pt.update(label="Hi, I'm %s!" % me["name"], bare=True)
+        pt.update(label=me["name"], bare=True)
     return send(
         pt,
         {
