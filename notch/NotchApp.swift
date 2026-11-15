@@ -76,6 +76,9 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 //        first time 900x600 below the menu bar on the left so the center of the screen and the driven app stay clear.
 //      - Toggle behavior from the notch input bar (`senderWebView === webView` and `view` is empty/nil):
 //        a press opens it or brings it forward; a press while it is frontmost closes it.
+//      - When the workspace window is already open (or loaded with the same fixture) and a page sends
+//        `openWorkspace` with a `view`, the shell brings it forward and sends `{ type: "setView", view }`
+//        to `workspaceWebView` via `window.__notchBridgeReceive`.
 //      - `Cmd+W`, `Esc`, the red close traffic light, or `{ type: "closeWindow" }` from `workspaceWebView` closes it;
 //        `"Agent workspace"` in the menu bar status item menu also opens or brings it forward.
 //      - From the workspace to the notch:
@@ -371,8 +374,9 @@ final class NotchPanel: NSPanel {
 @MainActor
 final class WorkspaceWindow: NSWindow {
     var onCancel: (() -> Void)?
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    var allowsKeyFocus: Bool = true
+    override var canBecomeKey: Bool { allowsKeyFocus }
+    override var canBecomeMain: Bool { allowsKeyFocus }
 
     func layoutTrafficLights() {
         guard let closeBtn = standardWindowButton(.closeButton),
@@ -577,6 +581,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var isSpeaking = false
     private var currentSpeakText = ""
     private var inspectLoopStarted = false
+    private var inspectAllowsFocus = false
+    private var inspectAllowsSpeech = false
+    private var isInspectMode: Bool {
+        ProcessInfo.processInfo.environment["CA_INSPECT"] == "1"
+    }
+    private var shouldFocusWindows: Bool {
+        !isInspectMode || inspectAllowsFocus
+    }
 
     private lazy var uiFileURL: URL? = resolveUIFileURL()
     private lazy var httpSession: URLSession = {
@@ -858,6 +870,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.hasShadow = false
         panel.hidesOnDeactivate = false
         panel.isMovable = false
+        panel.allowsKeyFocus = shouldFocusWindows
 
         sharedContentController = WKUserContentController()
         sharedContentController.add(self, name: "shell")
@@ -1008,11 +1021,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func handleOpenNotch(_ body: [String: Any], to senderWebView: WKWebView?) {
         let reqId = body["id"] as? String ?? ""
         allHidden = false
-        rememberFrontApp()
+        if shouldFocusWindows { rememberFrontApp() }
         panel.setFrame(topCenteredFrame(for: currentSize), display: true)
-        panel.orderFrontRegardless()
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        presentWindow(panel)
         var payload: [String: Any] = ["type": "hotkey"]
         if let thread = body["thread"] as? String, !thread.isEmpty {
             payload["thread"] = thread
@@ -1021,8 +1032,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             payload["prompt"] = prompt
         }
         postToWeb(payload, to: webView)
+        let focusJS = shouldFocusWindows ? " document.getElementById('prompt-input')?.focus();" : ""
         webView?.evaluateJavaScript(
-            "(() => { if (document.body?.dataset?.state !== 'expanded') document.getElementById('pill-trigger')?.click(); document.getElementById('prompt-input')?.focus(); })()",
+            "(() => { if (document.body?.dataset?.state !== 'expanded') document.getElementById('pill-trigger')?.click();\(focusJS) })()",
             completionHandler: nil
         )
         postToWeb([
@@ -1139,12 +1151,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return components?.url ?? wsFileURL
     }
 
+    private func queryValue(_ name: String, in url: URL?) -> String? {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        return components.queryItems?.first(where: { $0.name == name })?.value
+    }
+
     private func loadWorkspaceContent(into wv: WKWebView, fixtureName: String?, viewName: String? = nil) {
         if let wsFileURL = resolveWorkspaceFileURL(),
            let targetURL = workspaceTargetURL(fixtureName: fixtureName, viewName: viewName) {
             let uiDir = wsFileURL.deletingLastPathComponent()
-            if wv.url?.standardizedFileURL != targetURL.standardizedFileURL {
+            let sameDoc = (wv.url?.standardizedFileURL == wsFileURL.standardizedFileURL)
+            let sameFixture = (queryValue("fixture", in: wv.url) == fixtureName)
+            if !sameDoc || !sameFixture || (wv.isLoading && viewName != nil) {
                 wv.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
+            } else if let viewName, !viewName.isEmpty {
+                if let msgData = try? JSONSerialization.data(withJSONObject: ["type": "setView", "view": viewName], options: []),
+                   let msgJSON = String(data: msgData, encoding: .utf8) {
+                    let script = """
+                    (() => {
+                      const msg = \(msgJSON);
+                      const targetView = msg.view;
+                      const beforeSearch = window.location.search;
+                      if (window.__notchBridgeReceive) window.__notchBridgeReceive(msg);
+                      const afterView = new URLSearchParams(window.location.search).get('view');
+                      if (window.location.search === beforeSearch && afterView !== targetView) {
+                        window.location.hash = '#' + targetView;
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                      }
+                    })();
+                    """
+                    wv.evaluateJavaScript(script, completionHandler: nil)
+                } else {
+                    postToWeb(["type": "setView", "view": viewName], to: wv)
+                }
             }
         } else {
             let html = "<!doctype html><html><body style='background:#0c0d10;color:#f2f4f8;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
@@ -1385,13 +1427,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let wasHidden = !sheet.isVisible
                 loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
                 if wasHidden {
-                    rememberFrontApp()
+                    if shouldFocusWindows { rememberFrontApp() }
                     if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                         sheet.setFrame(rightEdgeNotchAnchorFrame(for: targetFrame, on: screen), display: true)
                     }
                 }
-                NSApp.activate(ignoringOtherApps: true)
-                sheet.makeKeyAndOrderFront(nil)
+                presentWindow(sheet)
                 animateWindow(sheet, to: targetFrame, instant: body["instant"] as? Bool ?? false, reveal: wasHidden)
                 if panel.isVisible {
                     panel.orderFrontRegardless()
@@ -1434,14 +1475,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let wasHidden = !sheet.isVisible
                 loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
                 if wasHidden {
-                    rememberFrontApp()
+                    if shouldFocusWindows { rememberFrontApp() }
                     if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                         let startFrame = panel != nil ? panel.frame : NSRect(x: targetFrame.origin.x, y: targetFrame.maxY - 36, width: targetFrame.width, height: 36)
                         sheet.setFrame(startFrame, display: true)
                     }
                 }
-                NSApp.activate(ignoringOtherApps: true)
-                sheet.makeKeyAndOrderFront(nil)
+                presentWindow(sheet)
                 animateWindow(sheet, to: targetFrame, instant: body["instant"] as? Bool ?? false, reveal: wasHidden)
             }
 
@@ -1542,15 +1582,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let win = workspaceWindow, let wv = workspaceWebView {
             let wasHidden = !win.isVisible
             if wasHidden {
-                rememberFrontApp()
+                if shouldFocusWindows { rememberFrontApp() }
                 let targetRect = savedWorkspaceFrame.map { clampWorkspaceFrame($0, on: screen) } ?? defaultWorkspaceFrame(on: screen)
                 win.setFrame(targetRect, display: true)
             }
             loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
-            NSApp.activate(ignoringOtherApps: true)
-            win.makeKeyAndOrderFront(nil)
+            presentWindow(win)
             win.layoutTrafficLights()
-            workspaceIsFrontmost = true
+            workspaceIsFrontmost = shouldFocusWindows
             if notesHeight > 0 && notesPanel.isVisible {
                 notesPanel.orderFrontRegardless()
             }
@@ -1593,9 +1632,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let wasExpanded = expanded
         expanded = isOpen
         if isOpen {
-            if !wasExpanded { rememberFrontApp() }
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
+            if shouldFocusWindows && !wasExpanded { rememberFrontApp() }
+            presentWindow(panel)
         } else if wasExpanded {
             returnFocus()
         }
@@ -1720,7 +1758,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if allHidden || !expanded {
             allHidden = false
-            rememberFrontApp()
+            if shouldFocusWindows { rememberFrontApp() }
             panel.setFrame(topCenteredFrame(for: currentSize), display: true)
             panel.orderFrontRegardless()
             postToWeb(["type": "hotkey"], to: webView)  // the page expands, then asks for focus via resize
@@ -1739,12 +1777,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
+    private func presentWindow(_ win: NSWindow, makeKey: Bool = true) {
+        let allowFocus = shouldFocusWindows && makeKey
+        if let p = win as? NotchPanel {
+            p.allowsKeyFocus = allowFocus
+        } else if let w = win as? WorkspaceWindow {
+            w.allowsKeyFocus = allowFocus
+        }
+        if allowFocus {
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+        } else {
+            win.orderFrontRegardless()
+        }
+    }
+
     private func rememberFrontApp() {
         if let front = NSWorkspace.shared.frontmostApplication, front != NSRunningApplication.current { prevApp = front }
     }
 
     // Like Spotlight: when the workspace closes, typing goes back to the app you were in.
     private func returnFocus() {
+        guard shouldFocusWindows else { return }
         if NSApp.isActive, let p = prevApp, !p.isTerminated { p.activate() }
     }
 
@@ -1870,7 +1924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             openPanel.allowedContentTypes = [.movie]
         }
 
-        NSApp.activate(ignoringOtherApps: true)
+        if shouldFocusWindows { NSApp.activate(ignoringOtherApps: true) }
         let response = openPanel.runModal()
         var picked: [[String: Any]] = []
         if response == .OK {
@@ -2318,8 +2372,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return voiceId.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func handleSpeak(_ text: String, voiceId overrideVoiceId: String? = nil) {
+    private func handleSpeak(_ text: String, voiceId overrideVoiceId: String? = nil, force: Bool = false) {
         guard !text.isEmpty else { return }
+        if isInspectMode && !inspectAllowsSpeech && !force {
+            return
+        }
         let savedVoiceId = (overrideVoiceId ?? readProfileVoiceId()).trimmingCharacters(in: .whitespacesAndNewlines)
         if savedVoiceId == "none" {
             return
@@ -2642,6 +2699,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func handleInspectCommand(_ req: [String: Any]) {
         let reqId = req["id"] ?? NSNull()
         let cmd = req["cmd"] as? String ?? ""
+        let reqFocus = (req["focus"] as? Bool) ?? false
+        inspectAllowsFocus = reqFocus
+        panel?.allowsKeyFocus = shouldFocusWindows
+        workspaceWindow?.allowsKeyFocus = shouldFocusWindows
+        workspaceSheetPanel?.allowsKeyFocus = shouldFocusWindows
+        if reqFocus {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if let speakFlag = req["speak"] as? Bool {
+            inspectAllowsSpeech = speakFlag
+        }
         switch cmd {
         case "bounds":
             writeInspectResponse([
@@ -2813,6 +2881,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     self.writeInspectResponse(["id": reqId, "ok": false, "error": error.localizedDescription])
                 }
             }
+        case "speak":
+            let text = (req["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let overrideVoice = (req["voice_id"] as? String) ?? (req["voiceId"] as? String)
+            handleSpeak(text, voiceId: overrideVoice, force: true)
+            writeInspectResponse(["id": reqId, "ok": true, "speaking": isSpeaking])
+        case "stopSpeaking":
+            handleStopSpeaking()
+            writeInspectResponse(["id": reqId, "ok": true, "speaking": false])
         case "quit":
             writeInspectResponse(["id": reqId, "ok": true])
             NSApplication.shared.terminate(nil)

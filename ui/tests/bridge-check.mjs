@@ -40,6 +40,15 @@
  *   Request:  { type: "openNotch", id?: string, thread?: string }
  *   Response: { type: "notchOpened", id?: string, ok: boolean }
  *   Shell shows/activates the notch panel, expands it to open state, and focuses the prompt input (#prompt-input).
+ *
+ * Shell -> workspace page `setView` contract (kept in sync with notch/NotchApp.swift):
+ *   Message:   { type: "setView", view: string }
+ *   Sent via `window.__notchBridgeReceive` when `openWorkspace` asks for a `view` while the workspace window is already loaded.
+ *
+ * Page -> shell `openWorkspace` contract (kept in sync with notch/NotchApp.swift):
+ *   Request:  { type: "openWorkspace", id?: string, mode?: string, fixture?: string, view?: string, forceOpen?: boolean }
+ *   Response: { type: "workspaceOpened" | "workspaceClosed", id: string, ok: boolean, mode: string }
+ *   When the workspace window is already open and `view` is provided, the shell brings it forward and sends `{ type: "setView", view }`.
  */
 
 import fs from "node:fs";

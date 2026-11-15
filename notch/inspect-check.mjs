@@ -270,6 +270,9 @@ async function main() {
     if (!bounds.ok || !bounds.panel) {
       throw new Error(`Invalid bounds response: ${JSON.stringify(bounds)}`);
     }
+    if (bounds.panel.isKey !== false) {
+      throw new Error(`Inspect mode panel stole key focus without focus:true: ${JSON.stringify(bounds.panel)}`);
+    }
 
     if (opts.scenario) {
       const capDir = opts.captureDir || path.join(os.tmpdir(), `agentnotch-inspect-${process.pid}`);
@@ -455,6 +458,7 @@ async function main() {
       if (
         !wsBounds.ok ||
         !wsBounds.workspace ||
+        wsBounds.workspace.isKey !== false ||
         wsBounds.workspace.width < 560 ||
         wsBounds.workspace.title !== "" ||
         wsBounds.workspace.fullSizeContentView !== true ||
@@ -529,6 +533,60 @@ async function main() {
         fs.copyFileSync(fullScreenPng, altFullScreenPng);
         console.log("fullScreenCapture:", JSON.stringify({ ...capScreenRes, bytes: screenBytes }));
       }
+
+      // Opening workspace on agent-settings then requesting app-settings must switch the visible view.
+      const openAgentRes = await send({
+        cmd: "openWorkspace",
+        mode: "window",
+        view: "agent-settings",
+        instant: true,
+        ...(wsFixture ? { fixture: wsFixture } : {}),
+      });
+      if (!openAgentRes.ok) {
+        throw new Error(`Failed to open workspace on agent-settings: ${JSON.stringify(openAgentRes)}`);
+      }
+      await pollUntil(async () => {
+        const res = await send({
+          cmd: "eval",
+          target: "workspace",
+          js: `(() => {
+            const p = document.querySelector('[data-view-panel="agent-settings"]');
+            const label = (document.getElementById('view-menu-label')?.innerText || '').trim();
+            const q = new URLSearchParams(window.location.search).get('view');
+            return Boolean(p && !p.hidden && label === 'Agent settings' && q === 'agent-settings');
+          })()`,
+        }, 2000);
+        return res.ok && res.result === true ? true : false;
+      }, 4000, 100, "workspace visible view is agent-settings");
+
+      const openAppRes = await send({
+        cmd: "openWorkspace",
+        mode: "window",
+        view: "app-settings",
+        instant: true,
+        ...(wsFixture ? { fixture: wsFixture } : {}),
+      });
+      if (!openAppRes.ok) {
+        throw new Error(`Failed to switch workspace to app-settings: ${JSON.stringify(openAppRes)}`);
+      }
+      const switchedView = await pollUntil(async () => {
+        const res = await send({
+          cmd: "eval",
+          target: "workspace",
+          js: `(() => {
+            const agentP = document.querySelector('[data-view-panel="agent-settings"]');
+            const appP = document.querySelector('[data-view-panel="app-settings"]');
+            const label = (document.getElementById('view-menu-label')?.innerText || '').trim();
+            const q = new URLSearchParams(window.location.search).get('view');
+            if (appP && !appP.hidden && agentP && agentP.hidden && label === 'App settings' && q === 'app-settings') {
+              return { label, view: q };
+            }
+            return false;
+          })()`,
+        }, 2000);
+        return res.ok && res.result ? res.result : false;
+      }, 3000, 100, "workspace visible view changed from agent-settings to app-settings");
+      console.log("workspaceViewSwitch:", JSON.stringify(switchedView));
     } else {
       let textRes = await send({ cmd: "eval", target: "notch", js: "document.body.innerText" });
       if (textRes.ok && (!textRes.result || String(textRes.result).trim() === "")) {
