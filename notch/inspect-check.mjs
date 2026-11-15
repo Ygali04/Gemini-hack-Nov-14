@@ -166,6 +166,7 @@ async function main() {
   hardTimer.unref();
 
   try {
+    const notchStartMs = Date.now();
     // Wait until WKWebView has loaded ui/index.html (not about:blank) and initialized body.dataset.state.
     await pollUntil(async () => {
       const res = await send({
@@ -197,7 +198,48 @@ async function main() {
         }, 2000);
         return stateRes.ok && stateRes.result === "expanded" ? stateRes : false;
       }, 4000, 100, "panel expanded");
-      await sleep(300);
+    }
+
+    // Wait (bounded) until the notch page has left its initial "… Loading" skeleton state.
+    let notchLoadInfo = { dataArrived: false, leftLoadingState: false, elapsedMs: 0 };
+    try {
+      const loaded = await pollUntil(async () => {
+        const res = await send({
+          cmd: "eval",
+          target: "notch",
+          js: `(() => {
+            const tl = document.getElementById('timeline-scroll');
+            const tlText = (tl?.innerText || '').trim();
+            const bodyText = (document.body?.innerText || '').trim();
+            const hasSkeleton = Boolean(tl?.querySelector('.skeleton-line'));
+            const stillLoading = hasSkeleton || /^(\\u2026|\\.{3})\\s*Loading$/i.test(tlText) || bodyText.includes('\\u2026 Loading');
+            if (stillLoading) return false;
+            return {
+              leftLoadingState: true,
+              dataArrived: tlText.length > 0 && !tlText.includes('Paste the address the backend printed'),
+              timelinePreview: tlText.slice(0, 160),
+            };
+          })()`,
+        }, 2000);
+        return res.ok && res.result ? res.result : false;
+      }, 8000, 100, "notch left loading state");
+      notchLoadInfo = {
+        dataArrived: Boolean(loaded.dataArrived),
+        leftLoadingState: true,
+        elapsedMs: Date.now() - notchStartMs,
+      };
+    } catch (err) {
+      notchLoadInfo = {
+        dataArrived: false,
+        leftLoadingState: false,
+        elapsedMs: Date.now() - notchStartMs,
+        error: err.message,
+      };
+    }
+    console.log("notchLoad:", JSON.stringify(notchLoadInfo));
+
+    if (opts.openPanel) {
+      await sleep(220);
     }
 
     const bounds = await send({ cmd: "bounds" });
@@ -233,16 +275,37 @@ async function main() {
       const panelBytes = assertValidPng(panelPng);
       console.log("panelCapture:", JSON.stringify({ ...capPanelRes, bytes: panelBytes }));
 
+      // Check if notes / pending-approval card surface has rendered cards at top right.
+      const notesEval = await send({
+        cmd: "eval",
+        target: "notes",
+        js: "({ text: (document.body?.innerText || '').trim(), cards: document.querySelectorAll('.note-card, [data-help-id], button').length })",
+      }, 2000).catch(() => null);
+      const latestBoundsBeforeWs = await send({ cmd: "bounds" });
+      if (latestBoundsBeforeWs.ok && latestBoundsBeforeWs.notes && latestBoundsBeforeWs.notes.visible) {
+        console.log("notesBounds:", JSON.stringify(latestBoundsBeforeWs.notes));
+        if (notesEval?.ok) {
+          console.log("notesText:", JSON.stringify(notesEval.result));
+        }
+        const notesPng = path.join(capDir, "notes.png");
+        const capNotesRes = await send({ cmd: "capture", surface: "notes", path: notesPng });
+        if (capNotesRes.ok) {
+          const notesBytes = assertValidPng(notesPng);
+          console.log("notesCapture:", JSON.stringify({ ...capNotesRes, bytes: notesBytes }));
+        }
+      }
+
+      const wsStartMs = Date.now();
       const wsOpenPayload = {
         cmd: "openWorkspace",
-        mode: "sheet",
+        mode: "window",
         view: opts.view,
         instant: true,
       };
       if (opts.fixture) wsOpenPayload.fixture = opts.fixture;
       const wsOpenRes = await send(wsOpenPayload);
       if (!wsOpenRes.ok) {
-        throw new Error(`Failed to open workspace sheet: ${JSON.stringify(wsOpenRes)}`);
+        throw new Error(`Failed to open workspace window: ${JSON.stringify(wsOpenRes)}`);
       }
 
       await pollUntil(async () => {
@@ -254,13 +317,61 @@ async function main() {
         if (!wsReady.ok || !wsReady.result || typeof wsReady.result !== "object") return false;
         const r = wsReady.result;
         return r.ready === "complete" && !String(r.href).startsWith("about:") && r.textLen > 0 ? r : false;
-      }, 6000, 120, "workspace sheet ready");
-      await sleep(300);
+      }, 6000, 120, "workspace window ready");
+
+      // Wait (bounded) until the workspace page has left its initial "Loading…" state.
+      let wsLoadInfo = { dataArrived: false, leftLoadingState: false, elapsedMs: 0 };
+      try {
+        const wsLoaded = await pollUntil(async () => {
+          const res = await send({
+            cmd: "eval",
+            target: "workspace",
+            js: `(() => {
+              const pill = (document.getElementById('conn-pill')?.innerText || '').trim();
+              const sub = (document.getElementById('HeaderSubtext')?.innerText || '').trim();
+              const bodyText = (document.body?.innerText || '').trim();
+              const stillLoading =
+                pill.includes('Loading') ||
+                sub === 'Loading\\u2026' ||
+                bodyText.includes('Loading workspace') ||
+                bodyText.includes('\\u2026 Loading');
+              if (stillLoading) return false;
+              const dataArrived =
+                !bodyText.includes('Paste the address the backend printed') &&
+                !bodyText.includes('Not connected') &&
+                bodyText.length > 0;
+              return {
+                leftLoadingState: true,
+                dataArrived,
+                connPill: pill,
+                headerSubtext: sub,
+              };
+            })()`,
+          }, 2000);
+          return res.ok && res.result ? res.result : false;
+        }, 8000, 100, "workspace left loading state");
+        wsLoadInfo = {
+          dataArrived: Boolean(wsLoaded.dataArrived),
+          leftLoadingState: true,
+          elapsedMs: Date.now() - wsStartMs,
+          connPill: wsLoaded.connPill || "",
+          headerSubtext: wsLoaded.headerSubtext || "",
+        };
+      } catch (err) {
+        wsLoadInfo = {
+          dataArrived: false,
+          leftLoadingState: false,
+          elapsedMs: Date.now() - wsStartMs,
+          error: err.message,
+        };
+      }
+      console.log("workspaceLoad:", JSON.stringify(wsLoadInfo));
+      await sleep(150);
 
       const wsBounds = await send({ cmd: "bounds" });
       console.log("workspaceBounds:", JSON.stringify(wsBounds.workspace));
       if (!wsBounds.ok || !wsBounds.workspace || wsBounds.workspace.width < 560 || wsBounds.workspace.title !== "") {
-        throw new Error(`Invalid workspace panel bounds/title: ${JSON.stringify(wsBounds.workspace)}`);
+        throw new Error(`Invalid workspace window bounds/title: ${JSON.stringify(wsBounds.workspace)}`);
       }
 
       const wsTextRes = await send({ cmd: "eval", target: "workspace", js: "document.body.innerText" });

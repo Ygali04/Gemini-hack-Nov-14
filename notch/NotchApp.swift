@@ -26,28 +26,38 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 //   Response: { type: "settingsPaneOpened", id: String, pane: String, ok: Bool, error: String }
 //   Shell maps each allowed pane name to its System Settings URL; unknown names return ok: false and open nothing.
 //
-// Surface & bridge contract (every surface comes out from under the notch):
-// All surfaces anchor centered horizontally on the notch screen (first screen with
-// `safeAreaInsets.top > 0`, falling back to `NSScreen.main ?? NSScreen.screens.first`)
-// and grow downward with 180 ms ease-out motion (or a 180 ms alpha fade when Reduce Motion
-// is enabled). No new bridge message types are added; existing messages carry all surfaces:
-//   1. Panel (pill / expanded thread):
+// Surface & bridge contract:
+// The notch screen is the first screen with `safeAreaInsets.top > 0`, falling back to
+// `NSScreen.main ?? NSScreen.screens.first`. Surfaces animate with 180 ms ease-out motion
+// (or a 180 ms alpha fade when Reduce Motion is enabled). Existing bridge messages carry all surfaces:
+//   1. Panel (pill / expanded conversation thread):
 //      - `resize` { width, height, state: "collapsed" | "expanded", instant? }
-//      - Anchored at top center of the notch screen; clamps to 200..640 x 32..640.
+//      - Anchored at top center of the notch screen; fits its content and may grow up to 60% of
+//        the screen height (`round(screen.frame.height * 0.60)`), clamping beyond it (width 200..640).
 //   2. Chat per task:
 //      - Rendered as threads inside the panel under the notch (no separate window needed).
-//      - Legacy `openChat` { run } and `closeWindow` remain reachable until pages migrate.
-//   3. Notifications (`?shell=notes`):
+//      - Legacy `openChat` { run } and `closeWindow` remain reachable.
+//   3. Notifications & pending approvals (`?shell=notes`):
 //      - `resize` { width?, height, state: "notes", fresh? } from `notesWeb`
-//      - Anchored directly under the notch (below `safeAreaInsets.top` / menu bar, or
-//        below the panel when visible), centered horizontally, growing downward.
-//   4. Workspace sheet (6 tabs + inline approvals):
-//      - Either `resize` { width, height, state: "sheet", instant? } to grow the panel into
-//        a large under-notch sheet (clamped to screen visibleFrame, up to 1040 x 740),
-//        or `openWorkspace` { mode: "sheet", fixture?, width?, height? } to present
-//        `ui/workspace.html` in an under-notch sheet panel (Esc / Option-Space / `closeWindow`
-//        folds it back). Legacy `openWorkspace` without `mode: "sheet"` keeps the normal
-//        window reachable until pages migrate.
+//      - Anchored at the top right of the notch's screen, under the menu bar (`vis.maxX - width - 16`),
+//        in front of the workspace window when it is there, with 180 ms motion (fade under Reduce Motion);
+//        never steals keyboard focus from the app the person is typing in (`allowsKeyFocus = false`).
+//   4. Agent workspace window (`ui/workspace.html`):
+//      - Exact bridge message from `ui/index.html` (workspace icon in the notch's input bar):
+//        Request:  `window.webkit.messageHandlers.shell.postMessage({ type: "openWorkspace", id, mode?, fixture?, view? })`
+//                  (sent via `callShell("openWorkspace", { mode: "sheet", fixture?, view? })` or `{ fixture?, view? }`)
+//        Response: `{ type: "workspaceOpened", id, ok: true, mode: "window" }` when opened or brought forward,
+//                  or `{ type: "workspaceClosed", id, ok: true, mode: "window" }` when toggled closed.
+//      - Separate, normal macOS window (`WorkspaceWindow: NSWindow`, level `.normal`, not floating):
+//        dark top (`#0c0d10`) with no white bar and no title text (`title = ""`), dragged by its top 36pt strip,
+//        resizable from any edge, remembers its last size and position (`UserDefaults` key `"CAWorkspaceWindowFrame"`),
+//        first time 900x600 below the menu bar placed so it does not cover the app an agent is operating when there is room.
+//      - Toggle behavior from the notch input bar (`senderWebView === webView` and `view` is empty/nil):
+//        a press opens it or brings it forward; a press while it is frontmost closes it.
+//      - `Cmd+W`, `Esc`, or `{ type: "closeWindow" }` from `workspaceWebView` closes it; `"Agent workspace"`
+//        in the menu bar status item menu also opens or brings it forward.
+//      - Legacy right-edge panel and centered sheet remain behind `useRightEdgeWorkspacePanel = false`
+//        and `useCenteredWorkspaceSheet = false`.
 //
 // A web view that accepts the first click (notifications work without focusing first) and turns dropped
 // Finder files, file promises, image data, and Cmd+V pastes into `filesDropped` events for the page.
@@ -55,6 +65,13 @@ nonisolated(unsafe) weak var hotkeyTarget: AppDelegate?
 final class ShellWebView: WKWebView {
     var onFiles: (([[String: Any]]) -> Void)?
     var onFileURLs: (([URL]) -> Void)?
+    var onCloseWindow: (() -> Void)?
+    var topStripDragHeight: CGFloat = 0
+
+    private var isDraggingTopStrip = false
+    private var didMoveTopStrip = false
+    private var topStripDragStartMouse: NSPoint = .zero
+    private var topStripDragStartOrigin: NSPoint = .zero
 
     private let promiseQueue: OperationQueue = {
         let q = OperationQueue()
@@ -74,6 +91,54 @@ final class ShellWebView: WKWebView {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if topStripDragHeight > 0, let win = window {
+            let localPt = convert(event.locationInWindow, from: nil)
+            let distFromTop = isFlipped ? localPt.y : (bounds.height - localPt.y)
+            if distFromTop >= 0 && distFromTop <= topStripDragHeight {
+                isDraggingTopStrip = true
+                didMoveTopStrip = false
+                topStripDragStartMouse = NSEvent.mouseLocation
+                topStripDragStartOrigin = win.frame.origin
+            } else {
+                isDraggingTopStrip = false
+                didMoveTopStrip = false
+            }
+        } else {
+            isDraggingTopStrip = false
+            didMoveTopStrip = false
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if isDraggingTopStrip, let win = window {
+            let cur = NSEvent.mouseLocation
+            let dx = cur.x - topStripDragStartMouse.x
+            let dy = cur.y - topStripDragStartMouse.y
+            if didMoveTopStrip || hypot(dx, dy) >= 3.0 {
+                didMoveTopStrip = true
+                var newOrigin = NSPoint(
+                    x: round(topStripDragStartOrigin.x + dx),
+                    y: round(topStripDragStartOrigin.y + dy)
+                )
+                if let vis = (win.screen ?? NSScreen.main)?.visibleFrame {
+                    let maxY = vis.maxY - win.frame.height
+                    if newOrigin.y > maxY { newOrigin.y = maxY }
+                }
+                win.setFrameOrigin(newOrigin)
+                return
+            }
+        }
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDraggingTopStrip = false
+        didMoveTopStrip = false
+        super.mouseUp(with: event)
+    }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         let superOp = super.draggingEntered(sender)
@@ -99,13 +164,21 @@ final class ShellWebView: WKWebView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.type == .keyDown,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "v",
-           window?.isKeyWindow == true,
-           isDescendantResponder(window?.firstResponder) {
-            if handlePasteboard(NSPasteboard.general) {
+        if event.type == .keyDown {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == .command,
+               event.charactersIgnoringModifiers?.lowercased() == "w",
+               let onCloseWindow = onCloseWindow {
+                onCloseWindow()
                 return true
+            }
+            if flags == .command,
+               event.charactersIgnoringModifiers?.lowercased() == "v",
+               window?.isKeyWindow == true,
+               isDescendantResponder(window?.firstResponder) {
+                if handlePasteboard(NSPasteboard.general) {
+                    return true
+                }
             }
         }
         return super.performKeyEquivalent(with: event)
@@ -238,6 +311,22 @@ final class ChatWindow {
 @MainActor
 final class NotchPanel: NSPanel {
     var onCancel: (() -> Void)?
+    var allowsKeyFocus: Bool = true
+    override var canBecomeKey: Bool { allowsKeyFocus }
+    override var canBecomeMain: Bool { allowsKeyFocus }
+
+    override func cancelOperation(_ sender: Any?) {
+        if let onCancel = onCancel {
+            onCancel()
+        } else {
+            super.cancelOperation(sender)
+        }
+    }
+}
+
+@MainActor
+final class WorkspaceWindow: NSWindow {
+    var onCancel: (() -> Void)?
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
@@ -247,6 +336,19 @@ final class NotchPanel: NSPanel {
         } else {
             super.cancelOperation(sender)
         }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+                if let onCancel = onCancel {
+                    onCancel()
+                    return true
+                }
+            }
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -285,13 +387,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var statusItem: NSStatusItem!
     private var panel: NotchPanel!
     private var webView: WKWebView!
-    private var workspaceWindow: NSWindow?
-    private var workspaceWebView: WKWebView?
+    private var workspaceWindow: WorkspaceWindow?
+    private var workspaceWebView: ShellWebView?
     private var workspaceSheetPanel: NotchPanel?
     private var workspaceSheetWebView: ShellWebView?
     private var workspaceSheetSize = NSSize(width: 960, height: 680)
     private let useCenteredWorkspaceSheet = false
+    private let useRightEdgeWorkspacePanel = false
     private var workspaceRightWidth: CGFloat?
+    private let workspaceFrameDefaultsKey = "CAWorkspaceWindowFrame"
+    private var savedWorkspaceFrame: NSRect?
+    private var workspaceIsFrontmost = false
     private var sharedContentController: WKUserContentController!
     private var notesPanel: NotchPanel!
     private var notesWeb: ShellWebView!
@@ -332,10 +438,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var inspectLoopStarted = false
 
     private lazy var uiFileURL: URL? = resolveUIFileURL()
+    private lazy var httpSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.httpMaximumConnectionsPerHost = 32
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        cfg.urlCache = nil
+        return URLSession(configuration: cfg)
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let envURL = ProcessInfo.processInfo.environment["CA_URL"], !envURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = applyConnectionString(envURL)
+        }
+        if ProcessInfo.processInfo.environment["CA_INSPECT"] != "1",
+           let rawRect = UserDefaults.standard.string(forKey: workspaceFrameDefaultsKey) {
+            let parsed = NSRectFromString(rawRect)
+            if parsed.width >= 560 && parsed.height >= 420 {
+                savedWorkspaceFrame = parsed
+            }
         }
         setupVoice()
         setupStatusItem()
@@ -347,6 +467,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             self,
             selector: #selector(screenParametersDidChange(_:)),
             name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidResignActive(_:)),
+            name: NSApplication.didResignActiveNotification,
             object: nil
         )
         loadPage()
@@ -363,18 +489,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             candidates.append(URL(fileURLWithPath: envPath))
         }
 
-        if let resourceURL = Bundle.main.resourceURL {
-            candidates.append(resourceURL.appendingPathComponent("ui/index.html").standardizedFileURL)
-        }
-
         let cwd = URL(fileURLWithPath: fm.currentDirectoryPath, isDirectory: true)
         candidates.append(cwd.appendingPathComponent("ui/index.html"))
 
         if let execURL = Bundle.main.executableURL {
             let execDir = execURL.deletingLastPathComponent()
+            candidates.append(execDir.appendingPathComponent("../../../../../ui/index.html").standardizedFileURL)
+            candidates.append(execDir.appendingPathComponent("../../../../ui/index.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("../../ui/index.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("../ui/index.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("ui/index.html").standardizedFileURL)
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL.appendingPathComponent("ui/index.html").standardizedFileURL)
         }
 
         for candidate in candidates {
@@ -389,10 +517,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let fm = FileManager.default
         var candidates: [URL] = []
 
-        if let resourceURL = Bundle.main.resourceURL {
-            candidates.append(resourceURL.appendingPathComponent("ui/workspace.html").standardizedFileURL)
-        }
-
         if let indexURL = uiFileURL {
             candidates.append(indexURL.deletingLastPathComponent().appendingPathComponent("workspace.html"))
         }
@@ -402,9 +526,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         if let execURL = Bundle.main.executableURL {
             let execDir = execURL.deletingLastPathComponent()
+            candidates.append(execDir.appendingPathComponent("../../../../../ui/workspace.html").standardizedFileURL)
+            candidates.append(execDir.appendingPathComponent("../../../../ui/workspace.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("../../ui/workspace.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("../ui/workspace.html").standardizedFileURL)
             candidates.append(execDir.appendingPathComponent("ui/workspace.html").standardizedFileURL)
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(resourceURL.appendingPathComponent("ui/workspace.html").standardizedFileURL)
         }
 
         for candidate in candidates {
@@ -446,13 +576,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Agent Workspace")
+            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Agent workspace")
         }
 
         let menu = NSMenu()
         let toggleItem = NSMenuItem(title: "Show/Hide", action: #selector(togglePanel(_:)), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
+
+        let workspaceItem = NSMenuItem(title: "Agent workspace", action: #selector(openWorkspaceFromMenu(_:)), keyEquivalent: "")
+        workspaceItem.target = self
+        menu.addItem(workspaceItem)
 
         let reloadItem = NSMenuItem(title: "Reload", action: #selector(reloadPage(_:)), keyEquivalent: "r")
         reloadItem.target = self
@@ -486,14 +620,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let screen = targetScreen ?? notchScreen()
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let vis = screen?.visibleFrame ?? screenFrame
-        let notchClearance = max(screen?.safeAreaInsets.top ?? 0, 36.0)
-        let baseTopY = min(vis.maxY, screenFrame.maxY - notchClearance) - 8.0
-        let panelBottomY = (panel != nil && panel.isVisible) ? (panel.frame.minY - 8.0) : baseTopY
-        let anchorTopY = min(baseTopY, panelBottomY)
-        let clampedW = min(max(width, 240.0), max(240.0, vis.width - 32.0))
+        let menuBarClearance = max(screen?.safeAreaInsets.top ?? 0, 24.0)
+        let anchorTopY = min(vis.maxY, screenFrame.maxY - menuBarClearance) - 8.0
+        let clampedW = min(max(width, 240.0), max(240.0, min(480.0, vis.width - 32.0)))
         let maxAvailH = max(80.0, anchorTopY - vis.minY - 8.0)
         let clampedH = min(height, maxAvailH)
-        let x = round(screenFrame.midX - (clampedW / 2.0))
+        let x = round(vis.maxX - clampedW - 16.0)
         let y = round(anchorTopY - clampedH)
         return NSRect(x: x, y: y, width: clampedW, height: clampedH)
     }
@@ -664,7 +796,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         case "openChat":
             if let run = body["run"] as? String, !run.isEmpty { openChat(run) }
         case "closeWindow":
-            if senderWebView === workspaceSheetWebView {
+            if senderWebView === workspaceWebView {
+                closeWorkspaceWindow()
+            } else if senderWebView === workspaceSheetWebView {
                 foldWorkspaceSheet(instant: body["instant"] as? Bool ?? false)
             } else {
                 for c in chats.values where c.web === senderWebView { c.open = false; c.panel.orderOut(nil) }
@@ -770,9 +904,139 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 wv.loadFileURL(targetURL, allowingReadAccessTo: uiDir)
             }
         } else {
-            let html = "<!doctype html><html><body style='background:#f6f7f8;color:#111418;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
+            let html = "<!doctype html><html><body style='background:#0c0d10;color:#f2f4f8;font:14px -apple-system;padding:24px;'>ui/workspace.html is not present yet.</body></html>"
             wv.loadHTMLString(html, baseURL: nil)
         }
+    }
+
+    private func saveWorkspaceFrame(_ frame: NSRect) {
+        guard frame.width >= 560 && frame.height >= 420 else { return }
+        savedWorkspaceFrame = frame
+        UserDefaults.standard.set(NSStringFromRect(frame), forKey: workspaceFrameDefaultsKey)
+    }
+
+    private func closeWorkspaceWindow() {
+        guard let win = workspaceWindow, win.isVisible else { return }
+        saveWorkspaceFrame(win.frame)
+        workspaceIsFrontmost = false
+        win.orderOut(nil)
+        returnFocus()
+    }
+
+    @objc private func workspaceWindowDidMoveOrResize(_ notification: Notification) {
+        guard let win = notification.object as? NSWindow, win === workspaceWindow, win.isVisible else { return }
+        saveWorkspaceFrame(win.frame)
+    }
+
+    @objc private func workspaceWindowDidBecomeKey(_ notification: Notification) {
+        guard let win = notification.object as? NSWindow, win === workspaceWindow else { return }
+        workspaceIsFrontmost = true
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        workspaceIsFrontmost = false
+    }
+
+    private func isWorkspaceWindowFrontmost(_ win: NSWindow) -> Bool {
+        guard win.isVisible else { return false }
+        if win.isKeyWindow || win.isMainWindow { return true }
+        let myWinNum = win.windowNumber
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        if let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+            for entry in infoList {
+                let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+                guard layer == 0 else { continue }
+                let winNum = (entry[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1
+                if winNum == myWinNum {
+                    return workspaceIsFrontmost
+                }
+                let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
+                if ownerPID != myPID {
+                    return false
+                }
+            }
+        }
+        return workspaceIsFrontmost
+    }
+
+    private func externalAppWindowFrame(on targetScreen: NSScreen?) -> NSRect? {
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 900.0
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let preferredPID = prevApp?.processIdentifier
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        var fallbackRect: NSRect?
+        for entry in infoList {
+            let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+            guard layer == 0 else { continue }
+            let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
+            guard ownerPID != myPID else { continue }
+            guard let boundsDict = entry[kCGWindowBounds as String] as? [String: Any],
+                  let qx = (boundsDict["X"] as? NSNumber)?.doubleValue,
+                  let qy = (boundsDict["Y"] as? NSNumber)?.doubleValue,
+                  let qw = (boundsDict["Width"] as? NSNumber)?.doubleValue,
+                  let qh = (boundsDict["Height"] as? NSNumber)?.doubleValue,
+                  qw >= 160, qh >= 120 else {
+                continue
+            }
+            let cocoaY = primaryMaxY - (qy + qh)
+            let rect = NSRect(x: qx, y: cocoaY, width: qw, height: qh)
+            if let vis = targetScreen?.visibleFrame, !rect.intersects(vis) {
+                continue
+            }
+            if let preferredPID, ownerPID == preferredPID {
+                return rect
+            }
+            if fallbackRect == nil {
+                fallbackRect = rect
+            }
+        }
+        return fallbackRect
+    }
+
+    private func defaultWorkspaceFrame(on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let vis = screen?.visibleFrame ?? screenFrame
+        let w = min(900.0, max(560.0, vis.width - 32.0))
+        let h = min(600.0, max(420.0, vis.height - 32.0))
+        let menuBarClearance = max(screen?.safeAreaInsets.top ?? 0, 24.0)
+        let topEdge = min(vis.maxY, screenFrame.maxY - menuBarClearance)
+        let y = max(vis.minY + 8.0, round(topEdge - h - 12.0))
+
+        let xRight = round(vis.maxX - w - 16.0)
+        let xLeft = round(vis.minX + 16.0)
+        let xCenter = round(vis.midX - (w / 2.0))
+
+        if let appRect = externalAppWindowFrame(on: screen) {
+            let candidates = [xRight, xLeft, xCenter]
+            var bestX = xRight
+            var bestOverlap = CGFloat.greatestFiniteMagnitude
+            for candX in candidates {
+                let candRect = NSRect(x: candX, y: y, width: w, height: h)
+                let inter = candRect.intersection(appRect)
+                let overlap = inter.isNull ? 0.0 : (inter.width * inter.height)
+                if overlap < bestOverlap {
+                    bestOverlap = overlap
+                    bestX = candX
+                }
+            }
+            return NSRect(x: bestX, y: y, width: w, height: h)
+        }
+
+        return NSRect(x: xRight, y: y, width: w, height: h)
+    }
+
+    private func clampWorkspaceFrame(_ rect: NSRect, on targetScreen: NSScreen? = nil) -> NSRect {
+        let screen = targetScreen ?? notchScreen()
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let vis = screen?.visibleFrame ?? screenFrame
+        let w = min(max(rect.width, 560.0), max(560.0, vis.width - 16.0))
+        let h = min(max(rect.height, 420.0), max(420.0, vis.height - 16.0))
+        let x = min(max(rect.origin.x, vis.minX), max(vis.minX, vis.maxX - w))
+        let y = min(max(rect.origin.y, vis.minY), max(vis.minY, vis.maxY - h))
+        return NSRect(x: round(x), y: round(y), width: round(w), height: round(h))
     }
 
     private func rightEdgeMaxWidth(on targetScreen: NSScreen? = nil) -> CGFloat {
@@ -819,7 +1083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let viewName = (reqView?.isEmpty == false ? reqView : nil)
         let mode = (body["mode"] as? String ?? "").lowercased()
 
-        if !useCenteredWorkspaceSheet {
+        if useRightEdgeWorkspacePanel {
             let screen = notchScreen()
             if let sheet = workspaceSheetPanel, sheet.isVisible, senderWebView === webView, viewName == nil {
                 foldWorkspaceSheet(instant: body["instant"] as? Bool ?? false)
@@ -937,18 +1201,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
 
+        // Toggle close when pressed from the notch input bar while the workspace window is already frontmost.
+        if let win = workspaceWindow,
+           win.isVisible,
+           senderWebView === webView,
+           viewName == nil,
+           (body["forceOpen"] as? Bool) != true,
+           isWorkspaceWindowFrontmost(win) {
+            closeWorkspaceWindow()
+            postToWeb([
+                "type": "workspaceClosed",
+                "id": reqId,
+                "ok": true,
+                "mode": "window"
+            ], to: senderWebView)
+            return
+        }
+
+        let screen = notchScreen()
+        let darkBg = NSColor(calibratedRed: 0.047, green: 0.051, blue: 0.063, alpha: 1.0) // #0c0d10
+
         if workspaceWindow == nil || workspaceWebView == nil {
-            let initialRect = NSRect(x: 0, y: 0, width: 960, height: 680)
-            let win = NSWindow(
+            let initialRect = savedWorkspaceFrame.map { clampWorkspaceFrame($0, on: screen) } ?? defaultWorkspaceFrame(on: screen)
+            let win = WorkspaceWindow(
                 contentRect: initialRect,
-                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            win.title = "Agent Workspace"
-            win.minSize = NSSize(width: 640, height: 480)
+            win.level = .normal
+            win.title = ""
+            win.titleVisibility = .hidden
+            win.titlebarAppearsTransparent = true
+            win.appearance = NSAppearance(named: .darkAqua)
+            win.backgroundColor = darkBg
+            win.isOpaque = true
+            win.hasShadow = true
+            win.isMovableByWindowBackground = false
+            win.minSize = NSSize(width: 560, height: 420)
             win.isReleasedWhenClosed = false
-            win.center()
+            win.standardWindowButton(.closeButton)?.isHidden = true
+            win.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            win.standardWindowButton(.zoomButton)?.isHidden = true
+            win.onCancel = { [weak self] in self?.closeWorkspaceWindow() }
 
             let config = WKWebViewConfiguration()
             config.userContentController = sharedContentController
@@ -956,23 +1251,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             let wv = ShellWebView(frame: NSRect(origin: .zero, size: initialRect.size), configuration: config)
             wv.autoresizingMask = [.width, .height]
             wv.navigationDelegate = self
+            wv.setValue(false, forKey: "drawsBackground")
+            wv.topStripDragHeight = 36.0
+            wv.onCloseWindow = { [weak self] in self?.closeWorkspaceWindow() }
             wireDropTarget(wv)
             win.contentView = wv
 
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(workspaceWindowDidMoveOrResize(_:)),
+                name: NSWindow.didMoveNotification,
+                object: win
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(workspaceWindowDidMoveOrResize(_:)),
+                name: NSWindow.didResizeNotification,
+                object: win
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(workspaceWindowDidBecomeKey(_:)),
+                name: NSWindow.didBecomeKeyNotification,
+                object: win
+            )
+
+            win.setFrame(initialRect, display: true)
             workspaceWindow = win
             workspaceWebView = wv
         }
 
-        if let workspaceWebView = workspaceWebView {
-            loadWorkspaceContent(into: workspaceWebView, fixtureName: fixtureName, viewName: viewName)
+        if let win = workspaceWindow, let wv = workspaceWebView {
+            let wasHidden = !win.isVisible
+            if wasHidden {
+                rememberFrontApp()
+                let targetRect = savedWorkspaceFrame.map { clampWorkspaceFrame($0, on: screen) } ?? defaultWorkspaceFrame(on: screen)
+                win.setFrame(targetRect, display: true)
+            }
+            loadWorkspaceContent(into: wv, fixtureName: fixtureName, viewName: viewName)
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+            workspaceIsFrontmost = true
+            if notesHeight > 0 && notesPanel.isVisible {
+                notesPanel.orderFrontRegardless()
+            }
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        workspaceWindow?.makeKeyAndOrderFront(nil)
         postToWeb([
             "type": "workspaceOpened",
             "id": reqId,
-            "ok": true
+            "ok": true,
+            "mode": "window"
         ], to: senderWebView)
     }
 
@@ -984,9 +1313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         let screen = notchScreen()
         let vis = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let screenFrame = screen?.frame ?? vis
         let isSheet = (state == "sheet")
         let maxW = isSheet ? min(1040.0, max(480.0, Double(vis.width - 48.0))) : 640.0
-        let maxH = isSheet ? min(740.0, max(320.0, Double(vis.height - 16.0))) : 640.0
+        let maxNotchH = max(180.0, round(Double(screenFrame.height) * 0.60))
+        let maxH = isSheet ? min(740.0, max(320.0, Double(vis.height - 16.0))) : maxNotchH
         let minW = isSheet ? 480.0 : 200.0
         let minH = isSheet ? 320.0 : 32.0
 
@@ -1046,14 +1377,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         return p
     }
 
-    // Persistent notifications, stacked directly under the notch, centered on the notch screen.
+    // Pending approvals & notifications card at top right of the notch's screen, under the menu bar.
     private func setupNotes() {
         let initialFrame = notesFrame(for: notesWidth, height: 1)
         notesPanel = floatingPanel(initialFrame, level: .statusBar)
+        notesPanel.allowsKeyFocus = false
         notesPanel.hasShadow = false  // each card draws its own edge
         notesWeb = makeWebView(NSSize(width: notesWidth, height: 1))
         notesPanel.contentView = notesWeb
-        loadView(notesWeb, [URLQueryItem(name: "shell", value: "notes")])
+        var queryItems = [URLQueryItem(name: "shell", value: "notes")]
+        if let fixture = ProcessInfo.processInfo.environment["CA_FIXTURE"], !fixture.isEmpty {
+            queryItems.append(URLQueryItem(name: "fixture", value: fixture))
+        }
+        loadView(notesWeb, queryItems)
     }
 
     private func layoutNotes(height: CGFloat, fresh: Bool, instant: Bool = false) {
@@ -1236,7 +1572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             request.httpBody = rawBody.data(using: .utf8)
         }
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self, weak senderWebView] data, response, error in
+        let task = httpSession.dataTask(with: request) { [weak self, weak senderWebView] data, response, error in
             for txtURL in tempTextURLsToDelete {
                 try? FileManager.default.removeItem(at: txtURL)
             }
@@ -1805,16 +2141,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                     height: min(workspaceSheetSize.height, max(320.0, vis.height - 16.0))
                 )
                 sheet.setFrame(topCenteredFrame(for: clamped, on: screen), display: true)
-            } else {
+            } else if useRightEdgeWorkspacePanel {
                 sheet.setFrame(rightEdgeWorkspaceFrame(on: screen), display: true)
                 if panel.isVisible {
                     panel.orderFrontRegardless()
                 }
             }
         }
+        if let win = workspaceWindow, win.isVisible {
+            win.setFrame(clampWorkspaceFrame(win.frame, on: screen), display: true)
+        }
         if notesHeight > 0 && notesPanel.isVisible {
             notesPanel.setFrame(notesFrame(for: notesWidth, height: notesHeight, on: screen), display: true)
         }
+    }
+
+    @objc private func openWorkspaceFromMenu(_ sender: Any?) {
+        handleOpenWorkspace(["mode": "window", "forceOpen": true], to: nil)
     }
 
     @objc private func togglePanel(_ sender: Any?) {
@@ -1896,7 +2239,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         case "eval":
             let target = req["target"] as? String ?? "notch"
             let js = req["js"] as? String ?? ""
-            let wv: WKWebView? = (target == "workspace") ? ((workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? workspaceWebView) : webView
+            let wv: WKWebView?
+            if target == "workspace" {
+                wv = (workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? workspaceWebView
+            } else if target == "notes" {
+                wv = notesWeb
+            } else {
+                wv = webView
+            }
             guard let targetWebView = wv else {
                 writeInspectResponse([
                     "id": reqId,
@@ -1930,7 +2280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             writeInspectResponse(["id": reqId, "ok": true])
         case "openWorkspace", "workspace":
             var wsBody: [String: Any] = [
-                "mode": req["mode"] as? String ?? "sheet",
+                "mode": req["mode"] as? String ?? "window",
                 "instant": req["instant"] as? Bool ?? true
             ]
             if let view = (req["view"] as? String) ?? (req["tab"] as? String), !view.isEmpty {
@@ -1941,8 +2291,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
             if let width = req["width"] { wsBody["width"] = width }
             if let height = req["height"] { wsBody["height"] = height }
-            handleOpenWorkspace(wsBody, to: nil)
-            writeInspectResponse(["id": reqId, "ok": true, "mode": wsBody["mode"] ?? "sheet"])
+            let fromNotch = req["fromNotch"] as? Bool ?? false
+            handleOpenWorkspace(wsBody, to: fromNotch ? webView : nil)
+            writeInspectResponse(["id": reqId, "ok": true, "mode": "window", "visible": workspaceWindow?.isVisible ?? false])
         case "drop":
             guard ProcessInfo.processInfo.environment["CA_INSPECT"] == "1" else {
                 writeInspectResponse(["id": reqId, "ok": false, "error": "Inspect mode disabled"])
@@ -1955,7 +2306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
             let target = req["target"] as? String ?? "notch"
             let targetWebView: ShellWebView? = (target == "workspace")
-                ? ((workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? (workspaceWebView as? ShellWebView))
+                ? ((workspaceSheetPanel?.isVisible == true ? workspaceSheetWebView : nil) ?? workspaceWebView)
                 : (webView as? ShellWebView)
             guard let dropWebView = targetWebView else {
                 writeInspectResponse(["id": reqId, "ok": false, "error": "Target webView not available"])
