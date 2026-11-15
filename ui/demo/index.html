@@ -10,6 +10,7 @@
       color-scheme: dark;
       --bg-app: #0c0d10;
       --bg-raised: #16181d;
+      --bg-stage: #111318;
       --btn-hover: rgba(255, 255, 255, 0.07);
       --btn-pressed: rgba(255, 255, 255, 0.04);
       --line-divider: rgba(255, 255, 255, 0.08);
@@ -51,20 +52,24 @@
       outline-offset: 2px;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     .demo-page {
-      max-width: 1180px;
+      max-width: 1220px;
       margin: 0 auto;
-      padding: 24px 20px 48px;
+      padding: 20px 20px 48px;
       display: flex;
       flex-direction: column;
-      gap: 28px;
+      gap: 24px;
     }
 
     .demo-header {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding-bottom: 16px;
+      padding-bottom: 14px;
       border-bottom: 1px solid var(--line-divider);
     }
 
@@ -82,6 +87,16 @@
       color: var(--text-secondary);
     }
 
+    .file-protocol-notice {
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--line-strong);
+      background: var(--bg-raised);
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 20px;
+    }
+
     .demo-player {
       position: sticky;
       top: 0;
@@ -89,7 +104,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding: 12px 0 16px;
+      padding: 12px 0 14px;
       border-bottom: 1px solid var(--line-divider);
       background: rgba(12, 13, 16, 0.92);
       backdrop-filter: blur(12px);
@@ -215,16 +230,11 @@
       font-weight: 600;
     }
 
-    .demo-section.is-demo-focus .notch-frame-wrap,
-    .demo-section.is-demo-focus .workspace-frame-wrap {
-      border-color: var(--focus-ring);
-    }
-
     .demo-section {
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      scroll-margin-top: 200px;
+      gap: 14px;
+      scroll-margin-top: 190px;
     }
 
     .demo-section + .demo-section {
@@ -232,12 +242,41 @@
       border-top: 1px solid var(--line-divider);
     }
 
+    .surfaces-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .surfaces-side-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .surface-card {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid var(--line-divider);
+      background: var(--bg-stage);
+      scroll-margin-top: 190px;
+    }
+
+    .surface-card.is-surface-focus,
+    .demo-section.is-demo-focus .workspace-frame-wrap {
+      border-color: var(--focus-ring);
+    }
+
     .section-bar {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 10px 16px;
+      gap: 8px 14px;
     }
 
     .section-heading {
@@ -247,8 +286,8 @@
     }
 
     .section-title {
-      font-size: 15px;
-      line-height: 22px;
+      font-size: 14px;
+      line-height: 20px;
       font-weight: 600;
       color: var(--text-primary);
     }
@@ -271,8 +310,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 30px;
-      padding: 0 10px;
+      min-height: 28px;
+      padding: 0 9px;
       border-radius: 8px;
       border: none;
       background: transparent;
@@ -313,7 +352,7 @@
     .external-link {
       display: inline-flex;
       align-items: center;
-      min-height: 30px;
+      min-height: 28px;
       padding: 0 4px;
       color: var(--text-secondary);
       font-size: 12px;
@@ -326,11 +365,34 @@
       color: var(--text-primary);
     }
 
+    .pill-stage {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      width: 100%;
+      height: 64px;
+      border-radius: 10px;
+      border: 1px solid var(--line-divider);
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.05), transparent 70%),
+        var(--bg-app);
+    }
+
+    .pill-frame {
+      display: block;
+      width: 100%;
+      max-width: 340px;
+      height: 60px;
+      border: 0;
+      background: transparent;
+    }
+
     .notch-stage {
       display: flex;
       justify-content: center;
       width: 100%;
-      padding: 0 0 12px;
+      padding: 0 0 8px;
       border-top: 1px solid var(--line-divider);
       background:
         radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.04), transparent 65%);
@@ -356,6 +418,47 @@
       background: var(--bg-app);
     }
 
+    .card-stage {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: flex-start;
+      width: 100%;
+      min-height: 210px;
+      border-radius: 10px;
+      border: 1px solid var(--line-divider);
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 85% 0%, rgba(255, 255, 255, 0.05), transparent 70%),
+        var(--bg-app);
+    }
+
+    .card-frame {
+      display: block;
+      width: 100%;
+      max-width: 360px;
+      height: 210px;
+      border: 0;
+      background: transparent;
+    }
+
+    .card-answered-banner {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      width: 100%;
+      padding: 14px 16px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .card-answered-title {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
     .workspace-frame-wrap {
       width: 100%;
       height: 640px;
@@ -373,19 +476,29 @@
       background: var(--bg-app);
     }
 
+    @media (max-width: 960px) {
+      .surfaces-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
     @media (max-width: 640px) {
       .demo-page {
-        padding: 16px 12px 36px;
-        gap: 22px;
+        padding: 14px 12px 36px;
+        gap: 20px;
       }
 
       .demo-player {
         position: static;
-        padding: 12px 0 16px;
+        padding: 10px 0 14px;
+      }
+
+      .surface-card {
+        padding: 10px;
       }
 
       .notch-frame-wrap {
-        height: 520px;
+        height: 510px;
       }
 
       .workspace-frame-wrap {
@@ -412,11 +525,15 @@
     <header class="demo-header">
       <h1 class="demo-title">Agent monitor</h1>
       <p class="demo-intro">
-        Recorded sample data walkthrough of the notch panel and shared workspace — no live agents are running behind this page.
+        Recorded sample walkthrough of the four desktop surfaces — no live agents are running behind this page.
       </p>
     </header>
 
-    <section class="demo-player" aria-label="Guided demo player">
+    <p id="file-protocol-notice" class="file-protocol-notice" hidden>
+      Embedded pages cannot load their sample data from a local file address — open this folder through a local web server to view the interactive frames.
+    </p>
+
+    <section id="demo-player-section" class="demo-player" aria-label="Guided demo player">
       <div class="demo-player-top">
         <div class="demo-player-controls">
           <button type="button" id="demo-play-btn" class="demo-play-btn">Play demo</button>
@@ -425,13 +542,13 @@
           <button type="button" id="demo-next-btn" class="control-btn" aria-label="Next step">Next</button>
         </div>
         <div class="demo-player-meta">
-          <span id="demo-step-counter" class="demo-step-counter">Step 1 of 11 · 0:00 / 0:58</span>
+          <span id="demo-step-counter" class="demo-step-counter">Step 1 of 12 · 0:00 / 0:58</span>
           <span>Space: play or pause · Arrows: step</span>
         </div>
       </div>
 
       <p id="demo-caption" class="demo-caption" aria-live="polite">
-        Press Play demo for a one-minute recorded walkthrough of the notch panel and workspace.
+        Press Play demo for a one-minute recorded walkthrough of the four surfaces.
       </p>
 
       <div class="demo-progress-track" aria-hidden="true">
@@ -442,33 +559,94 @@
     </section>
 
     <section id="notch-section" class="demo-section" aria-labelledby="notch-heading">
-      <div class="section-bar">
-        <div class="section-heading">
-          <h2 id="notch-heading" class="section-title">Notch panel</h2>
-          <p class="section-note">Switch sample states to inspect the expanded panel.</p>
+      <div class="surfaces-grid">
+        <div id="surface-notch" class="surface-card">
+          <div class="section-bar">
+            <div class="section-heading">
+              <h2 id="notch-heading" class="section-title">2. Open notch (chat and chat list)</h2>
+              <p class="section-note">Opens on the last chat, with folded work rows and a chat list.</p>
+            </div>
+          </div>
+
+          <div class="control-row" role="group" aria-label="Sample panel states">
+            <button type="button" class="control-btn" data-sample="empty" aria-pressed="false">Prompt</button>
+            <button type="button" class="control-btn" data-sample="attachments-states" aria-pressed="false">Dropped file</button>
+            <button type="button" class="control-btn" data-sample="working-live" aria-pressed="true">Working</button>
+            <button type="button" class="control-btn" data-sample="long-chat" aria-pressed="false">Work row</button>
+            <button type="button" class="control-btn" data-sample="awaiting-approval" aria-pressed="false">Needs approval</button>
+            <button type="button" class="control-btn" data-sample="qa-loop-verified" aria-pressed="false">Verified</button>
+            <button type="button" class="control-btn" data-sample="completed-cu" aria-pressed="false">Summary</button>
+            <button type="button" class="control-btn" data-sample="failed" aria-pressed="false">Stopped early</button>
+          </div>
+
+          <div class="control-row" role="group" aria-label="Open notch interactions">
+            <button type="button" id="action-type-prompt" class="control-btn">Type prompt</button>
+            <button type="button" id="action-fold-work" class="control-btn">Fold work row</button>
+            <button type="button" id="action-open-work" class="control-btn">Open work row</button>
+            <button type="button" id="action-open-chats" class="control-btn">Open chat list</button>
+          </div>
+
+          <div class="notch-stage">
+            <div class="notch-frame-wrap">
+              <iframe
+                id="notch-frame"
+                class="notch-frame"
+                title="Expanded notch panel sample"
+                src="../index.html?fixture=working-live&amp;state=expanded"
+              ></iframe>
+            </div>
+          </div>
         </div>
 
-        <div class="control-row" role="group" aria-label="Sample panel states">
-          <button type="button" class="control-btn" data-sample="empty" aria-pressed="false">Prompt</button>
-          <button type="button" class="control-btn" data-sample="attachments-states" aria-pressed="false">Dropped file</button>
-          <button type="button" class="control-btn" data-sample="working-live" aria-pressed="true">Working</button>
-          <button type="button" class="control-btn" data-sample="working-live-controls" aria-pressed="false">Stop and memory</button>
-          <button type="button" class="control-btn" data-sample="awaiting-approval" aria-pressed="false">Needs approval</button>
-          <button type="button" class="control-btn" data-sample="qa-loop-verified" aria-pressed="false">Verified</button>
-          <button type="button" class="control-btn" data-sample="completed-cu" aria-pressed="false">Cost</button>
-          <button type="button" class="control-btn" data-sample="failed" aria-pressed="false">Did not finish</button>
-          <button type="button" class="control-btn" data-sample="finished-unverified" aria-pressed="false">Finished unverified</button>
-        </div>
-      </div>
+        <div class="surfaces-side-stack">
+          <div id="surface-collapsed" class="surface-card is-surface-focus">
+            <div class="section-bar">
+              <div class="section-heading">
+                <h2 class="section-title">1. Collapsed notch</h2>
+                <p class="section-note">Top-center pill showing active agent color dots and status.</p>
+              </div>
+          <div class="control-row" role="group" aria-label="Collapsed notch states">
+            <button type="button" class="control-btn" data-pill-sample="working-live" aria-pressed="true">2 working</button>
+            <button type="button" class="control-btn" data-pill-sample="awaiting-approval" aria-pressed="false">Needs you</button>
+            <button type="button" class="control-btn" data-pill-sample="completed-cu" aria-pressed="false">Idle</button>
+          </div>
+            </div>
 
-      <div class="notch-stage">
-        <div class="notch-frame-wrap">
-          <iframe
-            id="notch-frame"
-            class="notch-frame"
-            title="Expanded notch panel sample"
-            src="../index.html?fixture=working-live&amp;state=expanded"
-          ></iframe>
+            <div class="pill-stage">
+              <iframe
+                id="pill-frame"
+                class="pill-frame"
+                title="Collapsed notch pill sample"
+                src="../index.html?fixture=working-live"
+              ></iframe>
+            </div>
+          </div>
+
+          <div id="surface-approval" class="surface-card">
+            <div class="section-bar">
+              <div class="section-heading">
+                <h2 class="section-title">3. Approval card at top right</h2>
+                <p class="section-note">Floating permission card with countdown timer; answers record in chat.</p>
+              </div>
+              <div class="control-row" role="group" aria-label="Approval card actions">
+                <button type="button" id="card-approve-btn" class="control-btn">Answer Approve</button>
+                <button type="button" id="card-reset-btn" class="control-btn">Show pending card</button>
+              </div>
+            </div>
+
+            <div class="card-stage">
+              <iframe
+                id="card-frame"
+                class="card-frame"
+                title="Top-right approval card sample"
+                src="../index.html?fixture=awaiting-approval&amp;shell=notes"
+              ></iframe>
+              <div id="card-answered-banner" class="card-answered-banner" hidden>
+                <span class="card-answered-title">Approved on top-right card</span>
+                <span>The card closes and the chat records one line: Asked “Let the agent click Place Order ($24.00)?” · Approved</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -476,8 +654,8 @@
     <section id="workspace-section" class="demo-section" aria-labelledby="workspace-heading">
       <div class="section-bar">
         <div class="section-heading">
-          <h2 id="workspace-heading" class="section-title">Workspace</h2>
-          <p class="section-note">Open any view inside the frame or in a separate tab.</p>
+          <h2 id="workspace-heading" class="section-title">4. Agent workspace window</h2>
+          <p class="section-note">One view menu across agent graph, state machine, transcript, analytics, artifacts, memory, settings, history, and marketing.</p>
         </div>
 
         <nav class="control-row" aria-label="Workspace views">
@@ -499,7 +677,7 @@
             href="../workspace.html?fixture=workspace-demo&amp;view=logs"
             target="workspace-frame"
             data-view="logs"
-          >Transcript and history</a>
+          >Transcript</a>
           <a
             class="view-link"
             href="../workspace.html?fixture=workspace-demo&amp;view=analytics"
@@ -511,7 +689,7 @@
             href="../workspace.html?fixture=workspace-demo&amp;view=artifacts"
             target="workspace-frame"
             data-view="artifacts"
-          >Artifacts and marketing</a>
+          >Artifacts</a>
           <a
             class="view-link"
             href="../workspace.html?fixture=workspace-demo&amp;view=memory"
@@ -524,6 +702,18 @@
             target="workspace-frame"
             data-view="settings"
           >Settings</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=history"
+            target="workspace-frame"
+            data-view="history"
+          >History</a>
+          <a
+            class="view-link"
+            href="../workspace.html?fixture=workspace-demo&amp;view=marketing"
+            target="workspace-frame"
+            data-view="marketing"
+          >Marketing</a>
           <a
             id="workspace-open-tab"
             class="external-link"
@@ -548,11 +738,31 @@
 
   <script>
     (function () {
-      const notchFrame = document.getElementById("notch-frame");
-      const workspaceFrame = document.getElementById("workspace-frame");
+      const fileNotice = document.getElementById("file-protocol-notice");
+      const playerSection = document.getElementById("demo-player-section");
       const notchSection = document.getElementById("notch-section");
       const workspaceSection = document.getElementById("workspace-section");
+
+      if (window.location.protocol === "file:") {
+        if (fileNotice) fileNotice.hidden = false;
+        if (playerSection) playerSection.hidden = true;
+        if (notchSection) notchSection.hidden = true;
+        if (workspaceSection) workspaceSection.hidden = true;
+        return;
+      }
+
+      const pillFrame = document.getElementById("pill-frame");
+      const notchFrame = document.getElementById("notch-frame");
+      const cardFrame = document.getElementById("card-frame");
+      const workspaceFrame = document.getElementById("workspace-frame");
+      const cardAnsweredBanner = document.getElementById("card-answered-banner");
+
+      const surfaceCollapsed = document.getElementById("surface-collapsed");
+      const surfaceNotch = document.getElementById("surface-notch");
+      const surfaceApproval = document.getElementById("surface-approval");
+
       const sampleButtons = Array.from(document.querySelectorAll("[data-sample]"));
+      const pillButtons = Array.from(document.querySelectorAll("[data-pill-sample]"));
       const viewLinks = Array.from(document.querySelectorAll(".view-link[data-view]"));
       const openTabLink = document.getElementById("workspace-open-tab");
 
@@ -568,80 +778,121 @@
       const DEMO_STEPS = [
         {
           target: "notch",
+          fixture: "working-live",
+          pillFixture: "working-live",
+          surface: "collapsed",
+          domAction: "collapsed-pill",
+          duration: 5,
+          label: "Collapsed notch",
+          caption: "At rest, the collapsed notch sits at the top of the screen with colored dots for each active agent."
+        },
+        {
+          target: "notch",
           fixture: "empty",
-          duration: 4,
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "type-prompt",
+          duration: 5,
           label: "Prompt",
-          caption: "Type a task in the prompt box under the notch or pick a starter prompt."
+          caption: "Open a chat in the notch and type a task in the prompt box before pressing Send."
         },
         {
           target: "notch",
           fixture: "attachments-states",
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "show-attachments",
           duration: 5,
           label: "Dropped file",
-          caption: "Drop files or screenshots to see what agents get before you send."
+          caption: "Drop a file into the notch to see the plain label showing what agents get before you send."
         },
         {
           target: "notch",
           fixture: "working-live",
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "working-agents",
           duration: 6,
-          label: "Working",
-          caption: "Named, colored agents work in parallel and stream live steps."
+          label: "Agents working",
+          caption: "Agents with their own names and colors work in parallel while live progress updates in the chat."
         },
         {
           target: "notch",
-          fixture: "working-live-controls",
-          duration: 6,
-          label: "Stop & memory",
-          caption: "Stop any running task, or undo an I'll remember preference inline."
+          fixture: "long-chat",
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "fold-work",
+          duration: 5,
+          label: "Work folded",
+          caption: "Completed agent steps stay folded into a single summary row so the conversation stays easy to read."
+        },
+        {
+          target: "notch",
+          fixture: "long-chat",
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "open-work",
+          duration: 5,
+          label: "Work opened",
+          caption: "Click Show on the work row to unfold every step the agent took in plain words."
         },
         {
           target: "notch",
           fixture: "awaiting-approval",
+          pillFixture: "awaiting-approval",
+          surface: "approval",
+          cardState: "pending",
+          domAction: "approval-pending",
           duration: 6,
-          label: "Approval",
-          caption: "Before a sensitive action runs, the agent pauses for approval in the conversation."
+          label: "Approval card",
+          caption: "When an agent needs permission, a card appears at the top right with a countdown timer and Silence means no."
         },
         {
           target: "notch",
           fixture: "qa-loop-verified",
-          duration: 6,
-          label: "Verified",
-          caption: "Once approved, the agent applies the fix, runs checks, and verifies the result."
+          pillFixture: "working-live",
+          surface: "approval",
+          cardState: "approved",
+          domAction: "approval-answered",
+          duration: 5,
+          label: "Approved",
+          caption: "Answering Approve on the top-right card clears the card and records the decision as one line in the chat."
         },
         {
           target: "notch",
           fixture: "completed-cu",
-          duration: 5,
-          label: "Cost",
-          caption: "Completed runs report verified outcomes alongside total cost and step counts."
+          pillFixture: "completed-cu",
+          surface: "notch",
+          domAction: "verified-cost",
+          duration: 6,
+          label: "Result summary",
+          caption: "Finished runs report the outcome in plain words with run time and step count, while sample mode flags mock verification."
+        },
+        {
+          target: "notch",
+          fixture: "a7-long-results",
+          pillFixture: "working-live",
+          surface: "notch",
+          domAction: "open-chat-list",
+          duration: 4,
+          label: "Chat list",
+          caption: "Open the notch home chat list to see each chat row with its agent color, name, last line, time, and state, alongside new chat, settings, and Esc controls."
         },
         {
           target: "workspace",
           view: "graph",
-          duration: 5,
-          label: "Graph",
-          caption: "Open the workspace sheet to see how the main and helper agents connect."
+          surface: "workspace",
+          duration: 3,
+          label: "Agent graph",
+          caption: "Open the agent workspace window to inspect how the primary agent and sub-agents connect on the agent graph."
         },
         {
           target: "workspace",
           view: "state-machine",
-          duration: 5,
-          label: "States",
-          caption: "Inspect each agent's state machine to trace planning, acting, and handoffs."
-        },
-        {
-          target: "workspace",
-          view: "artifacts",
-          duration: 5,
-          label: "Artifacts",
-          caption: "Review produced patches, outputs, and verification evidence in artifacts."
-        },
-        {
-          target: "workspace",
-          view: "analytics",
-          duration: 5,
-          label: "Analytics",
-          caption: "Track run duration, model spend, and step counts across tasks in analytics."
+          surface: "workspace",
+          duration: 3,
+          label: "State machine",
+          caption: "Switch the workspace view menu to the state machine to trace planning, action, verification, and completion."
         }
       ];
 
@@ -660,8 +911,9 @@
       let isFinished = false;
       let lastTickMs = 0;
       let timerId = null;
-      let lastTargetSection = null;
+      let lastScrollKey = null;
       let suppressNextSpaceKeyup = false;
+      let actionToken = 0;
 
       function formatTime(seconds) {
         const clamped = Math.max(0, Math.min(totalDuration, Math.floor(seconds)));
@@ -670,15 +922,176 @@
         return `${mins}:${String(secs).padStart(2, "0")}`;
       }
 
-      function selectNotchSample(name) {
+      function selectPillSample(name) {
+        if (!pillFrame || !name) return;
+        const encoded = encodeURIComponent(name);
+        const targetSrc = `../index.html?fixture=${encoded}`;
+        if (pillFrame.getAttribute("src") !== targetSrc) {
+          pillFrame.src = targetSrc;
+        }
+        for (const btn of pillButtons) {
+          btn.setAttribute("aria-pressed", btn.dataset.pillSample === name ? "true" : "false");
+        }
+      }
+
+      let notchLoadWaiter = null;
+
+      function selectNotchSample(name, onReady) {
         const encoded = encodeURIComponent(name);
         const targetSrc = `../index.html?fixture=${encoded}&state=expanded`;
-        if (notchFrame.getAttribute("src") !== targetSrc) {
+        const srcChanged = notchFrame.getAttribute("src") !== targetSrc;
+        if (notchLoadWaiter) {
+          notchFrame.removeEventListener("load", notchLoadWaiter);
+          notchLoadWaiter = null;
+        }
+        if (srcChanged) {
+          if (typeof onReady === "function") {
+            notchLoadWaiter = () => {
+              notchFrame.removeEventListener("load", notchLoadWaiter);
+              notchLoadWaiter = null;
+              onReady();
+            };
+            notchFrame.addEventListener("load", notchLoadWaiter);
+          }
           notchFrame.src = targetSrc;
+        } else if (typeof onReady === "function") {
+          onReady();
         }
         for (const btn of sampleButtons) {
           btn.setAttribute("aria-pressed", btn.dataset.sample === name ? "true" : "false");
         }
+      }
+
+      function setApprovalCardState(mode) {
+        if (!cardFrame || !cardAnsweredBanner) return;
+        const pendingSrc = "../index.html?fixture=awaiting-approval&shell=notes";
+        if (mode === "approved") {
+          try {
+            const doc = cardFrame.contentDocument;
+            const approveBtn = doc && doc.querySelector('button[data-choice="approve"]');
+            if (approveBtn) approveBtn.click();
+          } catch {
+            /* ignore cross-frame timing errors */
+          }
+          cardFrame.hidden = true;
+          cardAnsweredBanner.hidden = false;
+        } else {
+          cardAnsweredBanner.hidden = true;
+          cardFrame.hidden = false;
+          try {
+            const doc = cardFrame.contentDocument;
+            const hasCard = doc && doc.querySelector("[data-help-card]");
+            if (!hasCard) {
+              cardFrame.src = pendingSrc;
+            }
+          } catch {
+            cardFrame.src = pendingSrc;
+          }
+        }
+      }
+
+      function runNotchDomAction(actionName, expectedFixture) {
+        const token = ++actionToken;
+        let attempts = 0;
+
+        function tryAction() {
+          if (token !== actionToken) return;
+          attempts += 1;
+          let doc = null;
+          let win = null;
+          try {
+            win = notchFrame.contentWindow;
+            doc = notchFrame.contentDocument;
+          } catch {
+            return;
+          }
+          const href = win && win.location ? String(win.location.href || "") : "";
+          const fixtureReady = !expectedFixture || href.includes(`fixture=${encodeURIComponent(expectedFixture)}`);
+          const isLoading = !doc || !doc.body || doc.readyState !== "complete" || Boolean(doc.querySelector("#timeline-scroll .skeleton-line"));
+          if (!fixtureReady || isLoading) {
+            if (attempts < 100) window.setTimeout(tryAction, 80);
+            return;
+          }
+
+          if (actionName === "type-prompt") {
+            const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
+            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"], .chat-list-row[data-action="new-primary-chat"]');
+            if (chatListEl && firstChatBtn) {
+              firstChatBtn.click();
+            }
+            const input = doc.getElementById("prompt-input");
+            if (!input) {
+              if (attempts < 100) window.setTimeout(tryAction, 80);
+              return;
+            }
+            input.value = "Check the checkout button alignment and verify the fix.";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+
+          if (actionName === "fold-work" || actionName === "open-work") {
+            const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
+            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"]');
+            if (chatListEl && firstChatBtn) {
+              firstChatBtn.click();
+            }
+            const workBtn = doc.querySelector('.work-divider-btn[data-action="toggle-work"]');
+            if (!workBtn) {
+              if (attempts < 100) window.setTimeout(tryAction, 80);
+              return;
+            }
+            const isExpanded = workBtn.getAttribute("aria-expanded") === "true";
+            if (actionName === "open-work" && !isExpanded) {
+              workBtn.click();
+            } else if (actionName === "fold-work" && isExpanded) {
+              workBtn.click();
+            }
+            window.setTimeout(() => {
+              if (token !== actionToken) return;
+              const freshBtn = doc.querySelector('.work-divider-btn[data-action="toggle-work"]');
+              const scroller = doc.getElementById("timeline-scroll");
+              if (freshBtn && scroller) {
+                const scRect = scroller.getBoundingClientRect();
+                const btnRect = freshBtn.getBoundingClientRect();
+                const offsetTop = btnRect.top - scRect.top + scroller.scrollTop;
+                const targetTop = actionName === "open-work"
+                  ? Math.max(0, offsetTop - 8)
+                  : Math.max(0, offsetTop - Math.max(0, (scroller.clientHeight - btnRect.height) / 2));
+                scroller.scrollTop = targetTop;
+              }
+            }, 40);
+            return;
+          }
+
+          if (actionName === "open-chat-list") {
+            const existingList = doc.querySelector("#timeline-scroll .chat-list");
+            if (existingList) {
+              const scroller = doc.getElementById("timeline-scroll");
+              if (scroller) scroller.scrollTop = 0;
+              return;
+            }
+            const openListBtn = doc.querySelector('[data-action="open-chat-list"]');
+            if (!openListBtn) {
+              if (attempts < 100) window.setTimeout(tryAction, 80);
+              return;
+            }
+            openListBtn.click();
+            window.setTimeout(() => {
+              if (token !== actionToken) return;
+              const scroller = doc.getElementById("timeline-scroll");
+              if (scroller) scroller.scrollTop = 0;
+            }, 40);
+            return;
+          }
+
+          const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
+          const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"]');
+          if (chatListEl && firstChatBtn) {
+            firstChatBtn.click();
+          }
+        }
+
+        window.setTimeout(tryAction, 40);
       }
 
       function selectWorkspaceView(viewName, updateIframe) {
@@ -747,19 +1160,39 @@
           }
         }
 
+        const activeSurface = isStarted ? step.surface : "collapsed";
+        if (surfaceCollapsed) {
+          surfaceCollapsed.classList.toggle("is-surface-focus", activeSurface === "collapsed");
+        }
+        if (surfaceNotch) {
+          surfaceNotch.classList.toggle("is-surface-focus", activeSurface === "notch");
+        }
+        if (surfaceApproval) {
+          surfaceApproval.classList.toggle("is-surface-focus", activeSurface === "approval");
+        }
         if (notchSection && workspaceSection) {
           notchSection.classList.toggle("is-demo-focus", isStarted && step.target === "notch");
           workspaceSection.classList.toggle("is-demo-focus", isStarted && step.target === "workspace");
         }
       }
 
-      function scrollToTargetIfNeeded(target) {
-        if (lastTargetSection === target) return;
-        lastTargetSection = target;
-        const section = target === "workspace" ? workspaceSection : notchSection;
-        if (!section) return;
+      function scrollToSurfaceIfNeeded(step) {
+        const isNarrow = window.innerWidth <= 960;
+        const key = isNarrow ? step.surface || step.target : step.target;
+        if (lastScrollKey === key) return;
+        lastScrollKey = key;
+
+        let el = notchSection;
+        if (step.target === "workspace") {
+          el = workspaceSection;
+        } else if (isNarrow) {
+          if (step.surface === "collapsed") el = surfaceCollapsed;
+          else if (step.surface === "approval") el = surfaceApproval;
+          else el = surfaceNotch;
+        }
+        if (!el) return;
         const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        section.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+        el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
       }
 
       function applyStep(index, options = {}) {
@@ -769,14 +1202,25 @@
         isFinished = false;
 
         const step = DEMO_STEPS[currentIndex];
+        if (step.pillFixture) {
+          selectPillSample(step.pillFixture);
+        }
+        if (step.cardState) {
+          setApprovalCardState(step.cardState);
+        } else {
+          setApprovalCardState("pending");
+        }
+
         if (step.target === "notch") {
-          selectNotchSample(step.fixture);
+          selectNotchSample(step.fixture, () => {
+            runNotchDomAction(step.domAction || "", step.fixture);
+          });
         } else if (step.target === "workspace") {
           selectWorkspaceView(step.view, true);
         }
 
         if (options.scroll !== false) {
-          scrollToTargetIfNeeded(step.target);
+          scrollToSurfaceIfNeeded(step);
         }
         updatePlayerUI();
       }
@@ -811,7 +1255,7 @@
 
       function playDemo() {
         if (isFinished || !isStarted) {
-          lastTargetSection = null;
+          lastScrollKey = null;
           applyStep(0);
         }
         isPlaying = true;
@@ -837,7 +1281,7 @@
 
       function restartDemo() {
         stopTimer();
-        lastTargetSection = null;
+        lastScrollKey = null;
         applyStep(0);
         playDemo();
       }
@@ -904,6 +1348,44 @@
           selectNotchSample(btn.dataset.sample);
         });
       }
+
+      for (const btn of pillButtons) {
+        btn.addEventListener("click", () => {
+          if (isPlaying) pauseDemo();
+          selectPillSample(btn.dataset.pillSample);
+        });
+      }
+
+      document.getElementById("action-type-prompt")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        selectNotchSample("empty", () => runNotchDomAction("type-prompt", "empty"));
+      });
+
+      document.getElementById("action-fold-work")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        selectNotchSample("long-chat", () => runNotchDomAction("fold-work", "long-chat"));
+      });
+
+      document.getElementById("action-open-work")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        selectNotchSample("long-chat", () => runNotchDomAction("open-work", "long-chat"));
+      });
+
+      document.getElementById("action-open-chats")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        selectNotchSample("a7-long-results", () => runNotchDomAction("open-chat-list", "a7-long-results"));
+      });
+
+      document.getElementById("card-approve-btn")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        setApprovalCardState("approved");
+        selectNotchSample("qa-loop-verified");
+      });
+
+      document.getElementById("card-reset-btn")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        setApprovalCardState("pending");
+      });
 
       for (const link of viewLinks) {
         link.addEventListener("click", () => {
