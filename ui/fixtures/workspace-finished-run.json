@@ -1,0 +1,105 @@
+{
+  "agents": {
+    "r1763142000-2": {
+      "name": "Maya",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C",
+      "greeted": true
+    }
+  },
+  "runs": [
+    {
+      "id": "r1763142000-1",
+      "goal": "Open Calculator and compute 23 * 19",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 9.4,
+      "n_events": 4,
+      "result": {
+        "ok": true,
+        "summary": "Computed 437 in Calculator"
+      }
+    },
+    {
+      "id": "r1763142000-2",
+      "goal": "Compute 23 * 19 in Calculator",
+      "role": "cu",
+      "parent": "r1763142000-1",
+      "state": "done",
+      "elapsed": 7.8,
+      "n_events": 5,
+      "result": {
+        "ok": true,
+        "summary": "Display reads 437"
+      }
+    }
+  ],
+  "events": [
+    {
+      "t": 1763142000.1,
+      "run": "r1763142000-1",
+      "kind": "plan",
+      "data": { "goal": "Open Calculator and compute 23 * 19", "agent": "r1763142000-2" }
+    },
+    {
+      "t": 1763142002.0,
+      "run": "r1763142000-2",
+      "kind": "act",
+      "data": { "action": "click:button:23", "app": "Calculator" }
+    },
+    {
+      "t": 1763142005.0,
+      "run": "r1763142000-2",
+      "kind": "verify",
+      "data": { "ok": true, "summary": "Display reads 437" }
+    },
+    {
+      "t": 1763142009.4,
+      "run": "r1763142000-1",
+      "kind": "done",
+      "data": { "ok": true, "summary": "Computed 437 in Calculator" }
+    }
+  ],
+  "actions": [
+    {
+      "t": 1763142001.0,
+      "run": "r1763142000-2",
+      "agent": "r1763142000-2",
+      "app": "Calculator",
+      "from": "Calculator:launch",
+      "to": "Calculator:keypad",
+      "action": "click:button:clear",
+      "outcome": "ok",
+      "ms": 180
+    },
+    {
+      "t": 1763142003.2,
+      "run": "r1763142000-2",
+      "agent": "r1763142000-2",
+      "app": "Calculator",
+      "from": "Calculator:keypad",
+      "to": "Calculator:result",
+      "action": "click:button:equals",
+      "outcome": "ok",
+      "ms": 210
+    }
+  ],
+  "analytics": {
+    "tasks": 1,
+    "calls": 6,
+    "cost": 0.0124,
+    "by_role": {
+      "orchestrator": { "calls": 2, "cost": 0.0041 },
+      "cu": { "calls": 4, "cost": 0.0083 }
+    },
+    "by_purpose": {
+      "decide": { "calls": 4, "cost": 0.0092 },
+      "plan": { "calls": 2, "cost": 0.0032 }
+    },
+    "by_app": {
+      "Calculator": { "tries": 2, "ok": 2, "cost": 0.0083 }
+    }
+  }
+}

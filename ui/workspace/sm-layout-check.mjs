@@ -25,8 +25,15 @@ const __dirname = path.dirname(__filename);
 const UI_DIR = path.resolve(__dirname, "..");
 
 const WIDTHS = [560, 720, 900, 1280];
-const FIXTURES = ["workspace-state-loop", "workspace-demo", "workspace-state-branches", "workspace-state-filters"];
+const FIXTURES = [
+  "workspace-state-loop",
+  "workspace-demo",
+  "workspace-state-branches",
+  "workspace-state-filters",
+  "workspace-finished-run",
+];
 const NEGATIVE_CONTROL = process.argv.includes("--negative-control");
+const NEGATIVE_CONTROL_SCROLL = process.argv.includes("--negative-control-scroll");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -257,7 +264,69 @@ const CHECK_EXPR = `(() => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function extractCssBlock(cssText, selectorPattern) {
+  const m = cssText.match(new RegExp(`${selectorPattern}\\s*\\{([^}]*)\\}`, "m"));
+  return m ? m[1] : "";
+}
+
+function checkNoPageScrollAt900x600(negativeControl = false) {
+  const html = fs.readFileSync(path.join(UI_DIR, "workspace.html"), "utf8");
+  let css = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+  if (negativeControl) {
+    css = css.replace(/\.view-section\s*\{[^}]*\}/m, ".view-section { display: flex; flex-direction: column; }");
+  }
+
+  const errors = [];
+  const rootRules = [
+    { name: "html, body", pat: "html,\\s*body", req: ["height:\\s*100vh", "overflow:\\s*hidden"] },
+    { name: ".workspace-app", pat: "\\.workspace-app", req: ["height:\\s*100vh", "overflow:\\s*hidden"] },
+    { name: ".workspace-main", pat: "\\.workspace-main", req: ["flex:\\s*1", "min-height:\\s*0", "overflow:\\s*hidden"] },
+    { name: ".view-section", pat: "\\.view-section", req: ["overflow:\\s*hidden", "min-height:\\s*0"] },
+    { name: ".view-scroll", pat: "\\.view-scroll", req: ["overflow-y:\\s*auto", "min-height:\\s*0"] },
+  ];
+  for (const r of rootRules) {
+    const block = extractCssBlock(css, r.pat);
+    if (!block) {
+      errors.push(`Missing CSS rule for ${r.name}`);
+      continue;
+    }
+    for (const propPat of r.req) {
+      if (!new RegExp(propPat).test(block)) {
+        errors.push(`${r.name} missing ${propPat.replace(/\\s\*/g, " ")} (could scroll page at 900x600)`);
+      }
+    }
+  }
+
+  const panelSections = [...html.matchAll(/<section\b([^>]*)data-view-panel="([^"]+)"([^>]*)>([\s\S]*?)<\/section>/g)];
+  if (!panelSections.length) {
+    errors.push("No <section data-view-panel=...> elements found in workspace.html");
+  }
+  for (const m of panelSections) {
+    const attrs = `${m[1]} ${m[3]}`;
+    const viewName = m[2];
+    const body = m[4];
+    if (!/\bclass="[^"]*\bview-section\b/.test(attrs)) {
+      errors.push(`Panel ${viewName} missing .view-section root class`);
+    }
+    if (!/\bclass="[^"]*\bview-inner\b/.test(body)) {
+      errors.push(`Panel ${viewName} missing .view-inner root container`);
+    }
+  }
+
+  if (errors.length) {
+    console.log(`FAIL node-scroll-900x600 (${panelSections.length} view panels): ${errors.join("; ")}`);
+    return false;
+  }
+  console.log(`PASS node-scroll-900x600 (${panelSections.length} view panels bounded, no page scroll at 900x600)`);
+  return true;
+}
+
 async function main() {
+  let failed = !checkNoPageScrollAt900x600(NEGATIVE_CONTROL_SCROLL);
+  if (NEGATIVE_CONTROL_SCROLL && failed) {
+    console.log("B1b-L CHECK FAIL (negative-control-scroll)");
+    process.exit(1);
+  }
   const chromePath = findChrome();
   if (!chromePath) {
     console.error("Chrome not found");
@@ -283,7 +352,6 @@ async function main() {
   await pageCdp.send("Page.enable");
   await pageCdp.send("Runtime.enable");
 
-  let failed = false;
   for (const fixture of FIXTURES) {
     for (const width of WIDTHS) {
       await pageCdp.send("Emulation.setDeviceMetricsOverride", {
@@ -413,8 +481,8 @@ async function main() {
     console.log("B1b-L CHECK FAIL");
     process.exit(1);
   }
-  const totalChecks = FIXTURES.length * WIDTHS.length + filterChecks;
-  console.log(`B1b-L CHECK PASS (${totalChecks}/${totalChecks} fixture x width & filter checks)`);
+  const totalChecks = 1 + FIXTURES.length * WIDTHS.length + filterChecks;
+  console.log(`B1b-L CHECK PASS (${totalChecks}/${totalChecks} node-scroll, fixture x width & filter checks)`);
   process.exit(0);
 }
 
