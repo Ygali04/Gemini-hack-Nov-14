@@ -951,8 +951,8 @@ select:focus-visible,
 
 .sm-svg {
   display: block;
-  min-width: 1040px;
   width: 100%;
+  min-width: 0;
   height: auto;
 }
 

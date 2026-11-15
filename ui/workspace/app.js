@@ -3132,9 +3132,11 @@
       }
       const wNode = 196;
       const hNode = 56;
-      const colStep = 340;
-      const rowStep = 104;
-      const padX = 24;
+      const colStep = 236;
+      const rowStep = 148;
+      const padX = 20;
+      const pillW = 236;
+      const pillH = 38;
 
       const screenIndex = new Map(sm.screens.map((s, i) => [s.id, i]));
       const adj = new Map(sm.screens.map((s) => [s.id, new Set()]));
@@ -3176,82 +3178,83 @@
         components.push(compIds);
       }
 
+      /* Top-to-bottom layout for narrow right-edge panel (560px+) */
       const nodeLayout = new Map();
       let currentY = 20;
-      let maxSvgWidth = 880;
+      let maxSvgWidth = 520;
 
       for (const compIds of components) {
         const compSet = new Set(compIds);
-        const colById = new Map();
+        const layerById = new Map();
         const roots = compIds.filter((id) => (inDegree.get(id) || 0) === 0);
         const bfsQueue = roots.length ? [...roots] : [compIds[0]];
-        for (const r of bfsQueue) colById.set(r, 0);
+        for (const r of bfsQueue) layerById.set(r, 0);
 
         while (bfsQueue.length) {
           const cur = bfsQueue.shift();
-          const curCol = colById.get(cur) || 0;
+          const curLayer = layerById.get(cur) || 0;
           for (const edge of outEdgesByNode.get(cur) || []) {
             if (!compSet.has(edge.to)) continue;
-            if (!colById.has(edge.to)) {
-              colById.set(edge.to, curCol + 1);
+            if (!layerById.has(edge.to)) {
+              layerById.set(edge.to, curLayer + 1);
               bfsQueue.push(edge.to);
             }
           }
         }
         for (const id of compIds) {
-          if (!colById.has(id)) colById.set(id, 0);
+          if (!layerById.has(id)) layerById.set(id, 0);
         }
 
         const layers = new Map();
-        let maxCol = 0;
+        let maxLayer = 0;
         for (const id of compIds) {
-          const col = colById.get(id) || 0;
-          if (col > maxCol) maxCol = col;
-          if (!layers.has(col)) layers.set(col, []);
-          layers.get(col).push(id);
+          const layer = layerById.get(id) || 0;
+          if (layer > maxLayer) maxLayer = layer;
+          if (!layers.has(layer)) layers.set(layer, []);
+          layers.get(layer).push(id);
         }
 
-        let maxRowsInComp = 1;
+        let maxColsInComp = 1;
         for (const ids of layers.values()) {
-          if (ids.length > maxRowsInComp) maxRowsInComp = ids.length;
+          if (ids.length > maxColsInComp) maxColsInComp = ids.length;
         }
 
         const compEdges = sm.edges.filter((e) => compSet.has(e.from) && compSet.has(e.to));
         const hasSelfLoop = compEdges.some((e) => e.from === e.to);
         const backEdgeCount = compEdges.filter(
-          (e) => e.from !== e.to && (colById.get(e.to) || 0) <= (colById.get(e.from) || 0)
+          (e) => e.from !== e.to && (layerById.get(e.to) || 0) <= (layerById.get(e.from) || 0)
         ).length;
 
-        const topPad = hasSelfLoop ? 52 : 12;
-        const compTopY = currentY + topPad;
+        const compWidth = Math.max(520, padX * 2 + (maxColsInComp - 1) * colStep + wNode + (hasSelfLoop ? 290 : 260));
+        if (compWidth > maxSvgWidth) maxSvgWidth = compWidth;
 
-        for (let col = 0; col <= maxCol; col++) {
-          const ids = layers.get(col) || [];
-          const colOffsetY = Math.round(((maxRowsInComp - ids.length) * rowStep) / 2);
-          ids.forEach((id, rowIdx) => {
-            const x = padX + col * colStep;
-            const y = compTopY + colOffsetY + rowIdx * rowStep;
+        const compTopY = currentY + 12;
+        const compRightX = padX + (maxColsInComp - 1) * colStep + wNode;
+
+        for (let layer = 0; layer <= maxLayer; layer++) {
+          const ids = layers.get(layer) || [];
+          ids.forEach((id, colIdx) => {
+            const x = padX + colIdx * colStep;
+            const y = compTopY + layer * rowStep;
             nodeLayout.set(id, {
               id,
-              col,
-              row: rowIdx,
+              col: colIdx,
+              row: layer,
               x,
               y,
               compTopY,
-              compBottomY: compTopY + (maxRowsInComp - 1) * rowStep + hNode,
+              compRightX,
+              compBottomY: compTopY + maxLayer * rowStep + hNode,
             });
           });
         }
 
-        const compWidth = padX * 2 + maxCol * colStep + wNode + 40;
-        if (compWidth > maxSvgWidth) maxSvgWidth = compWidth;
-
-        const bottomLoopPad = backEdgeCount > 0 ? 52 + backEdgeCount * 54 : 24;
-        currentY = compTopY + (maxRowsInComp - 1) * rowStep + hNode + bottomLoopPad;
+        const bottomPad = backEdgeCount > 0 ? 48 : 28;
+        currentY = compTopY + maxLayer * rowStep + hNode + bottomPad;
       }
 
-      const svgWidth = maxSvgWidth;
-      const svgHeight = Math.max(180, currentY + 12);
+      let svgWidth = maxSvgWidth;
+      const svgHeight = Math.max(220, currentY + 12);
 
       /* Group parallel edges between the same pair of nodes */
       const pairGroups = new Map();
@@ -3279,137 +3282,192 @@
         return `<polygon points="${tipX.toFixed(1)},${tipY.toFixed(1)} ${p1x},${p1y} ${p2x},${p2y}" fill="${escapeHtml(color)}" />`;
       }
 
+      function boxesOverlap(a, b, pad = 6) {
+        return (
+          a.x < b.x + b.w + pad &&
+          a.x + a.w + pad > b.x &&
+          a.y < b.y + b.h + pad &&
+          a.y + a.h + pad > b.y
+        );
+      }
+
+      /* Reserve all node boxes first, then self-loop boxes, then place label boxes */
+      const occupiedBoxes = [];
+      for (const pos of nodeLayout.values()) {
+        occupiedBoxes.push({ x: pos.x, y: pos.y, w: wNode, h: hNode });
+      }
+
+      /* Precompute edge geometry + self-loop curves so self-loop boxes are reserved before placing any label */
+      const edgeGeoms = [];
       let backEdgeSeq = 0;
-      const placedPills = [];
+      for (const edge of sm.edges) {
+        const fromPos = nodeLayout.get(edge.from);
+        const toPos = nodeLayout.get(edge.to);
+        if (!fromPos || !toPos) continue;
+
+        const statusFill =
+          edge.statusClass === "state-success"
+            ? "#32d583"
+            : edge.statusClass === "state-warning"
+              ? "#f5a623"
+              : "#ff5c6c";
+        const isSelectedEdge = selectedEdge && selectedEdge.id === edge.id;
+        const isReplayHit =
+          activeReplayStep &&
+          ((activeReplayStep.fromId && edge.from === activeReplayStep.fromId && activeReplayStep.toId && edge.to === activeReplayStep.toId) ||
+            (activeReplayStep.action && edge.action === activeReplayStep.action));
+
+        const edgeStroke = isReplayHit
+          ? "#f5a623"
+          : isSelectedEdge
+            ? "#f2f4f8"
+            : edge.reliabilityColor || edge.trailColor || "#767d8e";
+        const edgeWidth = isSelectedEdge || isReplayHit ? Math.max(3, edge.strokeWidth || 2.2) : edge.strokeWidth || 2.2;
+        const dashAttr = edge.isDestructive ? 'stroke-dasharray="6 4"' : "";
+
+        const reliabilityBadge = edge.isDestructive
+          ? "⊘ Destructive · gated"
+          : edge.reliabilityP != null
+            ? `P=${edge.reliabilityP} · ${edge.tries} ${edge.tries === 1 ? "try" : "tries"}`
+            : "gated";
+        const metaText = `${reliabilityBadge}${
+          edge.meanMs ? ` · ${edge.meanMs}ms` : ""
+        } · ${edge.sourceLabel}`;
+        const shortAction = truncateWord(edge.actionClean, 22);
+
+        let pathD = "";
+        let labelX = 0;
+        let labelY = 0;
+        let arrowHtml = "";
+        let isSelfLoop = false;
+
+        if (edge.from === edge.to) {
+          /* Self-loop arching to the right of the node */
+          isSelfLoop = true;
+          const x1 = fromPos.x + wNode;
+          const y1 = fromPos.y + 12;
+          const x2 = fromPos.x + wNode;
+          const y2 = fromPos.y + hNode - 12;
+          const loopOut = 48;
+          const cx1 = x1 + loopOut;
+          const cy1 = y1 - 6;
+          const cx2 = x2 + loopOut;
+          const cy2 = y2 + 6;
+          pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+          arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          /* Reserve self-loop arrow bounding box */
+          occupiedBoxes.push({
+            x: fromPos.x + wNode + 1,
+            y: fromPos.y + 4,
+            w: loopOut,
+            h: hNode - 8,
+          });
+          labelX = fromPos.x + wNode + loopOut + 12 + pillW / 2;
+          labelY = fromPos.y + hNode / 2;
+        } else if (toPos.row <= fromPos.row) {
+          /* Backward / loop edge: route cleanly down the right side */
+          backEdgeSeq += 1;
+          const x1 = fromPos.x + wNode;
+          const y1 = fromPos.y + hNode / 2;
+          const x2 = toPos.x + wNode;
+          const y2 = toPos.y + hNode / 2;
+          const laneX = Math.max(fromPos.compRightX, toPos.compRightX) + 34 + (backEdgeSeq - 1) * 28;
+          const cx1 = laneX;
+          const cy1 = y1;
+          const cx2 = laneX;
+          const cy2 = y2;
+          pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+          labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2) + pillW / 2 + 8;
+          labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+          arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+        } else {
+          /* Forward edge: top-to-bottom cubic Bezier */
+          const pairInfo = edgeIndexInPair.get(edge.id) || { idx: 0, count: 1 };
+          const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 44;
+          const x1 = fromPos.x + wNode / 2;
+          const y1 = fromPos.y + hNode;
+          const x2 = toPos.x + wNode / 2;
+          const y2 = toPos.y;
+          const dy = Math.max(40, (y2 - y1) * 0.45);
+          const cx1 = x1 + offset;
+          const cy1 = y1 + dy;
+          const cx2 = x2 + offset;
+          const cy2 = y2 - dy;
+          pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+          labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2);
+          labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
+          arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+        }
+
+        edgeGeoms.push({
+          edge,
+          statusFill,
+          isSelectedEdge,
+          edgeStroke,
+          edgeWidth,
+          dashAttr,
+          metaText,
+          shortAction,
+          pathD,
+          labelX,
+          labelY,
+          arrowHtml,
+          isSelfLoop,
+        });
+      }
+
       let maxEdgeBottom = svgHeight;
-      const edgesSvg = sm.edges
-        .map((edge) => {
-          const fromPos = nodeLayout.get(edge.from);
-          const toPos = nodeLayout.get(edge.to);
-          if (!fromPos || !toPos) return "";
+      let maxEdgeRight = svgWidth;
+      const edgesSvg = edgeGeoms
+        .map((g) => {
+          const baseX = Math.max(8, g.labelX - pillW / 2);
+          const baseY = Math.max(8, g.labelY - pillH / 2);
 
-          const statusFill =
-            edge.statusClass === "state-success"
-              ? "#32d583"
-              : edge.statusClass === "state-warning"
-                ? "#f5a623"
-                : "#ff5c6c";
-          const isSelectedEdge = selectedEdge && selectedEdge.id === edge.id;
-          const isReplayHit =
-            activeReplayStep &&
-            ((activeReplayStep.fromId && edge.from === activeReplayStep.fromId && activeReplayStep.toId && edge.to === activeReplayStep.toId) ||
-              (activeReplayStep.action && edge.action === activeReplayStep.action));
-
-          const edgeStroke = isReplayHit
-            ? "#f5a623"
-            : isSelectedEdge
-              ? "#f2f4f8"
-              : edge.reliabilityColor || edge.trailColor || "#767d8e";
-          const edgeWidth = isSelectedEdge || isReplayHit ? Math.max(3, edge.strokeWidth || 2.2) : edge.strokeWidth || 2.2;
-          const dashAttr = edge.isDestructive ? 'stroke-dasharray="6 4"' : "";
-
-          const reliabilityBadge = edge.isDestructive
-            ? "⊘ Destructive · gated"
-            : edge.reliabilityP != null
-              ? `P=${edge.reliabilityP} · ${edge.tries} ${edge.tries === 1 ? "try" : "tries"}`
-              : "gated";
-          const metaText = `${reliabilityBadge}${
-            edge.meanMs ? ` · ${edge.meanMs}ms` : ""
-          } · ${edge.sourceLabel}`;
-          const shortAction = truncateWord(edge.actionClean, 24);
-
-          let pathD = "";
-          let labelX = 0;
-          let labelY = 0;
-          let arrowHtml = "";
-
-          if (edge.from === edge.to) {
-            /* Self-loop arching above the node */
-            const x1 = fromPos.x + wNode * 0.34;
-            const y1 = fromPos.y;
-            const x2 = fromPos.x + wNode * 0.66;
-            const y2 = fromPos.y;
-            const cx1 = x1 - 12;
-            const cy1 = fromPos.y - 54;
-            const cx2 = x2 + 12;
-            const cy2 = fromPos.y - 54;
-            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-            labelX = fromPos.x + wNode * 0.5;
-            labelY = fromPos.y - 44;
-            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
-          } else if (toPos.col <= fromPos.col) {
-            /* Backward / loop edge: curve cleanly below the component so cycles read as loops */
-            backEdgeSeq += 1;
-            const x1 = fromPos.x + wNode * 0.5;
-            const y1 = fromPos.y + hNode;
-            const x2 = toPos.x + wNode * 0.5;
-            const y2 = toPos.y + hNode;
-            const loopY = Math.max(fromPos.compBottomY, toPos.compBottomY) + 38 + (backEdgeSeq - 1) * 54;
-            const cx1 = x1;
-            const cy1 = loopY + 18;
-            const cx2 = x2;
-            const cy2 = loopY + 18;
-            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-            labelX = Math.round((x1 + x2) / 2);
-            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
-            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
-          } else {
-            /* Forward edge: left-to-right cubic Bezier */
-            const pairInfo = edgeIndexInPair.get(edge.id) || { idx: 0, count: 1 };
-            const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 54;
-            const skipLift = toPos.col - fromPos.col > 1 ? -28 : 0;
-            const x1 = fromPos.x + wNode;
-            const y1 = fromPos.y + hNode / 2;
-            const x2 = toPos.x;
-            const y2 = toPos.y + hNode / 2;
-            const dx = Math.max(48, (x2 - x1) * 0.45);
-            const cx1 = x1 + dx;
-            const cy1 = y1 + offset + skipLift;
-            const cx2 = x2 - dx;
-            const cy2 = y2 + offset + skipLift;
-            pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
-            labelX = Math.round(0.125 * x1 + 0.375 * cx1 + 0.375 * cx2 + 0.125 * x2);
-            labelY = Math.round(0.125 * y1 + 0.375 * cy1 + 0.375 * cy2 + 0.125 * y2);
-            arrowHtml = arrowPolygon(x2, y2, cx2, cy2, edgeStroke);
+          /* Place label box so it never intersects any node, self-loop, or other label */
+          let pillX = baseX;
+          let pillY = baseY;
+          const candidates = [{ x: baseX, y: baseY }];
+          for (let step = 1; step <= 24; step++) {
+            const dy = step * 16;
+            const dx = step * 24;
+            candidates.push({ x: baseX, y: baseY + dy });
+            if (baseY - dy >= 8) candidates.push({ x: baseX, y: baseY - dy });
+            candidates.push({ x: baseX + dx, y: baseY });
+            candidates.push({ x: baseX + dx, y: baseY + dy });
           }
-
-          const pillW = 246;
-          const pillH = 38;
-          const pillX = Math.max(8, Math.min(svgWidth - pillW - 8, labelX - pillW / 2));
-          let pillY = Math.max(4, labelY - pillH / 2);
-          while (
-            placedPills.some(
-              (p) =>
-                pillX < p.x + p.w + 6 &&
-                pillX + pillW + 6 > p.x &&
-                pillY < p.y + p.h + 6 &&
-                pillY + pillH + 6 > p.y
-            )
-          ) {
-            pillY += pillH + 8;
+          for (const cand of candidates) {
+            const box = { x: cand.x, y: cand.y, w: pillW, h: pillH };
+            if (!occupiedBoxes.some((occ) => boxesOverlap(box, occ, 6))) {
+              pillX = cand.x;
+              pillY = cand.y;
+              break;
+            }
           }
-          placedPills.push({ x: pillX, y: pillY, w: pillW, h: pillH });
-          if (pillY + pillH + 8 > maxEdgeBottom) maxEdgeBottom = pillY + pillH + 8;
+          occupiedBoxes.push({ x: pillX, y: pillY, w: pillW, h: pillH });
+          if (pillY + pillH + 12 > maxEdgeBottom) maxEdgeBottom = pillY + pillH + 12;
+          if (pillX + pillW + 12 > maxEdgeRight) maxEdgeRight = pillX + pillW + 12;
           const textCenterX = pillX + pillW / 2;
 
           return `
-            <g class="sm-edge-group ${isSelectedEdge ? "is-selected" : ""}" data-action="select-sm-edge" data-edge-id="${escapeHtml(edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(edge.actionClean)} from ${escapeHtml(edge.fromTitle)} to ${escapeHtml(edge.toTitle)} (${escapeHtml(edge.statusSymbolWord)})">
-              <title>${escapeHtml(edge.fromTitle)} → ${escapeHtml(edge.toTitle)}: ${escapeHtml(edge.actionClean)} (${escapeHtml(metaText)})</title>
-              <path d="${pathD}" fill="none" stroke="${escapeHtml(edgeStroke)}" stroke-width="${edgeWidth}" ${dashAttr} />
-              ${arrowHtml}
-              <rect x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="6" fill="#0c0d10" stroke="${isSelectedEdge ? "#f2f4f8" : "rgba(255,255,255,0.08)"}" stroke-width="1" />
+            <g class="sm-edge-group ${g.isSelectedEdge ? "is-selected" : ""}" data-action="select-sm-edge" data-edge-id="${escapeHtml(g.edge.id)}" role="button" tabindex="0" aria-label="Inspect ${escapeHtml(g.edge.actionClean)} from ${escapeHtml(g.edge.fromTitle)} to ${escapeHtml(g.edge.toTitle)} (${escapeHtml(g.edge.statusSymbolWord)})">
+              <title>${escapeHtml(g.edge.fromTitle)} → ${escapeHtml(g.edge.toTitle)}: ${escapeHtml(g.edge.actionClean)} (${escapeHtml(g.metaText)})</title>
+              <path class="${g.isSelfLoop ? "sm-self-loop" : "sm-edge-path"}" d="${g.pathD}" fill="none" stroke="${escapeHtml(g.edgeStroke)}" stroke-width="${g.edgeWidth}" ${g.dashAttr} />
+              ${g.arrowHtml}
+              <rect class="sm-edge-pill" x="${pillX}" y="${pillY}" width="${pillW}" height="${pillH}" rx="6" fill="#0c0d10" stroke="${g.isSelectedEdge ? "#f2f4f8" : "rgba(255,255,255,0.08)"}" stroke-width="1" />
               <text x="${textCenterX}" y="${pillY + 15}" text-anchor="middle" font-size="12" font-weight="600">
-                <tspan fill="${statusFill}">${escapeHtml(edge.statusSymbolWord)}</tspan>
-                <tspan fill="#f2f4f8"> · ${escapeHtml(shortAction)}</tspan>
+                <tspan fill="${g.statusFill}">${escapeHtml(g.edge.statusSymbolWord)}</tspan>
+                <tspan fill="#f2f4f8"> · ${escapeHtml(g.shortAction)}</tspan>
               </text>
-              <circle cx="${pillX + 12}" cy="${pillY + 28}" r="4" fill="${escapeHtml(edge.trailColor)}" />
+              <circle cx="${pillX + 12}" cy="${pillY + 28}" r="4" fill="${escapeHtml(g.edge.trailColor)}" />
               <text x="${textCenterX + 4}" y="${pillY + 32}" text-anchor="middle" fill="#a6adbb" font-size="12">
-                ${escapeHtml(truncateWord(edge.agents.join(", "), 12))} · ${escapeHtml(truncateWord(metaText, 22))}
+                ${escapeHtml(truncateWord(g.edge.agents.join(", "), 12))} · ${escapeHtml(truncateWord(g.metaText, 20))}
               </text>
             </g>
           `;
         })
         .join("");
+
+      svgWidth = maxEdgeRight;
 
       const nodesSvg = sm.screens
         .map((node) => {
@@ -3433,7 +3491,7 @@
           return `
             <g class="sm-node-group">
               <title>${escapeHtml(node.app)}: ${escapeHtml(node.title)}</title>
-              <rect x="${pos.x}" y="${pos.y}" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
+              <rect class="sm-node-rect" x="${pos.x}" y="${pos.y}" width="${wNode}" height="${hNode}" rx="8" fill="#16181d" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}" />
               <text x="${pos.x + 12}" y="${pos.y + 21}" fill="#767d8e" font-size="12" font-weight="600">${escapeHtml(shortApp)}</text>
               <text x="${pos.x + 12}" y="${pos.y + 41}" fill="#f2f4f8" font-size="13" font-weight="600">${escapeHtml(shortTitle)}</text>
             </g>
