@@ -291,7 +291,7 @@ def cu(parent, goal, app=None, subtasks=None, names=()):
 
     desk.plan(len(tasks))  # one lane per agent on the stage display, so windows never cover each other
     for t, name in zip(tasks, _pick_names(list(names), len(tasks)), strict=True):
-        where = " in %s" % t["app"] if t.get("app") else ""
+        where = " in %s" % t["app"] if t.get("app") and t["app"].lower() not in t["goal"].lower() else ""
         children.append(spawn(parent, t["goal"], "cu", name, "I'll %s%s." % (_lc(t["goal"]), where)))
     threads = [threading.Thread(target=work, args=(i, t), daemon=True) for i, t in enumerate(tasks)]
     for th in threads:
