@@ -14,7 +14,7 @@
  *   - accessibility role names (`statictext`, `AXButton`, `AXTextField`, ...)
  *   - API paths (`/api/`) reaching visible text
  *   - environment variable names (`CA_...`)
- *   - forbidden words `"backend"`, `"endpoint"`, `"fixture"`
+ *   - forbidden words `"backend"`, `"endpoint"`, `"fixture"`, `"mock"`
  *   - standing `"× Failed"` / `"✕ Failed"` / `"Failed"` state labels
  */
 
@@ -108,6 +108,11 @@ const RULES = [
     id: "word-fixture",
     description: 'Forbidden technical word "fixture"',
     re: /\bfixture\b/i,
+  },
+  {
+    id: "word-mock",
+    description: 'Forbidden technical word "mock"',
+    re: /\bmock\b/i,
   },
   {
     id: "standing-failed-label",
