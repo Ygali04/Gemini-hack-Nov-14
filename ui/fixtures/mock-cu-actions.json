@@ -1,0 +1,124 @@
+{
+  "runs": [
+    {
+      "id": "r-mock-cu-parent",
+      "goal": "compute 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.4,
+      "n_events": 4,
+      "ts": 1763149502,
+      "result": {
+        "ok": true,
+        "summary": "2 + 3 = 5",
+        "digest": {
+          "run": "r-mock-cu-parent",
+          "goal": "compute 2 + 3 in Calculator",
+          "role": "orchestrator",
+          "ok": true,
+          "summary": "2 + 3 = 5",
+          "seconds": 2.4,
+          "steps": 4,
+          "help_requests": 0,
+          "memory_steps": 2,
+          "task_cost": {
+            "run": "r-mock-cu-parent",
+            "cost_usd": 0.0,
+            "mock": true
+          },
+          "children": ["r-mock-cu-child"]
+        }
+      }
+    },
+    {
+      "id": "r-mock-cu-child",
+      "goal": "compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-mock-cu-parent",
+      "state": "done",
+      "elapsed": 2.1,
+      "n_events": 19,
+      "ts": 1763149502,
+      "result": {
+        "ok": true,
+        "summary": "2 + 3 = 5",
+        "steps": 4
+      }
+    }
+  ],
+  "help": [],
+  "agents": {
+    "r-mock-cu-child": {
+      "name": "Mira",
+      "color": "#C0DED0",
+      "edge": "#E6FFF0",
+      "ink": "#396C5A"
+    }
+  },
+  "details": {
+    "r-mock-cu-parent": {
+      "id": "r-mock-cu-parent",
+      "goal": "compute 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.4,
+      "events": [
+        { "t": 0.0, "kind": "state", "state": "planning" },
+        { "t": 0.1, "kind": "route", "role": "cu", "app": "Calculator", "goal": "compute 2 + 3 in Calculator", "names": ["Mira"] },
+        { "t": 0.1, "kind": "state", "state": "acting" },
+        { "t": 2.4, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "2 + 3 = 5" }
+    },
+    "r-mock-cu-child": {
+      "id": "r-mock-cu-child",
+      "goal": "compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-mock-cu-parent",
+      "state": "done",
+      "elapsed": 2.1,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.2 },
+        { "t": 0.2, "kind": "graph", "action": "open_app:running:calculator", "outcome": "ok", "node": null, "to": null },
+        { "t": 0.25, "kind": "memory", "msg": "replaying a saved skill", "goal": "compute 2 + 3 in Calculator", "steps": 4 },
+        { "t": 0.3, "kind": "state", "state": "acting" },
+        { "t": 0.4, "kind": "decide", "ms": 120, "thought": "Press 2", "action": "click" },
+        { "t": 0.5, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "step", "step": 0, "text": "Pressed 2 [click:button:2" },
+        { "t": 0.5, "kind": "act", "step": 0, "source": "memory", "action": "click:button:2", "act_ms": 60, "agent": "Mira" },
+        { "t": 0.6, "kind": "graph", "action": "click:button:2", "outcome": "ok", "node": "Calculator:07f5a759c6", "to": "Calculator:07f5a759c6" },
+        { "t": 0.7, "kind": "decide", "ms": 110, "thought": "Click +", "action": "click" },
+        { "t": 0.8, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "step", "step": 1, "text": "Clicked + [click:button:+]" },
+        { "t": 0.8, "kind": "act", "step": 1, "source": "memory", "action": "click:button:+", "act_ms": 55, "agent": "Mira" },
+        { "t": 0.9, "kind": "graph", "action": "click:button:+", "outcome": "ok", "node": "Calculator:07f5a759c6", "to": "Calculator:84ee25697b" },
+        { "t": 1.0, "kind": "graph", "action": "click:invalid-target", "outcome": "failed", "node": "Calculator:84ee25697b", "to": null },
+        { "t": 1.1, "kind": "decide", "ms": 115, "thought": "Press 3", "action": "click" },
+        { "t": 1.2, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "step", "step": 2, "text": "Pressed 3 [click:button:3" },
+        { "t": 1.2, "kind": "act", "step": 2, "source": "llm", "action": "click:button:3", "act_ms": 65, "agent": "Mira" },
+        { "t": 1.3, "kind": "graph", "action": "click:button:3", "outcome": "ok", "node": "Calculator:84ee25697b", "to": "Calculator:07f5a759c6" },
+        { "t": 1.4, "kind": "decide", "ms": 100, "thought": "Press equals", "action": "click" },
+        { "t": 1.5, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "step", "step": 3, "text": "Pressed equals [click:button:=" },
+        { "t": 1.5, "kind": "act", "step": 3, "source": "llm", "action": "click:button:=", "act_ms": 70, "agent": "Mira" },
+        { "t": 1.6, "kind": "graph", "action": "click:button:=", "outcome": "ok", "node": "Calculator:07f5a759c6", "to": "Calculator:07f5a759c6" },
+        { "t": 1.8, "kind": "verify", "achieved": true, "evidence": "mock" },
+        { "t": 1.9, "kind": "graph", "action": "done", "outcome": "done_verified", "node": "Calculator:07f5a759c6", "to": null },
+        { "t": 2.1, "kind": "result", "ok": true, "summary": "2 + 3 = 5", "steps": 4 },
+        { "t": 2.1, "kind": "state", "state": "done" }
+      ],
+      "result": { "ok": true, "summary": "2 + 3 = 5", "steps": 4 }
+    }
+  },
+  "transcripts": {
+    "r-mock-cu-parent": [
+      { "id": 1, "ts": 1763149500.0, "run": "r-mock-cu-parent", "role": "user", "agent": "ComputerAnything", "kind": "prompt", "text": "compute 2 + 3 in Calculator" },
+      { "id": 2, "ts": 1763149500.2, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "hello", "text": "Hi, I'm Mira! I'll compute 2 + 3 in Calculator." },
+      { "id": 3, "ts": 1763149500.5, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "step", "text": "Pressed 2 [click:button:2", "meta": { "step": 0 } },
+      { "id": 4, "ts": 1763149500.8, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "step", "text": "Clicked + [click:button:+]", "meta": { "step": 1 } },
+      { "id": 5, "ts": 1763149501.2, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "step", "text": "Pressed 3 [click:button:3", "meta": { "step": 2 } },
+      { "id": 6, "ts": 1763149501.5, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "step", "text": "Pressed equals [click:button:=", "meta": { "step": 3 } },
+      { "id": 7, "ts": 1763149502.1, "run": "r-mock-cu-child", "role": "agent", "agent": "Mira", "kind": "result", "text": "2 + 3 = 5" }
+    ]
+  }
+}

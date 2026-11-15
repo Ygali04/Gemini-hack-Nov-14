@@ -2985,20 +2985,39 @@
           return fallback && !containsRoleName(fallback) ? fallback : "";
         }
 
+        function cleanActionTargetText(target, verb) {
+          let s = stripActionRolePrefix(String(target || "").trim());
+          s = s.replace(/\s*->\s*[^:\s]+:[0-9a-f]{6,}\b.*$/i, "").trim();
+          s = s.replace(/:[0-9a-f]{8,}\b/gi, "").trim();
+          if (verb === "open_app" || verb === "launch") {
+            s = s.replace(/^(?:running|finder|spotlight|auto):/i, "").trim();
+            if (s && s === s.toLowerCase()) {
+              s = s.split(/\s+/).map((w) => sentenceCase(w)).join(" ");
+            }
+          }
+          if (/^(?:invalid-target|no-key|no-name)$/i.test(s)) return "";
+          return s;
+        }
+
         function parseActionParts(rawAction) {
           const raw = String(rawAction || "").trim();
           if (!raw) return { verb: "", target: "" };
           const idx = raw.indexOf(":");
           if (idx === -1) return { verb: raw.toLowerCase(), target: "" };
+          const verb = raw.slice(0, idx).trim().toLowerCase();
+          const rawTarget = raw.slice(idx + 1).trim();
+          if (/^(?:invalid-target|no-key|no-name)$/i.test(rawTarget)) {
+            return { verb: "", target: "" };
+          }
           return {
-            verb: raw.slice(0, idx).trim().toLowerCase(),
-            target: stripActionRolePrefix(raw.slice(idx + 1).trim()),
+            verb,
+            target: cleanActionTargetText(rawTarget, verb),
           };
         }
 
         function summarizeActPlain(ev) {
           const { verb, target } = parseActionParts(ev?.action);
-          if (!verb) return "performed action";
+          if (!verb || verb === "done") return "";
           switch (verb) {
             case "click":
               return target ? `clicked ${target}` : "clicked element";
@@ -3013,6 +3032,7 @@
             case "scroll":
               return target ? `scrolled ${target}` : "scrolled";
             case "open_app":
+            case "launch":
               return target ? `opened ${target}` : "opened app";
             case "run_applescript":
               return "ran app script";
@@ -3022,9 +3042,9 @@
         }
 
         const ACTION_TEXT_TAG_RE =
-          /^\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|run_applescript)(?::|\s+)([^\]]*)\]?$/i;
+          /^\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|launch|run_applescript)(?::|\s+)([^\]]*)\]?$/i;
         const TRAILING_ACTION_TAG_RE =
-          /\s*\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|run_applescript):[^\]]+\]?\s*$/i;
+          /\s*\[?(click|double_click|right_click|type|set_value|press|scroll|open_app|launch|run_applescript):[^\]]*\]?\s*$/i;
 
         function isAgentActionLine(text, kind, msgKind) {
           if (kind === "step" || msgKind === "step") return true;
@@ -3054,13 +3074,18 @@
             );
             return sentenceCase(summarizeActPlain({ action: `${verb}:${rest}` }));
           }
-          const stripped = raw.replace(TRAILING_ACTION_TAG_RE, "").trim();
-          if (stripped) return sentenceCase(stripped);
-          const trailingMatch = raw.match(/\[?([a-z_]+:[^\]]+)\]?\s*$/i);
+          const stripped = raw
+            .replace(TRAILING_ACTION_TAG_RE, "")
+            .replace(/\s*->\s*[^:\s]+:[0-9a-f]{6,}\b.*$/i, "")
+            .trim();
+          if (stripped && !/\[|->|:[0-9a-f]{8,}|running:|invalid-target/i.test(stripped)) {
+            return sentenceCase(stripped);
+          }
+          const trailingMatch = raw.match(/\[?([a-z_]+:[^\]]*)\]?\s*$/i);
           if (trailingMatch) {
             return sentenceCase(summarizeActPlain({ action: trailingMatch[1] }));
           }
-          return sentenceCase(raw);
+          return sentenceCase(stripped || raw);
         }
 
         function summarizeDecidePlain(ev) {
@@ -3143,10 +3168,8 @@
               if (ev.state === "done") return "Finished";
               if (ev.state === "failed") return "Stopped";
               return "";
-            case "graph": {
-              const target = ev.to != null && ev.to !== "" ? ` -> ${ev.to}` : "";
-              return ev.action ? `${sentenceCase(summarizeActPlain(ev))}${target}` : "";
-            }
+            case "graph":
+              return "";
             case "route":
               if (Array.isArray(ev.names) && ev.names.length) {
                 return `Assigned to ${ev.names.join(", ")}`;
@@ -3156,15 +3179,15 @@
             case "app_ready":
               return ev.app ? `Opened ${ev.app}` : "Opened app";
             case "memory":
-              return ev.msg ? sentenceCase(ev.msg) : "Replaying saved steps";
+              return "";
             case "decide":
               return "";
             case "act":
-              return ev.action ? sentenceCase(summarizeActPlain(ev)) : "Performed action";
+              return ev.action ? sentenceCase(summarizeActPlain(ev)) : "";
             case "verify": {
               const rawEv = String(ev.evidence || "").trim();
               if (ev.achieved) {
-                if (/^mock$/i.test(rawEv)) return "Sample run check (not verified)";
+                if (/^mock$/i.test(rawEv)) return "";
                 const plainEv = formatEvidencePlain(rawEv, "", "");
                 return plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
               }
@@ -3713,38 +3736,71 @@
 
         function buildWorkStepsForRun(childRun, detail, appName, groupTranscriptRows, stepRunIdSet, includeUnmatchedTranscriptSteps) {
           const events = Array.isArray(detail?.events) ? detail.events : [];
+          const actEvents = events.filter((ev) => ev && ev.kind === "act");
           const lines = [];
-          let actCount = 0;
+          const isAllowedWorkLine = (line) => {
+            const clean = String(line || "").trim();
+            if (!clean) return false;
+            if (/\[|->|:[0-9a-f]{8,}|running:|invalid-target/i.test(clean)) return false;
+            if (/^(?:Working|Finished|Stopped|Done|Replaying a saved skill|Sample run check \(not verified\))$/i.test(clean)) return false;
+            return true;
+          };
+
+          if (actEvents.length > 0) {
+            const seenActKeys = new Set();
+            actEvents.forEach((ev, idx) => {
+              const stepKey = ev.step != null ? `step:${ev.step}` : `idx:${idx}`;
+              if (seenActKeys.has(stepKey)) return;
+              seenActKeys.add(stepKey);
+              const plain = ev.action ? sentenceCase(summarizeActPlain(ev)) : "";
+              if (isAllowedWorkLine(plain)) {
+                lines.push(plain.trim());
+              }
+            });
+            return {
+              lines,
+              stepCount: lines.length,
+            };
+          }
+
+          const seenStepKeys = new Set();
+          const pushFallbackLine = (line, stepKey) => {
+            const clean = String(line || "").trim();
+            if (!isAllowedWorkLine(clean)) return;
+            if (stepKey != null && seenStepKeys.has(stepKey)) return;
+            if (lines.length && lines[lines.length - 1].toLowerCase() === clean.toLowerCase()) return;
+            if (stepKey != null) seenStepKeys.add(stepKey);
+            lines.push(clean);
+          };
+
           for (const ev of events) {
-            if (!ev || ev.kind === "decide" || ev.kind === "state" || ev.kind === "llm") continue;
-            if (ev.kind === "speak" || ev.kind === "route") continue;
+            if (!ev) continue;
+            if (
+              ev.kind === "decide" ||
+              ev.kind === "state" ||
+              ev.kind === "llm" ||
+              ev.kind === "speak" ||
+              ev.kind === "route" ||
+              ev.kind === "graph" ||
+              ev.kind === "memory" ||
+              ev.kind === "app_ready" ||
+              ev.kind === "verify" ||
+              ev.kind === "result"
+            ) {
+              continue;
+            }
             const isActionMsg =
               ev.kind === "msg" &&
               (ev.msg_kind === "step" || (ev.role !== "user" && isAgentActionLine(ev.text, ev.kind, ev.msg_kind)));
             if (ev.kind === "msg" && !isActionMsg) continue;
-            let line = "";
-            if (ev.kind === "act") {
-              actCount += 1;
-              line = ev.action ? sentenceCase(summarizeActPlain(ev)) : "";
-            } else if (isActionMsg) {
-              actCount += 1;
-              line = formatActionTextPlain(ev.text, ev.action);
-            } else if (ev.kind === "verify" && ev.achieved) {
-              const rawEv = String(ev.evidence || "").trim();
-              if (/^mock$/i.test(rawEv)) {
-                line = "Sample run check (not verified)";
-              } else {
-                const plainEv = formatEvidencePlain(rawEv, appName || "", childRun?.result?.summary || "");
-                line = plainEv ? `Verified ${plainEv}` : "Verified goal on screen";
-              }
-            } else {
-              line = summarizeEventPlain(ev);
-            }
-            if (line && line !== "Working" && line !== "Finished" && line !== "Stopped") {
-              lines.push(line);
+            if (isActionMsg) {
+              const plain = formatActionTextPlain(ev.text, ev.action);
+              pushFallbackLine(plain, ev.step != null ? `step:${ev.step}` : null);
+            } else if (ev.kind === "tests" || ev.kind === "ui_check" || ev.kind === "bug_report" || ev.kind === "patch" || ev.kind === "commit") {
+              pushFallbackLine(summarizeEventPlain(ev), null);
             }
           }
-          const existingFromEvents = new Set(lines.map((l) => l.toLowerCase()));
+
           const tRows = Array.isArray(groupTranscriptRows) ? groupTranscriptRows : [];
           for (const row of tRows) {
             if (!row) continue;
@@ -3756,14 +3812,13 @@
               (includeUnmatchedTranscriptSteps && (!row.run || !(stepRunIdSet instanceof Set) || !stepRunIdSet.has(row.run)));
             if (!belongsToChild) continue;
             const plain = formatActionTextPlain(row.text, row.action);
-            if (!plain || plain === "Working" || plain === "Finished" || plain === "Stopped") continue;
-            if (existingFromEvents.has(plain.toLowerCase())) continue;
-            actCount += 1;
-            lines.push(plain);
+            const rowStepKey = row.meta && row.meta.step != null ? `step:${row.meta.step}` : null;
+            pushFallbackLine(plain, rowStepKey);
           }
+
           return {
             lines,
-            stepCount: actCount > 0 ? actCount : Number(childRun?.result?.steps) || lines.length,
+            stepCount: lines.length || Number(childRun?.result?.steps) || 0,
           };
         }
 
@@ -3941,9 +3996,7 @@
               let candidate = "";
               if (ev?.kind === "verify" && ev.achieved) {
                 const rawEv = String(ev.evidence || "").trim();
-                if (/^mock$/i.test(rawEv)) {
-                  candidate = "Sample run check (not verified)";
-                } else {
+                if (!/^mock$/i.test(rawEv)) {
                   const plainEv = formatEvidencePlain(rawEv, app, childRun.result?.summary || "");
                   candidate = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
                 }
@@ -3963,13 +4016,9 @@
             }
           }
           if (!latestSummary) {
-            if (verifiedEvent?.evidence) {
-              if (isMockSummaryText(verifiedEvent.evidence)) {
-                latestSummary = "Sample run check (not verified)";
-              } else {
-                const plainEv = formatEvidencePlain(verifiedEvent.evidence, app, childRun.result?.summary || "");
-                latestSummary = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
-              }
+            if (verifiedEvent?.evidence && !isMockSummaryText(verifiedEvent.evidence)) {
+              const plainEv = formatEvidencePlain(verifiedEvent.evidence, app, childRun.result?.summary || "");
+              latestSummary = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
             } else if (childRun.result?.summary && !isMockSummaryText(childRun.result.summary)) {
               const plainSummary = cleanPlainSummary(childRun.result.summary, app, "");
               if (plainSummary) latestSummary = cleanFailureFact(plainSummary);
