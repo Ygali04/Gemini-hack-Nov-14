@@ -293,7 +293,7 @@
       color: var(--ink-text);
     }
 
-    /* ---------------- PROMPT SURFACE (F1 fixed: hint only while empty, never over text) ---------------- */
+    /* ---------------- PROMPT SURFACE ---------------- */
     .prompt-section {
       display: flex;
       flex-direction: column;
@@ -384,7 +384,22 @@
       line-height: 20px;
       border-radius: 4px;
       overflow-y: auto;
+      scrollbar-color: var(--bg-raised) var(--bg-raised);
       user-select: text;
+    }
+
+    .prompt-textarea::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    .prompt-textarea::-webkit-scrollbar-track {
+      background: var(--bg-raised);
+    }
+
+    .prompt-textarea::-webkit-scrollbar-thumb {
+      background: var(--bg-raised);
+      border-radius: 4px;
     }
 
     .prompt-textarea:focus,
@@ -395,22 +410,6 @@
 
     .prompt-textarea::placeholder {
       color: var(--text-muted);
-    }
-
-    /* F1: Shown below prompt row ONLY when field is empty so it never squeezes input */
-    .enter-action-hint {
-      font-size: 12px;
-      line-height: 16px;
-      color: var(--text-muted);
-      white-space: nowrap;
-      padding-left: 36px;
-      margin-top: -2px;
-      pointer-events: none;
-    }
-
-    .prompt-section.has-text .enter-action-hint,
-    .prompt-field-wrap.has-text .enter-action-hint {
-      display: none;
     }
 
     .sample-tag {
@@ -605,6 +604,7 @@
       padding: 6px 0;
       overflow-y: auto;
       max-height: 460px;
+      scrollbar-color: var(--bg-app) var(--bg-app);
     }
 
     .timeline-scroll::-webkit-scrollbar,
@@ -613,9 +613,21 @@
       height: 4px;
     }
 
-    .timeline-scroll::-webkit-scrollbar-thumb,
+    .timeline-scroll::-webkit-scrollbar-track {
+      background: var(--bg-app);
+    }
+
+    .timeline-scroll::-webkit-scrollbar-thumb {
+      background: var(--bg-app);
+      border-radius: 4px;
+    }
+
+    .step-detail-mono::-webkit-scrollbar-track {
+      background: var(--bg-raised);
+    }
+
     .step-detail-mono::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.14);
+      background: var(--bg-raised);
       border-radius: 4px;
     }
 
@@ -768,6 +780,7 @@
       gap: 2px;
       max-height: 200px;
       overflow-y: auto;
+      scrollbar-color: var(--bg-app) var(--bg-app);
     }
 
     .act-replay-list::-webkit-scrollbar {
@@ -775,8 +788,12 @@
       height: 4px;
     }
 
+    .act-replay-list::-webkit-scrollbar-track {
+      background: var(--bg-app);
+    }
+
     .act-replay-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.14);
+      background: var(--bg-app);
       border-radius: 4px;
     }
 
@@ -963,8 +980,27 @@
       color: var(--text-secondary);
     }
 
-    /* Steps list: flat rows separated by whitespace, no cards */
+    /* Steps list: flat rows collapsed per run behind a keyboard-accessible toggle */
+    .steps-section {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .steps-collapse-btn {
+      min-height: 28px;
+      padding: 0 8px;
+      color: var(--text-secondary);
+    }
+
+    .steps-collapse-btn:focus-visible {
+      outline: 1.5px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
     .steps-list {
+      width: 100%;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -1083,6 +1119,7 @@
       color: var(--text-secondary);
       max-height: 180px;
       overflow-y: auto;
+      scrollbar-color: var(--bg-raised) var(--bg-raised);
       user-select: text;
       white-space: pre-wrap;
       word-break: break-word;
@@ -1253,7 +1290,13 @@
     .chat.drag-over { background: var(--bg-raised); }
     .chat-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-divider); }
     .chat-title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .chat-log { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+                scrollbar-color: var(--bg-app) var(--bg-app); }
+    .chat-log::-webkit-scrollbar { width: 4px; height: 4px; }
+    .chat-log::-webkit-scrollbar-track { background: var(--bg-app); }
+    .chat-log::-webkit-scrollbar-thumb { background: var(--bg-app); border-radius: 4px; }
+    .chat-steps-group { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+    .chat-steps-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
     .msg, .msg-step, .note > span { overflow-wrap: anywhere; min-width: 0; }
     .msg-who { font-weight: 600; margin-right: 6px; }
     .msg-step { font-size: 12px; line-height: 16px; color: var(--text-muted); }
@@ -1387,8 +1430,6 @@
             <span>Esc</span>
           </button>
         </div>
-
-        <div id="enter-action-hint" class="enter-action-hint">Enter &middot; send to agents</div>
 
         <div id="thread-mode-bar" class="thread-mode-bar hidden"></div>
 
@@ -3597,6 +3638,7 @@
       let selectedRunId = null;
       let latestSeenRunId = null;
       const expandedStepIds = new Set();
+      const openRunStepsIds = new Set();
       const openReplayRunIds = new Set();
       const knownStepFingerprints = new Map();
       const highlightedStepIds = new Set();
@@ -4169,11 +4211,7 @@
         }
       });
 
-      /* F1: Toggle .has-text immediately so hint hides the moment user types */
       function syncPromptFieldState() {
-        const hasText = promptInput.value.length > 0;
-        promptFieldWrap.classList.toggle("has-text", hasText);
-        promptForm.classList.toggle("has-text", hasText);
         promptInput.style.height = "20px";
         promptInput.style.height = `${Math.min(80, Math.max(20, promptInput.scrollHeight))}px`;
         syncSizeAndBridge();
@@ -5023,6 +5061,7 @@
               `${s.id}:${s.stateSymbolWord}:${s.isWorking ? 1 : 0}:${pendingStopIds.has(s.id) ? 1 : 0}:${s.agentIdentity.name}:${s.agentIdentity.color}:${s.app}:${s.latestSummary}:${expandedStepIds.has(s.id) ? 1 : 0}:${s.detailLines.length}`
           )
           .join("|");
+        const runStepsOpen = openRunStepsIds.has(activeRun.id) ? 1 : 0;
         const replayOpen = openReplayRunIds.has(activeRun.id) ? 1 : 0;
         const replayIdx = replayCursor.runId === activeRun.id ? replayCursor.stepIndex : -1;
         const memoryKey = getVisibleMemoriesForRun(activeRun)
@@ -5072,6 +5111,7 @@
           helpKey,
           memoryKey,
           stepsKey,
+          runStepsOpen,
           replayOpen,
           replayIdx,
           otherKey,
@@ -5543,6 +5583,22 @@
             ? `<div class="sample-tag">${escapeHtml(activeRun.mockNote)}</div>`
             : "";
 
+        const isRunStepsOpen = openRunStepsIds.has(activeRun.id);
+        const stepCount = activeRun.steps.length;
+        const stepsSectionHtml = stepCount
+          ? `
+            <div class="steps-section">
+              <button
+                type="button"
+                class="btn steps-collapse-btn"
+                data-action="toggle-run-steps"
+                data-run-id="${escapeHtml(activeRun.id)}"
+                aria-expanded="${isRunStepsOpen ? "true" : "false"}"
+              >${stepCount} ${stepCount === 1 ? "step" : "steps"} ${isRunStepsOpen ? "▾" : "▸"}</button>
+              ${isRunStepsOpen ? `<div class="steps-list">${stepsHtml}</div>` : ""}
+            </div>`
+          : "";
+
         blocks.push(`
           <div class="timeline-block">
             <div class="run-header">
@@ -5570,9 +5626,7 @@
             ${helpHtml}
             ${transcriptHtml}
             ${memoryNoticeHtml}
-            <div class="steps-list">
-              ${stepsHtml}
-            </div>
+            ${stepsSectionHtml}
             ${replayHtml}
           </div>
         `);
@@ -5850,6 +5904,17 @@
               pendingUndoMemoryIds.delete(memId);
               renderNow();
             }
+            return;
+          }
+          if (action === "toggle-run-steps") {
+            const runId = actionBtn.dataset.runId || selectedRunId;
+            if (!runId) return;
+            if (openRunStepsIds.has(runId)) {
+              openRunStepsIds.delete(runId);
+            } else {
+              openRunStepsIds.add(runId);
+            }
+            renderNow();
             return;
           }
           if (action === "toggle-steps") {
@@ -6547,13 +6612,19 @@
         let lastChatMsgs = [];
         let chatMemories = [];
         let chatMemoryMissing = false;
+        const openChatStepRuns = new Set();
 
         function renderChatBody() {
           const log = $("chat-log");
           const resolvePrimary = ca().resolvePrimaryAgent;
           const visibleMemories = chatMemories.filter((m) => m && m.id != null && (!m.run || m.run === run));
+          const isChatStepsOpen = openChatStepRuns.has(run);
           const key =
             lastChatMsgs.length +
+            "::" +
+            lastChatMsgs.map((m) => `${m?.kind || ""}:${m?.role || ""}`).join(",") +
+            "::" +
+            (isChatStepsOpen ? 1 : 0) +
             "::" +
             visibleMemories.map((m) => `${m.id}:${m.text || ""}`).join("|") +
             "::" +
@@ -6561,22 +6632,49 @@
           if (key === shownKey) return;
           shownKey = key;
 
-          const msgsHtml = lastChatMsgs.length
-            ? lastChatMsgs
-                .map((m) => {
-                  const who =
-                    m.role === "user"
-                      ? { name: "You", color: "" }
-                      : resolvePrimary
-                      ? resolvePrimary(m.agent, m.color)
-                      : { name: m.agent, color: m.color };
-                  return `
-                <div class="${m.kind === "step" ? "msg-step" : "msg"}">
-                  <span class="msg-who"${m.role === "user" ? "" : paint(who.color)}>${esc(who.name)}</span>${esc(m.text)}
-                </div>`;
-                })
-                .join("")
-            : `<div class="timeline-fact">Waiting for the first message…</div>`;
+          function renderChatItem(m) {
+            const who =
+              m.role === "user"
+                ? { name: "You", color: "" }
+                : resolvePrimary
+                ? resolvePrimary(m.agent, m.color)
+                : { name: m.agent, color: m.color };
+            return `
+              <div class="${m.kind === "step" ? "msg-step" : "msg"}">
+                <span class="msg-who"${m.role === "user" ? "" : paint(who.color)}>${esc(who.name)}</span>${esc(m.text)}
+              </div>`;
+          }
+
+          let msgsHtml = `<div class="timeline-fact">Waiting for the first message…</div>`;
+          if (lastChatMsgs.length) {
+            const parts = [];
+            let i = 0;
+            while (i < lastChatMsgs.length) {
+              if (lastChatMsgs[i]?.kind === "step") {
+                const start = i;
+                while (i < lastChatMsgs.length && lastChatMsgs[i]?.kind === "step") i += 1;
+                const chunk = lastChatMsgs.slice(start, i);
+                const count = chunk.length;
+                const stepsBody = isChatStepsOpen
+                  ? `<div class="chat-steps-list">${chunk.map(renderChatItem).join("")}</div>`
+                  : "";
+                parts.push(`
+                  <div class="chat-steps-group">
+                    <button
+                      type="button"
+                      class="btn steps-collapse-btn"
+                      data-toggle-chat-steps="${esc(run)}"
+                      aria-expanded="${isChatStepsOpen ? "true" : "false"}"
+                    >${count} ${count === 1 ? "step" : "steps"} ${isChatStepsOpen ? "▾" : "▸"}</button>
+                    ${stepsBody}
+                  </div>`);
+              } else {
+                parts.push(renderChatItem(lastChatMsgs[i]));
+                i += 1;
+              }
+            }
+            msgsHtml = parts.join("");
+          }
 
           const memHtml = visibleMemories
             .map((m) => {
@@ -6636,6 +6734,18 @@
         }
 
         $("chat-log").addEventListener("click", async (e) => {
+          const stepsToggleBtn = e.target.closest("[data-toggle-chat-steps]");
+          if (stepsToggleBtn) {
+            const targetRun = stepsToggleBtn.dataset.toggleChatSteps || run;
+            if (openChatStepRuns.has(targetRun)) {
+              openChatStepRuns.delete(targetRun);
+            } else {
+              openChatStepRuns.add(targetRun);
+            }
+            shownKey = "";
+            renderChatBody();
+            return;
+          }
           const btn = e.target.closest("[data-undo-memory]");
           if (!btn) return;
           const memId = btn.dataset.undoMemory;
