@@ -1,0 +1,179 @@
+{
+  "runs": [
+    {
+      "id": "r-chat-mercury",
+      "goal": "Check quarterly numbers in Numbers",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.2,
+      "n_events": 4,
+      "ts": 1763149200,
+      "result": null
+    },
+    {
+      "id": "r-chat-mercury-cu",
+      "goal": "Open Q3-Ledger.numbers and read total",
+      "role": "cu",
+      "parent": "r-chat-mercury",
+      "state": "acting",
+      "elapsed": 3.8,
+      "n_events": 3,
+      "ts": 1763149201,
+      "result": null
+    },
+    {
+      "id": "r-chat-cal",
+      "goal": "Compute 24 * 17 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.4,
+      "n_events": 5,
+      "ts": 1763149250,
+      "result": {
+        "ok": true,
+        "summary": "Calculator display reads 408",
+        "steps": 2
+      }
+    },
+    {
+      "id": "r-chat-cal-cu",
+      "goal": "Compute 24 * 17 in Calculator",
+      "role": "cu",
+      "parent": "r-chat-cal",
+      "state": "done",
+      "elapsed": 2.1,
+      "n_events": 4,
+      "ts": 1763149251,
+      "result": {
+        "ok": true,
+        "summary": "Calculator display reads 408",
+        "steps": 2
+      }
+    }
+  ],
+  "help": [],
+  "agents": {
+    "r-chat-mercury-cu": {
+      "name": "Mercury",
+      "color": "#B5D0EB",
+      "edge": "#D6E9FF",
+      "ink": "#2F647C"
+    },
+    "r-chat-cal-cu": {
+      "name": "Cal",
+      "color": "#F3D3DE",
+      "edge": "#FCE5EE",
+      "ink": "#6E2E47"
+    }
+  },
+  "details": {
+    "r-chat-mercury": {
+      "id": "r-chat-mercury",
+      "goal": "Check quarterly numbers in Numbers",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.2,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.3, "kind": "route", "role": "cu", "agent": "Mercury", "app": "Numbers", "goal": "Open Q3-Ledger.numbers and read total" },
+        { "t": 0.5, "kind": "state", "state": "acting" }
+      ]
+    },
+    "r-chat-mercury-cu": {
+      "id": "r-chat-mercury-cu",
+      "goal": "Open Q3-Ledger.numbers and read total",
+      "role": "cu",
+      "parent": "r-chat-mercury",
+      "state": "acting",
+      "elapsed": 3.8,
+      "events": [
+        { "t": 0.4, "kind": "app_ready", "app": "Numbers", "method": "running", "seconds": 0.4 },
+        { "t": 1.2, "kind": "act", "app": "Numbers", "action": "click:row:Q3-Ledger.numbers" }
+      ]
+    },
+    "r-chat-cal": {
+      "id": "r-chat-cal",
+      "goal": "Compute 24 * 17 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 2.4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Cal", "app": "Calculator", "goal": "Compute 24 * 17 in Calculator" },
+        { "t": 2.4, "kind": "state", "state": "done" }
+      ]
+    },
+    "r-chat-cal-cu": {
+      "id": "r-chat-cal-cu",
+      "goal": "Compute 24 * 17 in Calculator",
+      "role": "cu",
+      "parent": "r-chat-cal",
+      "state": "done",
+      "elapsed": 2.1,
+      "events": [
+        { "t": 0.3, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.2 },
+        { "t": 0.9, "kind": "act", "app": "Calculator", "action": "type:textfield:display" },
+        { "t": 1.4, "kind": "act", "app": "Calculator", "action": "press:return" },
+        { "t": 2.0, "kind": "verify", "achieved": true, "evidence": "Calculator shows 408" }
+      ]
+    }
+  },
+  "transcripts": {
+    "r-chat-mercury": [
+      {
+        "id": 101,
+        "ts": 1763149200.1,
+        "run": "r-chat-mercury",
+        "role": "user",
+        "agent": "ComputerAnything",
+        "kind": "prompt",
+        "text": "Check quarterly numbers in Numbers"
+      },
+      {
+        "id": 102,
+        "ts": 1763149200.6,
+        "run": "r-chat-mercury-cu",
+        "role": "agent",
+        "agent": "Mercury",
+        "kind": "hello",
+        "text": "Hi, I'm Mercury! Opening Q3-Ledger in Numbers.",
+        "color": "#B5D0EB"
+      }
+    ],
+    "r-chat-cal": [
+      {
+        "id": 201,
+        "ts": 1763149250.1,
+        "run": "r-chat-cal",
+        "role": "user",
+        "agent": "ComputerAnything",
+        "kind": "prompt",
+        "text": "Compute 24 * 17 in Calculator"
+      },
+      {
+        "id": 202,
+        "ts": 1763149250.4,
+        "run": "r-chat-cal-cu",
+        "role": "agent",
+        "agent": "Cal",
+        "kind": "hello",
+        "text": "Hi, I'm Cal! Computing 24 * 17 in Calculator.",
+        "color": "#F3D3DE"
+      },
+      {
+        "id": 203,
+        "ts": 1763149252.2,
+        "run": "r-chat-cal-cu",
+        "role": "agent",
+        "agent": "Cal",
+        "kind": "result",
+        "text": "Calculator shows 408 for 24 * 17.",
+        "color": "#F3D3DE"
+      }
+    ]
+  }
+}

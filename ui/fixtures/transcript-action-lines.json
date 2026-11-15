@@ -1,0 +1,165 @@
+{
+  "runs": [
+    {
+      "id": "r1763149000-1-a1b2",
+      "goal": "Open Calculator and compute 8 * 31",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.9,
+      "n_events": 4,
+      "ts": 1763149001,
+      "result": {
+        "ok": true,
+        "summary": "Calculator display reads 248 for 8 * 31",
+        "steps": 6
+      }
+    },
+    {
+      "id": "r1763149000-2-c3d4",
+      "goal": "Compute 8 * 31 in Calculator",
+      "role": "cu",
+      "parent": "r1763149000-1-a1b2",
+      "state": "done",
+      "elapsed": 1.6,
+      "n_events": 3,
+      "ts": 1763149001,
+      "result": {
+        "ok": true,
+        "summary": "Calculator display reads 248 for 8 * 31",
+        "steps": 6
+      }
+    }
+  ],
+  "help": [],
+  "agents": {
+    "r1763149000-2-c3d4": {
+      "name": "Iris",
+      "color": "#D4F0DC",
+      "edge": "#E8F9ED",
+      "ink": "#295C3A"
+    }
+  },
+  "details": {
+    "r1763149000-1-a1b2": {
+      "id": "r1763149000-1-a1b2",
+      "goal": "Open Calculator and compute 8 * 31",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 1.9,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.2, "kind": "route", "role": "cu", "agent": "Iris", "app": "Calculator", "goal": "Compute 8 * 31 in Calculator" },
+        { "t": 1.9, "kind": "state", "state": "done" }
+      ]
+    },
+    "r1763149000-2-c3d4": {
+      "id": "r1763149000-2-c3d4",
+      "goal": "Compute 8 * 31 in Calculator",
+      "role": "cu",
+      "parent": "r1763149000-1-a1b2",
+      "state": "done",
+      "elapsed": 1.6,
+      "events": [
+        { "t": 0.3, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.2 },
+        { "t": 1.5, "kind": "verify", "achieved": true, "evidence": "Calculator shows 248" }
+      ]
+    }
+  },
+  "transcripts": {
+    "r1763149000-1-a1b2": [
+      {
+        "id": 1,
+        "ts": 1763149000.01,
+        "run": "r1763149000-1-a1b2",
+        "role": "user",
+        "agent": "ComputerAnything",
+        "kind": "prompt",
+        "text": "Open Calculator and compute 8 * 31",
+        "meta": {}
+      },
+      {
+        "id": 2,
+        "ts": 1763149000.31,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "hello",
+        "text": "Hi, I'm Iris! I'll compute 8 * 31 in Calculator.",
+        "meta": { "agent_role": "cu" }
+      },
+      {
+        "id": 3,
+        "ts": 1763149000.6,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "step",
+        "text": "Enter 8 * 31 into Calculator [type:textfield:display]",
+        "meta": { "step": 0, "app": "Calculator" }
+      },
+      {
+        "id": 4,
+        "ts": 1763149000.8,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "step",
+        "text": "[press:return]",
+        "meta": { "step": 1, "app": "Calculator" }
+      },
+      {
+        "id": 5,
+        "ts": 1763149001.0,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "step",
+        "text": "[click:button:3]",
+        "meta": { "step": 2, "app": "Calculator" }
+      },
+      {
+        "id": 6,
+        "ts": 1763149001.1,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "msg",
+        "text": "click:button:2",
+        "meta": { "step": 3, "app": "Calculator" }
+      },
+      {
+        "id": 7,
+        "ts": 1763149001.2,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "msg",
+        "msg_kind": "step",
+        "text": "[type:textfield:display]",
+        "meta": { "step": 4, "app": "Calculator" }
+      },
+      {
+        "id": 8,
+        "ts": 1763149001.3,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "msg",
+        "text": "click button 3",
+        "meta": { "step": 5, "app": "Calculator" }
+      },
+      {
+        "id": 9,
+        "ts": 1763149001.71,
+        "run": "r1763149000-2-c3d4",
+        "role": "agent",
+        "agent": "Iris",
+        "kind": "result",
+        "text": "Calculator display reads 248 for 8 * 31",
+        "meta": { "ok": true }
+      }
+    ]
+  }
+}
