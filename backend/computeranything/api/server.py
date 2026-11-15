@@ -118,6 +118,76 @@ def _safe_name(name):
 
 STARTED = time.time()
 DISMISSED = set()
+RUNS_LIMIT = 200
+
+
+def _stored_view(row, events=None):
+    rid, parent, role, goal, state, started, ended, ok, summary, n_events = row
+    elapsed = round(((ended if ended is not None else started) or 0) - (started or 0), 1)
+    result = None if (ok is None and summary is None) else {"ok": bool(ok), "summary": summary or ""}
+    v = {
+        "id": rid,
+        "goal": goal,
+        "role": role,
+        "parent": parent,
+        "state": state,
+        "elapsed": elapsed,
+        "n_events": n_events,
+        "result": result,
+    }
+    if events is not None:
+        v["events"] = events
+    return v
+
+
+def _list_runs(limit=RUNS_LIMIT):
+    """Live runs plus finished root runs from SQLite so chats survive a backend restart."""
+    from ..core import store
+
+    live = sorted(list(runs.RUNS.values()), key=lambda r: r.started, reverse=True)
+    items = []
+    seen = set()
+    for r in live:
+        v = r.view(len(r.events))
+        v.pop("events", None)
+        items.append((r.started, v))
+        seen.add(r.id)
+    db = store.db()
+    with store._lock:
+        rows = db.execute(
+            "SELECT r.id, r.parent, r.role, r.goal, r.state, r.started, r.ended, r.ok, r.summary, "
+            "(SELECT COUNT(*) FROM events e WHERE e.run=r.id) "
+            "FROM runs r WHERE r.parent IS NULL AND r.state IN ('done','failed') "
+            "ORDER BY r.started DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    for row in rows:
+        if row[0] not in seen:
+            items.append((row[5] or 0, _stored_view(row)))
+    items.sort(key=lambda pair: pair[0], reverse=True)
+    return [v for _, v in items[:limit]]
+
+
+def _stored_run(rid, since=0):
+    """Single-run view from SQLite when a stored run is no longer in runs.RUNS."""
+    from ..core import store
+
+    db = store.db()
+    with store._lock:
+        row = db.execute(
+            "SELECT r.id, r.parent, r.role, r.goal, r.state, r.started, r.ended, r.ok, r.summary, "
+            "(SELECT COUNT(*) FROM events e WHERE e.run=r.id) "
+            "FROM runs r WHERE r.id=?",
+            (rid,),
+        ).fetchone()
+        if not row:
+            return None
+        ev_rows = db.execute(
+            "SELECT t, kind, data FROM events WHERE run=? AND seq>=? ORDER BY seq",
+            (rid, since),
+        ).fetchall()
+    events = [{"t": t, **json.loads(data or "{}"), "kind": kind} for t, kind, data in ev_rows]
+    return _stored_view(row, events=events)
 
 
 def find_files(q, limit=12):
@@ -231,12 +301,7 @@ class Handler(BaseHTTPRequestHandler):
                 with open(os.path.join(os.path.dirname(__file__), "..", "..", "..", "ui", "index.html"), "rb") as f:
                     return self._send(200, body=f.read(), ctype="text/html; charset=utf-8")
             if p == "/api/runs":
-                views = []
-                for r in sorted(list(runs.RUNS.values()), key=lambda r: r.started, reverse=True):
-                    v = r.view(len(r.events))
-                    v.pop("events", None)
-                    views.append(v)
-                return self._send(200, views)
+                return self._send(200, _list_runs())
             if p.startswith("/api/runs/") and p.endswith("/transcript"):  # the task's chat, all its agents
                 from ..core import store
                 from ..cu import overlay
@@ -251,11 +316,13 @@ class Handler(BaseHTTPRequestHandler):
                 q = (parse_qs(u.query).get("q") or [""])[0].strip()
                 return self._send(200, store.search_messages(q) if q else [])
             if p.startswith("/api/runs/") and not p.endswith(("/cost", "/transcript")):
-                r = runs.RUNS.get(p[len("/api/runs/") :])
-                if not r:
+                rid = p[len("/api/runs/") :]
+                since = max(0, int((parse_qs(u.query).get("since") or ["0"])[0] or 0))
+                r = runs.RUNS.get(rid)
+                v = r.view(since) if r else _stored_run(rid, since=since)
+                if not v:
                     return self._send(404, {"error": "no such run"})
-                since = int((parse_qs(u.query).get("since") or ["0"])[0] or 0)
-                return self._send(200, r.view(max(0, since)))
+                return self._send(200, v)
             if p == "/api/help":
                 return self._send(200, runs.pending_help())
             if p == "/api/files":  # Spotlight search over the user's home folder: ?q=invoice
@@ -456,5 +523,58 @@ def main():
         srv.server_close()
 
 
+def selftest():
+    import tempfile
+
+    from ..core import store
+
+    if "CA_HOME" not in os.environ:
+        sys.exit("run with a throwaway home: CA_HOME=$(mktemp -d) python3 -m computeranything.api.server --selftest")
+    with tempfile.TemporaryDirectory(prefix="ca_srv_") as tmp:
+        prev_home, prev_path, prev_db = store.HOME, store.PATH, store._db
+        prev_runs = dict(runs.RUNS)
+        store.HOME, store.PATH, store._db = tmp, os.path.join(tmp, "ca.sqlite"), None
+        runs.RUNS.clear()
+        try:
+            db = store.db()
+            with store._lock:
+                db.execute(
+                    "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    ("r-old", None, "orchestrator", None, "old task", "done", 100.0, 105.5, 1, "done ok"),
+                )
+                db.execute(
+                    "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    ("r-child", "r-old", "cu", "Ava", "step", "done", 101.0, 104.0, 1, "sub ok"),
+                )
+                db.execute(
+                    "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    ("r-live", None, "orchestrator", None, "live task", "done", 200.0, 202.0, 1, "mem"),
+                )
+                db.execute("INSERT INTO events VALUES (?,?,?,?,?)", ("r-old", 0, 0.1, "state", '{"state":"done"}'))
+            live = runs.Run("live task", role="orchestrator")
+            live.id = "r-live"
+            runs.RUNS.clear()
+            runs.RUNS[live.id] = live
+            listed = _list_runs()
+            ids = [r["id"] for r in listed]
+            assert ids == ["r-live", "r-old"], ids
+            old = listed[1]
+            assert set(old) == {"id", "goal", "role", "parent", "state", "elapsed", "n_events", "result"}, old
+            assert old["elapsed"] == 5.5 and old["n_events"] == 1
+            assert old["result"] == {"ok": True, "summary": "done ok"}
+            detail = _stored_run("r-old", since=0)
+            assert detail and detail["n_events"] == 1 and detail["events"][0]["kind"] == "state", detail
+        finally:
+            if store._db is not None:
+                store._db.close()
+            store.HOME, store.PATH, store._db = prev_home, prev_path, prev_db
+            runs.RUNS.clear()
+            runs.RUNS.update(prev_runs)
+    print("server selftest OK")
+
+
 if __name__ == "__main__":
-    main()
+    if "--selftest" in sys.argv:
+        selftest()
+    else:
+        main()
