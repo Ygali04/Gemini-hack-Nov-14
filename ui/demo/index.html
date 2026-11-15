@@ -563,8 +563,8 @@
         <div id="surface-notch" class="surface-card">
           <div class="section-bar">
             <div class="section-heading">
-              <h2 id="notch-heading" class="section-title">2. Open notch (chat and chat list)</h2>
-              <p class="section-note">Opens on the last chat, with folded work rows and a chat list.</p>
+              <h2 id="notch-heading" class="section-title">2. Open notch (conversation and agents home)</h2>
+              <p class="section-note">One conversation per agent with a framed input bar, folded Work rows, and an Agents home list.</p>
             </div>
           </div>
 
@@ -576,14 +576,16 @@
             <button type="button" class="control-btn" data-sample="awaiting-approval" aria-pressed="false">Needs approval</button>
             <button type="button" class="control-btn" data-sample="qa-loop-verified" aria-pressed="false">Verified</button>
             <button type="button" class="control-btn" data-sample="completed-cu" aria-pressed="false">Summary</button>
-            <button type="button" class="control-btn" data-sample="failed" aria-pressed="false">Stopped early</button>
+            <button type="button" class="control-btn" data-sample="a8-broken-error" aria-pressed="false">Error notice</button>
+            <button type="button" class="control-btn" data-sample="a6-multi-agents" aria-pressed="false">Agents</button>
           </div>
 
           <div class="control-row" role="group" aria-label="Open notch interactions">
             <button type="button" id="action-type-prompt" class="control-btn">Type prompt</button>
             <button type="button" id="action-fold-work" class="control-btn">Fold work row</button>
             <button type="button" id="action-open-work" class="control-btn">Open work row</button>
-            <button type="button" id="action-open-chats" class="control-btn">Open chat list</button>
+            <button type="button" id="action-open-chats" class="control-btn">Open agents list</button>
+            <button type="button" id="action-new-agent" class="control-btn">New agent form</button>
           </div>
 
           <div class="notch-stage">
@@ -626,7 +628,7 @@
             <div class="section-bar">
               <div class="section-heading">
                 <h2 class="section-title">3. Approval card at top right</h2>
-                <p class="section-note">Floating permission card with countdown timer; answers record in chat.</p>
+                <p class="section-note">Approvals are answered only on the top-right card; the conversation shows who is waiting and records one answered line.</p>
               </div>
               <div class="control-row" role="group" aria-label="Approval card actions">
                 <button type="button" id="card-approve-btn" class="control-btn">Answer Approve</button>
@@ -643,7 +645,7 @@
               ></iframe>
               <div id="card-answered-banner" class="card-answered-banner" hidden>
                 <span class="card-answered-title">Approved on top-right card</span>
-                <span>The card closes and the chat records one line: Asked “Let the agent click Place Order ($24.00)?” · Approved</span>
+                <span>The card closes and the conversation records one line: Asked “Let the agent click Place Order ($24.00)?” · Approved</span>
               </div>
             </div>
           </div>
@@ -655,7 +657,7 @@
       <div class="section-bar">
         <div class="section-heading">
           <h2 id="workspace-heading" class="section-title">4. Agent workspace window</h2>
-          <p class="section-note">One view menu across agent graph, state machine, transcript, analytics, artifacts, memory, settings, history, and marketing.</p>
+          <p class="section-note">Separate window with nine views and no chat bar; sample runs show “Finished · sample run, not verified”.</p>
         </div>
 
         <nav class="control-row" aria-label="Workspace views">
@@ -677,7 +679,7 @@
             href="../workspace.html?fixture=workspace-demo&amp;view=logs"
             target="workspace-frame"
             data-view="logs"
-          >Transcript</a>
+          >Transcript and history</a>
           <a
             class="view-link"
             href="../workspace.html?fixture=workspace-demo&amp;view=analytics"
@@ -698,22 +700,22 @@
           >Memory</a>
           <a
             class="view-link"
-            href="../workspace.html?fixture=workspace-demo&amp;view=settings"
+            href="../workspace.html?fixture=workspace-demo&amp;view=agent-settings"
             target="workspace-frame"
-            data-view="settings"
-          >Settings</a>
+            data-view="agent-settings"
+          >Agent settings</a>
           <a
             class="view-link"
-            href="../workspace.html?fixture=workspace-demo&amp;view=history"
+            href="../workspace.html?fixture=workspace-demo&amp;view=app-settings"
             target="workspace-frame"
-            data-view="history"
-          >History</a>
+            data-view="app-settings"
+          >App settings</a>
           <a
             class="view-link"
-            href="../workspace.html?fixture=workspace-demo&amp;view=marketing"
+            href="../workspace.html?fixture=workspace-demo&amp;view=onboarding"
             target="workspace-frame"
-            data-view="marketing"
-          >Marketing</a>
+            data-view="onboarding"
+          >First-run setup</a>
           <a
             id="workspace-open-tab"
             class="external-link"
@@ -794,7 +796,7 @@
           domAction: "type-prompt",
           duration: 5,
           label: "Prompt",
-          caption: "Open a chat in the notch and type a task in the prompt box before pressing Send."
+          caption: "Open an agent conversation in the notch and type a task in the framed input bar before pressing Send."
         },
         {
           target: "notch",
@@ -814,7 +816,7 @@
           domAction: "working-agents",
           duration: 6,
           label: "Agents working",
-          caption: "Agents with their own names and colors work in parallel while live progress updates in the chat."
+          caption: "Agents with their own names and colors work in parallel while live progress updates in the conversation."
         },
         {
           target: "notch",
@@ -824,7 +826,7 @@
           domAction: "fold-work",
           duration: 5,
           label: "Work folded",
-          caption: "Completed agent steps stay folded into a single summary row so the conversation stays easy to read."
+          caption: "Agent actions fold into “Work · Name · steps · time · Show” so the conversation stays easy to read."
         },
         {
           target: "notch",
@@ -845,7 +847,7 @@
           domAction: "approval-pending",
           duration: 6,
           label: "Approval card",
-          caption: "When an agent needs permission, a card appears at the top right with a countdown timer and Silence means no."
+          caption: "When permission is needed, the conversation shows ◔ Mira is waiting for you and you answer only on the top-right card."
         },
         {
           target: "notch",
@@ -856,7 +858,7 @@
           domAction: "approval-answered",
           duration: 5,
           label: "Approved",
-          caption: "Answering Approve on the top-right card clears the card and records the decision as one line in the chat."
+          caption: "Answering Approve on the top-right card closes the card and leaves one answered line in the conversation."
         },
         {
           target: "notch",
@@ -866,17 +868,17 @@
           domAction: "verified-cost",
           duration: 6,
           label: "Result summary",
-          caption: "Finished runs report the outcome in plain words with run time and step count, and mark a sample run as not verified."
+          caption: "Finished tasks end with one compact result line and time; unverified sample runs show Finished · sample run, not verified."
         },
         {
           target: "notch",
-          fixture: "a7-long-results",
+          fixture: "a6-multi-agents",
           pillFixture: "working-live",
           surface: "notch",
           domAction: "open-chat-list",
           duration: 4,
-          label: "Chat list",
-          caption: "Open the notch home chat list to see each chat row with its agent color, name, last line, time, and state, alongside new chat, settings, and Esc controls."
+          label: "Agents home",
+          caption: "Open the Agents home for one row per agent, a gear icon for App settings, and + to create an agent — with no input bar."
         },
         {
           target: "workspace",
@@ -884,7 +886,7 @@
           surface: "workspace",
           duration: 3,
           label: "Agent graph",
-          caption: "Open the agent workspace window to inspect how the primary agent and sub-agents connect on the agent graph."
+          caption: "Open the separate workspace window (nine views, no chat bar) to see how the primary agent and sub-agents connect."
         },
         {
           target: "workspace",
@@ -892,7 +894,7 @@
           surface: "workspace",
           duration: 3,
           label: "State machine",
-          caption: "Switch the workspace view menu to the state machine to trace planning, action, verification, and completion."
+          caption: "Switch the workspace view menu across all nine views — State machine maps screens and actions per app."
         }
       ];
 
@@ -1015,7 +1017,7 @@
 
           if (actionName === "type-prompt") {
             const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
-            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"], .chat-list-row[data-action="new-primary-chat"]');
+            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-agent"], .chat-list-row[data-action="select-chat"], .chat-list-row[data-action="new-primary-chat"]');
             if (chatListEl && firstChatBtn) {
               firstChatBtn.click();
             }
@@ -1031,7 +1033,7 @@
 
           if (actionName === "fold-work" || actionName === "open-work") {
             const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
-            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"]');
+            const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-agent"], .chat-list-row[data-action="select-chat"]');
             if (chatListEl && firstChatBtn) {
               firstChatBtn.click();
             }
@@ -1066,6 +1068,8 @@
           if (actionName === "open-chat-list") {
             const existingList = doc.querySelector("#timeline-scroll .chat-list");
             if (existingList) {
+              const cancelFormBtn = doc.querySelector('#agent-inline-form [data-action="cancel-agent-form"]');
+              if (cancelFormBtn) cancelFormBtn.click();
               const scroller = doc.getElementById("timeline-scroll");
               if (scroller) scroller.scrollTop = 0;
               return;
@@ -1084,8 +1088,35 @@
             return;
           }
 
+          if (actionName === "open-new-agent") {
+            const existingList = doc.querySelector("#timeline-scroll .chat-list");
+            if (!existingList) {
+              const openListBtn = doc.querySelector('[data-action="open-chat-list"]');
+              if (!openListBtn) {
+                if (attempts < 100) window.setTimeout(tryAction, 80);
+                return;
+              }
+              openListBtn.click();
+            }
+            const existingForm = doc.getElementById("agent-inline-form");
+            if (!existingForm) {
+              const newBtn = doc.querySelector('[data-action="open-new-agent-form"]');
+              if (!newBtn) {
+                if (attempts < 100) window.setTimeout(tryAction, 80);
+                return;
+              }
+              newBtn.click();
+            }
+            window.setTimeout(() => {
+              if (token !== actionToken) return;
+              const scroller = doc.getElementById("timeline-scroll");
+              if (scroller) scroller.scrollTop = 0;
+            }, 40);
+            return;
+          }
+
           const chatListEl = doc.querySelector("#timeline-scroll .chat-list");
-          const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-chat"]');
+          const firstChatBtn = doc.querySelector('.chat-list-row[data-action="select-agent"], .chat-list-row[data-action="select-chat"]');
           if (chatListEl && firstChatBtn) {
             firstChatBtn.click();
           }
@@ -1373,7 +1404,12 @@
 
       document.getElementById("action-open-chats")?.addEventListener("click", () => {
         if (isPlaying) pauseDemo();
-        selectNotchSample("a7-long-results", () => runNotchDomAction("open-chat-list", "a7-long-results"));
+        selectNotchSample("a6-multi-agents", () => runNotchDomAction("open-chat-list", "a6-multi-agents"));
+      });
+
+      document.getElementById("action-new-agent")?.addEventListener("click", () => {
+        if (isPlaying) pauseDemo();
+        selectNotchSample("a6-multi-agents", () => runNotchDomAction("open-new-agent", "a6-multi-agents"));
       });
 
       document.getElementById("card-approve-btn")?.addEventListener("click", () => {
