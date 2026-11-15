@@ -2508,18 +2508,25 @@
   }
 
   function renderEmptyStateHtml({ title, subtitle, message, ctaLabel, ctaAction = "focus-prompt" }) {
-    return `
+    const headerHtml = title
+      ? `
       <div class="section-header-row">
         <div>
           <h2 class="section-title">${escapeHtml(title)}</h2>
-          <p class="section-subtitle">${escapeHtml(subtitle)}</p>
+          <p class="section-subtitle">${escapeHtml(subtitle || "")}</p>
         </div>
-      </div>
+      </div>`
+      : "";
+    const ctaHtml = ctaLabel
+      ? `<div class="filter-group">
+          <button type="button" class="btn btn-primary" data-action="${escapeHtml(ctaAction)}">${escapeHtml(ctaLabel)}</button>
+        </div>`
+      : "";
+    return `
+      ${headerHtml}
       <div class="view-state-block">
         <span class="state-text state-neutral">&cir; ${escapeHtml(message)}</span>
-        <div class="filter-group">
-          <button type="button" class="btn btn-primary" data-action="${escapeHtml(ctaAction)}">${escapeHtml(ctaLabel)}</button>
-        </div>
+        ${ctaHtml}
       </div>
     `;
   }
@@ -2749,20 +2756,26 @@
       return;
     }
 
-    if (vm.isSampleData && currentView !== "onboarding") {
+    const DEMO_PREVIEW_FIXTURES = new Set([
+      "workspace-demo",
+      "workspace-empty",
+      "workspace-partial",
+      "workspace-stale",
+      "workspace-loading",
+      "workspace-disconnected",
+    ]);
+
+    if (vm.isSampleData && currentView !== "onboarding" && DEMO_PREVIEW_FIXTURES.has(activeFixtureName)) {
       banner.classList.remove("hidden");
       banner.innerHTML = `
+        <span class="state-text state-warning">◔ Preview</span>
         <div class="filter-group">
-          <span class="state-text state-warning">◔ Preview mode</span>
-          <span class="section-subtitle">Showing preview runs and metrics, never live runs.</span>
-        </div>
-        <div class="filter-group">
-          <button type="button" class="btn ${activeFixtureName === "workspace-demo" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-demo">Multi-agent preview</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-empty" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-empty">Empty preview</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-partial" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-partial">Partial preview</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-stale" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-stale">Stale preview</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-loading" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-loading">Loading preview</button>
-          <button type="button" class="btn ${activeFixtureName === "workspace-disconnected" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-disconnected">Not connected preview</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-demo" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-demo">Multi-agent</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-empty" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-empty">Empty</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-partial" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-partial">Partial</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-stale" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-stale">Stale</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-loading" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-loading">Loading</button>
+          <button type="button" class="btn ${activeFixtureName === "workspace-disconnected" ? "btn-active" : ""}" data-action="load-fixture" data-fixture="workspace-disconnected">Disconnected</button>
         </div>
       `;
       return;
@@ -2991,17 +3004,24 @@
       ? renderCopyButton(`result:${group.id}`, "Copy result", group.resultSummary)
       : "";
 
+    const failedChildSummary =
+      group.childNodes.find((c) => c.status?.filterKey === "failed")?.resultSummary || group.resultSummary;
+    const groupStatusDisplay = formatUiStatusDisplay(
+      group.overallStatus,
+      group.overallStatus?.filterKey === "failed" ? failedChildSummary : group.resultSummary
+    );
+    const showGroupSummary =
+      group.resultSummary && group.resultSummary !== groupStatusDisplay.text;
+
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
         <div>
           <h2 class="section-title">${escapeHtml(group.goal)}</h2>
           <p class="section-subtitle">
-            ${(() => {
-              const st = formatUiStatusDisplay(group.overallStatus, group.resultSummary);
-              return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
-            })()}
-            &middot; ${escapeHtml(group.resultSummary)} &middot; Elapsed ${escapeHtml(group.elapsedText)}${
+            <span class="state-text ${escapeHtml(groupStatusDisplay.colorClass)}">${escapeHtml(groupStatusDisplay.text)}</span>${
+              showGroupSummary ? ` &middot; ${escapeHtml(group.resultSummary)}` : ""
+            } &middot; Elapsed ${escapeHtml(group.elapsedText)}${
               group.digestSummaryText ? ` &middot; ${escapeHtml(group.digestSummaryText)}` : ""
             }
           </p>
@@ -3014,11 +3034,13 @@
 
       <div class="b1-layout">
         <div class="agent-graph-stage" id="b1-graph-stage">
-          <svg class="agent-graph-edges-svg" id="b1-edges-svg" aria-hidden="true"></svg>
-          <div class="agent-graph-tier" id="b1-primary-tier">
-            ${renderGraphNodeButton(group.primaryNode)}
+          <div class="agent-graph-canvas" id="b1-graph-canvas">
+            <svg class="agent-graph-edges-svg" id="b1-edges-svg" aria-hidden="true"></svg>
+            <div class="agent-graph-tier" id="b1-primary-tier">
+              ${renderGraphNodeButton(group.primaryNode)}
+            </div>
+            ${childrenHtml}
           </div>
-          ${childrenHtml}
         </div>
 
         <div class="agent-steps-pane">
@@ -3055,42 +3077,54 @@
 
   function drawB1ParentChildEdges() {
     const stage = document.getElementById("b1-graph-stage");
+    const canvas = document.getElementById("b1-graph-canvas") || stage;
     const svg = document.getElementById("b1-edges-svg");
-    if (!stage || !svg) return;
+    if (!stage || !canvas || !svg) return;
 
-    const parentEl = stage.querySelector('[data-parent-node="1"]');
-    const childEls = Array.from(stage.querySelectorAll('[data-parent-node="0"]'));
+    canvas.style.transform = "";
+    const parentEl = canvas.querySelector('[data-parent-node="1"]');
+    const childEls = Array.from(canvas.querySelectorAll('[data-parent-node="0"]'));
     if (!parentEl || !childEls.length) {
       svg.innerHTML = "";
-      return;
+    } else {
+      const canvasRect = canvas.getBoundingClientRect();
+      const pRect = parentEl.getBoundingClientRect();
+      const px = pRect.left - canvasRect.left + pRect.width / 2;
+      const py = pRect.bottom - canvasRect.top;
+
+      const paths = childEls.map((childEl) => {
+        const cRect = childEl.getBoundingClientRect();
+        const cx = cRect.left - canvasRect.left + cRect.width / 2;
+        const cy = cRect.top - canvasRect.top;
+        const midY = (py + cy) / 2;
+        const stroke = childEl.dataset.glassBody || "#767d8e";
+        const isSelected = childEl.classList.contains("is-selected");
+        return `
+          <path
+            d="M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}"
+            fill="none"
+            stroke="${escapeHtml(stroke)}"
+            stroke-width="${isSelected ? "2.5" : "1.6"}"
+            stroke-opacity="${isSelected ? "0.95" : "0.55"}"
+          />
+          <circle cx="${cx}" cy="${cy - 2}" r="3.5" fill="${escapeHtml(stroke)}" />
+        `;
+      });
+
+      svg.setAttribute("viewBox", `0 0 ${Math.max(10, canvasRect.width)} ${Math.max(10, canvasRect.height)}`);
+      svg.innerHTML = paths.join("");
     }
 
-    const stageRect = stage.getBoundingClientRect();
-    const pRect = parentEl.getBoundingClientRect();
-    const px = pRect.left - stageRect.left + pRect.width / 2;
-    const py = pRect.bottom - stageRect.top;
-
-    const paths = childEls.map((childEl) => {
-      const cRect = childEl.getBoundingClientRect();
-      const cx = cRect.left - stageRect.left + cRect.width / 2;
-      const cy = cRect.top - stageRect.top;
-      const midY = (py + cy) / 2;
-      const stroke = childEl.dataset.glassBody || "#767d8e";
-      const isSelected = childEl.classList.contains("is-selected");
-      return `
-        <path
-          d="M ${px} ${py} C ${px} ${midY}, ${cx} ${midY}, ${cx} ${cy}"
-          fill="none"
-          stroke="${escapeHtml(stroke)}"
-          stroke-width="${isSelected ? "2.5" : "1.6"}"
-          stroke-opacity="${isSelected ? "0.95" : "0.55"}"
-        />
-        <circle cx="${cx}" cy="${cy - 2}" r="3.5" fill="${escapeHtml(stroke)}" />
-      `;
-    });
-
-    svg.setAttribute("viewBox", `0 0 ${Math.max(10, stageRect.width)} ${Math.max(10, stageRect.height)}`);
-    svg.innerHTML = paths.join("");
+    if (canvas !== stage) {
+      const availW = Math.max(120, stage.clientWidth - 24);
+      const availH = Math.max(120, stage.clientHeight - 24);
+      const natW = canvas.scrollWidth || canvas.offsetWidth;
+      const natH = canvas.scrollHeight || canvas.offsetHeight;
+      if (natW > availW || natH > availH) {
+        const scale = Math.max(0.55, Math.min(availW / natW, availH / natH));
+        canvas.style.transform = `scale(${scale.toFixed(3)})`;
+      }
+    }
   }
 
   /* ---------------- B1b: STATE MACHINE GRAPH VIEW ---------------- */
@@ -3275,9 +3309,12 @@
         components.push(compIds);
       }
 
-      /* Top-to-bottom layout for narrow right-edge panel (560px+) */
+      /* Side-by-side component grid so multi-app state machines fill wide viewports cleanly */
       const nodeLayout = new Map();
+      const maxRowWidth = 1080;
+      let currentX = padX;
       let currentY = 20;
+      let rowMaxBottom = 20;
       let maxSvgWidth = 520;
 
       for (const compIds of components) {
@@ -3322,16 +3359,22 @@
           (e) => e.from !== e.to && (layerById.get(e.to) || 0) <= (layerById.get(e.from) || 0)
         ).length;
 
-        const compWidth = Math.max(520, padX * 2 + (maxColsInComp - 1) * colStep + wNode + (hasSelfLoop ? 290 : 260));
-        if (compWidth > maxSvgWidth) maxSvgWidth = compWidth;
+        const compContentWidth = (maxColsInComp - 1) * colStep + wNode + (hasSelfLoop ? 240 : 120);
+        if (currentX > padX && currentX + compContentWidth > maxRowWidth) {
+          currentX = padX;
+          currentY = rowMaxBottom + 24;
+        }
 
+        const compLeftX = currentX;
         const compTopY = currentY + 12;
-        const compRightX = padX + (maxColsInComp - 1) * colStep + wNode;
+        const compRightX = compLeftX + (maxColsInComp - 1) * colStep + wNode;
+        const bottomPad = backEdgeCount > 0 ? 48 : 28;
+        const compBottomY = compTopY + maxLayer * rowStep + hNode;
 
         for (let layer = 0; layer <= maxLayer; layer++) {
           const ids = layers.get(layer) || [];
           ids.forEach((id, colIdx) => {
-            const x = padX + colIdx * colStep;
+            const x = compLeftX + colIdx * colStep;
             const y = compTopY + layer * rowStep;
             nodeLayout.set(id, {
               id,
@@ -3341,17 +3384,19 @@
               y,
               compTopY,
               compRightX,
-              compBottomY: compTopY + maxLayer * rowStep + hNode,
+              compBottomY,
             });
           });
         }
 
-        const bottomPad = backEdgeCount > 0 ? 48 : 28;
-        currentY = compTopY + maxLayer * rowStep + hNode + bottomPad;
+        const neededWidth = Math.max(520, compLeftX + compContentWidth + padX);
+        if (neededWidth > maxSvgWidth) maxSvgWidth = neededWidth;
+        if (compBottomY + bottomPad > rowMaxBottom) rowMaxBottom = compBottomY + bottomPad;
+        currentX = compLeftX + compContentWidth + 24;
       }
 
       let svgWidth = maxSvgWidth;
-      const svgHeight = Math.max(220, currentY + 12);
+      const svgHeight = Math.max(220, rowMaxBottom + 12);
 
       /* Group parallel edges between the same pair of nodes */
       const pairGroups = new Map();
@@ -3924,11 +3969,16 @@
                 >
                   <span class="transcript-main">
                     ${(() => {
-                      const st = formatUiStatusDisplay(g.overallStatus, g.resultSummary);
-                      return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>`;
-                    })()}
+                      const failedChild = g.childNodes.find((c) => c.status?.filterKey === "failed")?.resultSummary;
+                      const st = formatUiStatusDisplay(
+                        g.overallStatus,
+                        g.overallStatus?.filterKey === "failed" ? (failedChild || g.resultSummary) : g.resultSummary
+                      );
+                      const showRes = g.resultSummary && g.resultSummary !== st.text;
+                      return `<span class="state-text ${escapeHtml(st.colorClass)}">${escapeHtml(st.text)}</span>
                     <span class="transcript-goal">${escapeHtml(g.goal)}</span>
-                    <span class="transcript-result">&middot; ${escapeHtml(g.resultSummary)}</span>
+                    ${showRes ? `<span class="transcript-result">&middot; ${escapeHtml(g.resultSummary)}</span>` : ""}`;
+                    })()}
                   </span>
                   <span class="transcript-meta">
                     <span>${escapeHtml(g.elapsedText)}</span>
@@ -3971,11 +4021,6 @@
           <h2 class="section-title">Transcript log</h2>
           <p class="section-subtitle">
             Every run newest first: prompt, attachments, agents, status, result, and time
-            ${
-              vm.isSampleData
-                ? " &middot; Preview runs (not live backend history)"
-                : " &middot; History resets when backend restarts"
-            }
           </p>
         </div>
         <div class="filter-group" role="group" aria-label="Transcript or history view">
@@ -4064,11 +4109,9 @@
             <button type="button" class="btn" aria-pressed="false" data-action="switch-view" data-target-view="marketing">Marketing</button>
           </div>
         </div>
-        ${renderEmptyViewHtml({
-          title: "Artifacts",
-          subtitle: "Reports, patches, commits, and launch briefs produced by agents",
+        ${renderEmptyStateHtml({
+          title: "",
           message: "No artifacts produced yet. Bug reports, patches, commits, and launch briefs appear here as agents work.",
-          showSampleButton: !vm.isSampleData,
         })}
       `;
       return;
@@ -4272,11 +4315,9 @@
             <button type="button" class="btn btn-active" aria-pressed="true" data-action="switch-view" data-target-view="marketing">Marketing</button>
           </div>
         </div>
-        ${renderEmptyViewHtml({
-          title: "Marketing",
-          subtitle: "Launch briefs, voice-over scripts, shot lists, palettes, and screenshots",
+        ${renderEmptyStateHtml({
+          title: "",
           message: "No marketing runs yet. Ask your agents to create a launch brief or promo for an app or site.",
-          showSampleButton: !vm.isSampleData,
         })}
       `;
       return;
@@ -4544,9 +4585,9 @@
           </div>
           <div class="metric-item">
             <span class="metric-label">Memory graph coverage</span>
-            <span class="metric-value">${escapeHtml(gs.screens ?? 0)} screens · ${escapeHtml(gs.skills ?? 0)} skills</span>
+            <span class="metric-value">${escapeHtml(gs.screens ?? 0)} screens · ${escapeHtml(gs.skills ?? 0)} saved shortcuts</span>
             <span class="metric-note">${
-              gs.mean_edge_p != null ? `Mean reliability P=${gs.mean_edge_p}` : "No scored edges yet"
+              gs.mean_edge_p != null ? `${Math.round(Number(gs.mean_edge_p) * 100)}% reliable` : "No scored edges yet"
             }</span>
           </div>
         </div>
@@ -4598,7 +4639,7 @@
             <span class="filter-label">Cost per task over time</span>
             <span class="section-subtitle">${tasksWithCost.length} ${tasksWithCost.length === 1 ? "task" : "tasks"}</span>
           </div>
-          <svg class="analytics-spark-svg" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task over time">
+          <svg class="analytics-spark-svg" width="${chartW}" height="${chartH}" viewBox="0 0 ${chartW} ${chartH}" role="img" aria-label="Cost per task over time">
             ${barsSvg}
           </svg>
         </div>
@@ -5696,6 +5737,33 @@
         ? `<span class="state-text state-success">${escapeHtml(HistorySettingsState.profileSaveStatus)}</span>`
         : "";
 
+    const voiceOptions = [
+      { value: "", label: "Default voice" },
+      { value: "2X7h8q4r8pMNZ7zRmpiF", label: "Warm & clear (default)" },
+      ...ONBOARDING_VOICES.map((v) => ({ value: v.id, label: v.name })),
+    ];
+    if (draft.voice_id && !voiceOptions.some((o) => o.value === draft.voice_id)) {
+      voiceOptions.push({ value: draft.voice_id, label: "Custom voice" });
+    }
+
+    const modelOptions = [
+      { value: "", label: "Automatic" },
+      { value: "google/gemini-4-argon", label: "Gemini 4 Argon" },
+      { value: "google/gemini-4-hydrogen", label: "Gemini 4 Hydrogen" },
+      { value: "google/gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite" },
+    ];
+    if (draft.model && !modelOptions.some((o) => o.value === draft.model)) {
+      modelOptions.push({ value: draft.model, label: draft.model });
+    }
+    const decideModelOptions = [
+      { value: "", label: "Same as primary model" },
+      { value: "google/gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite (fast)" },
+      { value: "google/gemini-4-argon", label: "Gemini 4 Argon" },
+    ];
+    if (draft.decide_model && !decideModelOptions.some((o) => o.value === draft.decide_model)) {
+      decideModelOptions.push({ value: draft.decide_model, label: draft.decide_model });
+    }
+
     container.innerHTML = `
       ${renderViewStatusNoticesHtml(vm)}
       <div class="section-header-row">
@@ -5703,7 +5771,13 @@
           <h2 class="section-title">Settings</h2>
           <p class="section-subtitle">Saved to your profile and applied to the running agents.</p>
         </div>
-        <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Run setup again</button>
+        <div class="filter-group">
+          <span aria-live="polite">${settingsStatusHtml}</span>
+          <button type="submit" form="workspace-settings-form" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
+            ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
+          </button>
+          <button type="button" class="btn" data-action="switch-view" data-target-view="onboarding">Run setup again</button>
+        </div>
       </div>
 
       <form id="workspace-settings-form" class="settings-form-grid">
@@ -5722,55 +5796,45 @@
 
         <div class="onboarding-field">
           <label for="settings-voice-id" class="filter-label">Voice</label>
-          <input
-            type="text"
-            id="settings-voice-id"
-            name="voice_id"
-            class="inline-text-input"
-            maxlength="200"
-            placeholder="Default voice"
-            value="${escapeHtml(draft.voice_id)}"
-          />
+          <select id="settings-voice-id" name="voice_id" class="inline-text-input">
+            ${voiceOptions
+              .map(
+                (opt) =>
+                  `<option value="${escapeHtml(opt.value)}" ${draft.voice_id === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+              )
+              .join("")}
+          </select>
         </div>
 
         <div class="onboarding-field">
           <label for="settings-model" class="filter-label">Primary model</label>
-          <input
-            type="text"
-            id="settings-model"
-            name="model"
-            class="inline-text-input"
-            maxlength="200"
-            placeholder="Default model"
-            value="${escapeHtml(draft.model)}"
-          />
+          <select id="settings-model" name="model" class="inline-text-input">
+            ${modelOptions
+              .map(
+                (opt) =>
+                  `<option value="${escapeHtml(opt.value)}" ${draft.model === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+              )
+              .join("")}
+          </select>
         </div>
 
         <div class="onboarding-field">
           <label for="settings-decide-model" class="filter-label">Faster step model</label>
-          <input
-            type="text"
-            id="settings-decide-model"
-            name="decide_model"
-            class="inline-text-input"
-            maxlength="200"
-            placeholder="Uses primary model when blank"
-            value="${escapeHtml(draft.decide_model)}"
-          />
-        </div>
-
-        <div class="settings-form-actions">
-          <button type="submit" id="settings-save-btn" class="btn btn-primary" ${HistorySettingsState.profileSaving ? "disabled" : ""}>
-            ${HistorySettingsState.profileSaving ? "Saving…" : "Save settings"}
-          </button>
-          <span aria-live="polite">${settingsStatusHtml}</span>
+          <select id="settings-decide-model" name="decide_model" class="inline-text-input">
+            ${decideModelOptions
+              .map(
+                (opt) =>
+                  `<option value="${escapeHtml(opt.value)}" ${draft.decide_model === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
+              )
+              .join("")}
+          </select>
         </div>
       </form>
 
       <div class="section-header-row" style="margin-top: 8px;">
         <div>
           <h3 class="section-title">Primary agent</h3>
-          <p class="section-subtitle">Name and color for your orchestrator. On-screen cursor names and colors still come from the backend.</p>
+          <p class="section-subtitle">Name and color for your lead agent. Agents it starts pick their own cursor colors.</p>
         </div>
       </div>
       <div class="settings-form-grid">
