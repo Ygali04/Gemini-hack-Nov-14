@@ -397,16 +397,18 @@
       color: var(--text-muted);
     }
 
-    /* F1: Shown ONLY when field is empty, hidden immediately on any text */
+    /* F1: Shown below prompt row ONLY when field is empty so it never squeezes input */
     .enter-action-hint {
       font-size: 12px;
       line-height: 16px;
       color: var(--text-muted);
       white-space: nowrap;
-      flex-shrink: 0;
+      padding-left: 36px;
+      margin-top: -2px;
       pointer-events: none;
     }
 
+    .prompt-section.has-text .enter-action-hint,
     .prompt-field-wrap.has-text .enter-action-hint {
       display: none;
     }
@@ -417,12 +419,6 @@
       color: var(--text-muted);
       white-space: normal;
       word-break: break-word;
-    }
-
-    @media (max-width: 465px) {
-      .enter-action-hint {
-        display: none;
-      }
     }
 
     /* Inline Link attachment or Connect input row */
@@ -1354,7 +1350,6 @@
               placeholder="Ask your agents…"
               aria-label="Ask your agents"
             ></textarea>
-            <span class="enter-action-hint">Enter &middot; send to agents</span>
           </div>
 
           <button
@@ -1392,6 +1387,8 @@
             <span>Esc</span>
           </button>
         </div>
+
+        <div id="enter-action-hint" class="enter-action-hint">Enter &middot; send to agents</div>
 
         <div id="thread-mode-bar" class="thread-mode-bar hidden"></div>
 
@@ -1922,6 +1919,22 @@
           return { ok: true };
         }
 
+        const ALLOWED_SETTINGS_PANES = new Set([
+          "accessibility",
+          "screenRecording",
+          "microphone",
+          "speechRecognition",
+          "automation",
+        ]);
+
+        async function openSettingsPane(pane) {
+          const cleanPane = String(pane || "").trim();
+          if (!hasShellBridge() || !ALLOWED_SETTINGS_PANES.has(cleanPane)) {
+            return { ok: false, pane: cleanPane, error: "Unsupported settings pane" };
+          }
+          return callShell("openSettingsPane", { pane: cleanPane });
+        }
+
         function openLegacyChatWindow(runId) {
           if (runId) post("openChat", { run: runId });
         }
@@ -1935,6 +1948,7 @@
           pickFiles,
           post,
           openWorkspace,
+          openSettingsPane,
           openLegacyChatWindow,
         };
       })();
@@ -2242,6 +2256,59 @@
           return `$${n.toFixed(2)}`;
         }
 
+        const UNSAFE_ROLE_WORD_RE =
+          /\b(?:statictext|textfield|textarea|searchfield|securetextfield|menuitem|menubaritem|radiobutton|popupbutton|combobox|treeitem|scrollarea|incrementor|colorwell|disclosure|axui|axerror)\b/i;
+        const AX_COCOA_ROLE_RE = /\bAX[A-Z][A-Za-z0-9]*\b/;
+        const ROLE_SYNTAX_RE =
+          /(?:\[\d+\]\s*(?:button|link|checkbox|tab|cell|row|slider|switch|heading|image|group|window|toolbar|outline|table|list)\b|\b(?:button|link|checkbox|tab|cell|row|slider|switch|heading|image|group|window|toolbar|outline|table|list)\s*:\s*["']?[^\s"']|^(?:button|link|checkbox|tab|cell|row|slider|switch|heading|image|group|window|toolbar|outline|table|list)\s+["'][^"']+["'])/i;
+        const SINGLE_ROLE_EVIDENCE_RE =
+          /^(?:\[\d+\]\s*)?(?:AX[A-Z][A-Za-z0-9]*|statictext|textfield|textarea|searchfield|securetextfield|button|link|menuitem|menubaritem|checkbox|radiobutton|popupbutton|combobox|tab|cell|row|treeitem|slider|switch|heading|image|scrollarea|incrementor|colorwell|disclosure)\s*:?\s*(?:"([^"]*)"|'([^']*)'|([^\s(][^()]*?))(?:\s*\((?:read-only|disabled|focused|selected)\))?$/i;
+        const ACTION_ROLE_PREFIX_RE =
+          /^(?:AX[A-Z][A-Za-z0-9]*|statictext|textfield|textarea|searchfield|securetextfield|button|link|menuitem|menubaritem|checkbox|radiobutton|popupbutton|combobox|tab|cell|row|treeitem|slider|switch|heading|image|scrollarea|incrementor|colorwell|disclosure):/i;
+
+        function containsRoleName(text) {
+          const s = String(text || "").trim();
+          if (!s) return false;
+          return UNSAFE_ROLE_WORD_RE.test(s) || AX_COCOA_ROLE_RE.test(s) || ROLE_SYNTAX_RE.test(s);
+        }
+
+        function stripActionRolePrefix(target) {
+          let s = String(target || "").trim();
+          while (ACTION_ROLE_PREFIX_RE.test(s)) {
+            s = s.replace(ACTION_ROLE_PREFIX_RE, "").trim();
+          }
+          return s;
+        }
+
+        function formatEvidencePlain(rawEvidence, appName, resultSummary) {
+          const raw = String(rawEvidence || "").trim();
+          if (!raw || /^mock$/i.test(raw)) return "";
+          if (!containsRoleName(raw)) return raw;
+          const m = raw.match(SINGLE_ROLE_EVIDENCE_RE);
+          if (m) {
+            const val = String(m[1] ?? m[2] ?? m[3] ?? "").trim();
+            if (val && !containsRoleName(val)) {
+              const prefix = String(appName || "").trim();
+              return prefix ? `${prefix} shows ${val}` : `Screen shows ${val}`;
+            }
+          }
+          const fallback = String(resultSummary || "").trim();
+          if (fallback && !/^mock$/i.test(fallback) && !containsRoleName(fallback)) {
+            return fallback;
+          }
+          return "";
+        }
+
+        function cleanPlainSummary(rawText, appName, fallbackText) {
+          const text = String(rawText || "").trim();
+          if (!text) return "";
+          if (!containsRoleName(text)) return text;
+          const formatted = formatEvidencePlain(text, appName, fallbackText);
+          if (formatted) return formatted;
+          const fallback = String(fallbackText || "").trim();
+          return fallback && !containsRoleName(fallback) ? fallback : "";
+        }
+
         function parseActionParts(rawAction) {
           const raw = String(rawAction || "").trim();
           if (!raw) return { verb: "", target: "" };
@@ -2249,7 +2316,7 @@
           if (idx === -1) return { verb: raw.toLowerCase(), target: "" };
           return {
             verb: raw.slice(0, idx).trim().toLowerCase(),
-            target: raw.slice(idx + 1).trim(),
+            target: stripActionRolePrefix(raw.slice(idx + 1).trim()),
           };
         }
 
@@ -2284,7 +2351,7 @@
           return "deciding...";
         }
 
-        function extractRunApp(runObj, events, parentRouteEvent, childIndex) {
+        function extractRunApp(runObj, events, parentRouteEvent) {
           if (runObj?.app) return String(runObj.app).trim();
           const list = Array.isArray(events) ? events : [];
           for (let i = list.length - 1; i >= 0; i--) {
@@ -2292,18 +2359,24 @@
               return String(list[i].app).trim();
             }
           }
-          if (parentRouteEvent && Array.isArray(parentRouteEvent.subtasks) && parentRouteEvent.subtasks.length) {
-            const byGoal = parentRouteEvent.subtasks.find((s) => s && s.goal === runObj?.goal && s.app);
-            if (byGoal) return String(byGoal.app).trim();
-            const byIdx = parentRouteEvent.subtasks[childIndex];
-            if (byIdx?.app) return String(byIdx.app).trim();
+          for (let i = list.length - 1; i >= 0; i--) {
+            if ((list[i]?.kind === "act" || list[i]?.kind === "decide") && list[i].app) {
+              return String(list[i].app).trim();
+            }
           }
-          if (parentRouteEvent?.app) return String(parentRouteEvent.app).trim();
           for (let i = list.length - 1; i >= 0; i--) {
             const node = list[i]?.kind === "graph" ? String(list[i].node || "") : "";
             const prefix = node.split(":")[0].trim();
             if (prefix && prefix !== "?") return prefix;
           }
+          if (parentRouteEvent && Array.isArray(parentRouteEvent.subtasks) && parentRouteEvent.subtasks.length) {
+            const byGoal = parentRouteEvent.subtasks.find((s) => s && s.goal === runObj?.goal && s.app);
+            if (byGoal) return String(byGoal.app).trim();
+            if (parentRouteEvent.subtasks.length === 1 && parentRouteEvent.subtasks[0]?.app) {
+              return String(parentRouteEvent.subtasks[0].app).trim();
+            }
+          }
+          if (parentRouteEvent?.app) return String(parentRouteEvent.app).trim();
           return "";
         }
 
@@ -2366,11 +2439,16 @@
               return ev.thought ? sentenceCase(ev.thought) : (ev.action === "done" ? "Checking if done" : "Deciding next step");
             case "act":
               return ev.action ? sentenceCase(summarizeActPlain(ev)) : "Performed action";
-            case "verify":
+            case "verify": {
+              const rawEv = String(ev.evidence || "").trim();
               if (ev.achieved) {
-                return ev.evidence ? `Verified: ${ev.evidence}` : "Verified goal on screen";
+                if (/^mock$/i.test(rawEv)) return "Sample run check (not verified)";
+                const plainEv = formatEvidencePlain(rawEv, "", "");
+                return plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
               }
-              return ev.evidence ? `Not verified yet: ${ev.evidence}` : "Verification check failed";
+              const plainFail = cleanPlainSummary(rawEv, "", "");
+              return plainFail ? `Not verified yet: ${plainFail}` : "Verification check failed";
+            }
             case "tests":
               return ev.exit === 0
                 ? `Tests passed (round ${ev.round || 1})`
@@ -2418,10 +2496,21 @@
           }
         }
 
-        function formatStepDetails(run, events) {
+        function formatStepDetails(run, events, appName) {
           const lines = [];
           for (const ev of events) {
-            const line = summarizeEventPlain(ev);
+            let line = "";
+            if (ev?.kind === "verify" && ev.achieved) {
+              const rawEv = String(ev.evidence || "").trim();
+              if (/^mock$/i.test(rawEv)) {
+                line = "Sample run check (not verified)";
+              } else {
+                const plainEv = formatEvidencePlain(rawEv, appName || "", run?.result?.summary || "");
+                line = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
+              }
+            } else {
+              line = summarizeEventPlain(ev);
+            }
             if (line) {
               lines.push(line);
             }
@@ -2438,17 +2527,21 @@
             }
           }
           if (!lines.length && run.result?.summary) {
-            lines.push(sentenceCase(run.result.summary));
+            const plainSummary = cleanPlainSummary(run.result.summary, appName || "", "");
+            if (plainSummary) lines.push(sentenceCase(plainSummary));
           }
           return lines;
         }
 
-        function extractVerificationEvidence(allRunsInGroup, detailsById) {
+        function extractVerificationEvidence(allRunsInGroup, detailsById, appName, resultSummary) {
           for (const r of allRunsInGroup) {
             const detail = detailsById[r.id];
             const evs = Array.isArray(detail?.events) ? detail.events : [];
             const verified = [...evs].reverse().find((e) => e.kind === "verify" && e.achieved && e.evidence);
-            if (verified) return String(verified.evidence).trim();
+            if (verified) {
+              const formatted = formatEvidencePlain(verified.evidence, appName, resultSummary);
+              if (formatted) return formatted;
+            }
           }
           return "";
         }
@@ -2463,11 +2556,19 @@
           return null;
         }
 
+        const ALLOWED_SETTINGS_PANES = new Set([
+          "accessibility",
+          "screenRecording",
+          "microphone",
+          "speechRecognition",
+          "automation",
+        ]);
+
         const PERMISSION_RULES = [
           {
             key: "accessibility",
             label: "Accessibility",
-            section: "Privacy_Accessibility",
+            pane: "accessibility",
             buttonText: "Open Accessibility settings",
             message: "Accessibility permission needed to inspect and interact with windows.",
             pattern: /\b(accessibility|axui|axerror|not trusted|assistive)\b/i,
@@ -2475,7 +2576,7 @@
           {
             key: "screen_recording",
             label: "Screen Recording",
-            section: "Privacy_ScreenCapture",
+            pane: "screenRecording",
             buttonText: "Open Screen Recording settings",
             message: "Screen Recording permission needed to capture the screen.",
             pattern: /(screen\s*recording|screen\s*capture|cgwindowlist|screencapture|cannot record|screenrecording)/i,
@@ -2483,7 +2584,7 @@
           {
             key: "automation",
             label: "Automation",
-            section: "Privacy_Automation",
+            pane: "automation",
             buttonText: "Open Automation settings",
             message: "Automation permission needed to control apps on this Mac.",
             pattern: /(automation|apple\s*event|-1743|not authorized to send apple events)/i,
@@ -2491,7 +2592,7 @@
           {
             key: "microphone",
             label: "Microphone",
-            section: "Privacy_Microphone",
+            pane: "microphone",
             buttonText: "Open Microphone settings",
             message: "Microphone permission needed for audio input.",
             pattern: /\bmicrophone\b/i,
@@ -2499,7 +2600,7 @@
           {
             key: "speech",
             label: "Speech Recognition",
-            section: "Privacy_SpeechRecognition",
+            pane: "speechRecognition",
             buttonText: "Open Speech settings",
             message: "Speech Recognition permission needed for dictation.",
             pattern: /(speech\s*recognition|sfspeech)/i,
@@ -2507,8 +2608,8 @@
           {
             key: "files",
             label: "Full Disk Access",
-            section: "Privacy_AllFiles",
-            buttonText: "Open Privacy settings",
+            pane: "",
+            buttonText: "",
             message: "Full Disk Access permission may be needed for this file.",
             pattern: /(full disk access|operation not permitted)/i,
           },
@@ -2534,11 +2635,12 @@
           if (!combined) return null;
           for (const rule of PERMISSION_RULES) {
             if (rule.pattern.test(combined)) {
+              const pane = ALLOWED_SETTINGS_PANES.has(rule.pane) ? rule.pane : "";
               return {
                 key: rule.key,
                 label: rule.label,
-                section: rule.section,
-                buttonText: rule.buttonText,
+                pane,
+                buttonText: pane ? rule.buttonText : "",
                 message: rule.message,
               };
             }
@@ -2739,6 +2841,23 @@
           return false;
         }
 
+        function isMockSummaryText(value) {
+          return /^mock$/i.test(String(value || "").trim());
+        }
+
+        function isMockRunGroup(allRunsInGroup, detailsById, costData, isSampleContext) {
+          if (isSampleContext) return true;
+          if (hasMockVerifyEvidence(allRunsInGroup, detailsById)) return true;
+          if (costData && costData.mock === true) return true;
+          for (const r of allRunsInGroup) {
+            if (r?.result?.digest?.task_cost?.mock === true) return true;
+            if (isMockSummaryText(r?.result?.summary) || isMockSummaryText(r?.result?.digest?.summary)) {
+              return true;
+            }
+          }
+          return false;
+        }
+
         function hasVerifyPass(allRunsInGroup, detailsById) {
           let seenVerify = false;
           for (const r of allRunsInGroup) {
@@ -2801,10 +2920,14 @@
             transcriptsById,
             primaryAgentPref
           );
-          const app = extractRunApp(childRun, events, parentRouteEvent, fallbackIndex);
+          const app = extractRunApp(childRun, events, parentRouteEvent);
           const unappliedPatch = [...events].reverse().find((e) => e.kind === "patch" && e.applied === false);
           const verifiedEvent = [...events].reverse().find((e) => e.kind === "verify" && e.achieved);
-          const isSampleStep = Boolean(isMockContext);
+          const isMockStep = Boolean(
+            isMockContext ||
+              hasMockVerifyEvidence([childRun], { [childRun.id]: detail }) ||
+              isMockSummaryText(childRun.result?.summary)
+          );
 
           let stateSymbolWord = "▶ Running";
           let stateColorClass = "state-working";
@@ -2822,8 +2945,13 @@
             stateColorClass = "state-working";
             isWorking = true;
           } else if (childRun.state === "done" && childRun.result?.ok === true) {
-            stateSymbolWord = isSampleStep ? "✓ Verified (mock)" : "✓ Verified";
-            stateColorClass = "state-success";
+            if (isMockStep) {
+              stateSymbolWord = "Finished · sample run, not verified";
+              stateColorClass = "state-neutral";
+            } else {
+              stateSymbolWord = "✓ Verified";
+              stateColorClass = "state-success";
+            }
           } else if (childRun.state === "failed" || childRun.result?.ok === false) {
             stateSymbolWord = "× Failed";
             stateColorClass = "state-danger";
@@ -2838,7 +2966,19 @@
             latestSummary = summarizeEventPlain(unappliedPatch);
           } else {
             for (let i = events.length - 1; i >= 0; i--) {
-              const candidate = summarizeEventPlain(events[i]);
+              const ev = events[i];
+              let candidate = "";
+              if (ev?.kind === "verify" && ev.achieved) {
+                const rawEv = String(ev.evidence || "").trim();
+                if (/^mock$/i.test(rawEv)) {
+                  candidate = "Sample run check (not verified)";
+                } else {
+                  const plainEv = formatEvidencePlain(rawEv, app, childRun.result?.summary || "");
+                  candidate = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
+                }
+              } else {
+                candidate = summarizeEventPlain(ev);
+              }
               if (candidate && candidate !== "Finished" && candidate !== "Stopped" && candidate !== "Working") {
                 latestSummary = candidate;
                 break;
@@ -2847,15 +2987,21 @@
           }
           if (!latestSummary) {
             if (verifiedEvent?.evidence) {
-              latestSummary = `Verified: ${verifiedEvent.evidence}`;
-            } else if (childRun.result?.summary) {
-              latestSummary = cleanFailureFact(childRun.result.summary);
+              if (isMockSummaryText(verifiedEvent.evidence)) {
+                latestSummary = "Sample run check (not verified)";
+              } else {
+                const plainEv = formatEvidencePlain(verifiedEvent.evidence, app, childRun.result?.summary || "");
+                latestSummary = plainEv ? `Verified: ${plainEv}` : "Verified goal on screen";
+              }
+            } else if (childRun.result?.summary && !isMockSummaryText(childRun.result.summary)) {
+              const plainSummary = cleanPlainSummary(childRun.result.summary, app, "");
+              if (plainSummary) latestSummary = cleanFailureFact(plainSummary);
             } else if (isWorking) {
               latestSummary = "Working…";
             }
           }
 
-          const detailLines = formatStepDetails(childRun, events);
+          const detailLines = formatStepDetails(childRun, events, app);
 
           return {
             id: childRun.id,
@@ -3199,6 +3345,7 @@
 
             const isSampleContext = Boolean(meta.isSampleData);
             const hasMockVerify = hasMockVerifyEvidence(groupRuns, detailsById);
+            const isMockRun = isMockRunGroup(groupRuns, detailsById, costsById[parent.id], isSampleContext);
 
             const steps = (rawChildren.length ? rawChildren : [parent]).map((child, idx) => {
               const childHelp = pendingHelp.filter((h) => h.run === child.id && !h.isExpired);
@@ -3208,7 +3355,7 @@
                 childHelp,
                 agentsMap,
                 idx,
-                isSampleContext,
+                isMockRun,
                 rememberedMap,
                 parentRouteEvent,
                 transcriptsById,
@@ -3226,23 +3373,34 @@
                 apps.push(clean);
               }
             };
-            if (parentRouteEvent?.app) addAppName(parentRouteEvent.app);
-            if (Array.isArray(parentRouteEvent?.subtasks)) {
-              for (const sub of parentRouteEvent.subtasks) {
-                if (sub?.app) addAppName(sub.app);
-              }
-            }
             for (const s of steps) {
               if (s.app) addAppName(s.app);
             }
+            if (!apps.length) {
+              if (parentRouteEvent?.app) addAppName(parentRouteEvent.app);
+              if (Array.isArray(parentRouteEvent?.subtasks)) {
+                for (const sub of parentRouteEvent.subtasks) {
+                  if (sub?.app) addAppName(sub.app);
+                }
+              }
+            }
 
-            const evidenceText = extractVerificationEvidence(groupRuns, detailsById);
+            const primaryApp = apps[0] || "";
             const speakText = extractSpeakText(groupRuns, detailsById);
+            const rawResultSummary = parent.result?.summary || parent.result?.digest?.summary || speakText || "";
+            const plainResultSummary =
+              rawResultSummary && !isMockSummaryText(rawResultSummary)
+                ? cleanPlainSummary(rawResultSummary, primaryApp, "")
+                : "";
+            const evidenceText = isMockRun
+              ? ""
+              : extractVerificationEvidence(groupRuns, detailsById, primaryApp, plainResultSummary);
             const unappliedPatch = hasUnappliedPatch(groupRuns, detailsById);
 
             /* Truth rules (Requirement 4 & A5):
-               Check mark (✓) ONLY when parent run is done AND parent.result.ok === true.
-               Under CA_MOCK / sample data, label clearly that mock verification is not evidence. */
+               Check mark (✓) ONLY when parent run is done AND parent.result.ok === true
+               AND it is a real (non-mock, non-sample) run.
+               Under CA_MOCK / sample data, show a neutral non-verified state with no green check. */
             let state = "working"; // "working" | "waiting" | "verified" | "failed" | "unverified"
             let stateSymbolWord = "▶ Running";
             let stateFact = "";
@@ -3263,16 +3421,23 @@
               pillFact = buildPillFact(stateFact, false);
               stateColorClass = "state-working";
             } else if (parent.state === "done" && parent.result?.ok === true) {
-              state = "verified";
-              stateSymbolWord = isSampleContext ? "✓ Verified (mock)" : "✓ Verified";
-              const rawSummary = parent.result.summary || parent.result.digest?.summary || speakText;
-              stateFact = rawSummary ? cleanFailureFact(rawSummary) : "All checks passed";
-              pillFact = buildPillFact(stateFact, true);
-              stateColorClass = "state-success";
+              if (isMockRun) {
+                state = "unverified";
+                stateSymbolWord = "Finished · sample run, not verified";
+                stateFact = plainResultSummary ? cleanFailureFact(plainResultSummary) : "";
+                pillFact = buildPillFact(stateFact || "Sample run", false);
+                stateColorClass = "state-neutral";
+              } else {
+                state = "verified";
+                stateSymbolWord = "✓ Verified";
+                stateFact = plainResultSummary ? cleanFailureFact(plainResultSummary) : "All checks passed";
+                pillFact = buildPillFact(stateFact, true);
+                stateColorClass = "state-success";
+              }
             } else if (parent.state === "failed" || parent.result?.ok === false) {
               state = "failed";
               stateSymbolWord = "× Failed";
-              const baseSummary = cleanFailureFact(parent.result?.summary || parent.result?.digest?.summary);
+              const baseSummary = cleanFailureFact(plainResultSummary || parent.result?.summary || parent.result?.digest?.summary);
               stateFact = unappliedPatch
                 ? `${baseSummary} · Nothing was changed.`
                 : baseSummary;
@@ -3281,7 +3446,7 @@
             } else if (parent.state === "done") {
               state = "unverified";
               stateSymbolWord = "◔ Finished, not verified";
-              const baseSummary = cleanFailureFact(parent.result?.summary || parent.result?.digest?.summary || speakText);
+              const baseSummary = cleanFailureFact(plainResultSummary || parent.result?.summary || parent.result?.digest?.summary || speakText);
               stateFact = baseSummary;
               pillFact = buildPillFact(baseSummary, false);
               stateColorClass = "state-warning";
@@ -3318,10 +3483,10 @@
               elapsedText: formatSeconds(parent.elapsed),
               state,
               isFinished,
-              isMock: isSampleContext || hasMockVerify,
+              isMock: isMockRun,
               mockNote: isSampleContext
                 ? "Mock verification is not real evidence"
-                : hasMockVerify
+                : hasMockVerify || isMockRun
                 ? "Mock verification (mock mode) is not real evidence"
                 : "",
               stateSymbolWord,
@@ -3894,16 +4059,16 @@
           `);
         } else if (voiceState === "denied" || voiceState === "unavailable" || voiceState === "error") {
           const label = voiceState === "denied" ? "Voice blocked" : voiceState === "unavailable" ? "Voice unavailable" : "Voice error";
-          const privacySection = String(voiceReason || "").toLowerCase().includes("microphone")
-            ? "Privacy_Microphone"
-            : "Privacy_SpeechRecognition";
+          const settingsPane = String(voiceReason || "").toLowerCase().includes("microphone")
+            ? "microphone"
+            : "speechRecognition";
           parts.push(`
             <div class="voice-status-main">
               <span class="state-text state-warning">! ${escapeHtml(label)}</span>
               <span>${escapeHtml(voiceReason)}${voiceNextStep ? " &middot; " + escapeHtml(voiceNextStep) : ""}</span>
             </div>
             <div class="voice-status-actions">
-              ${voiceState === "denied" && hasShellBridge() ? `<button type="button" id="voice-open-settings-btn" class="btn" data-privacy-section="${privacySection}">Settings</button>` : ""}
+              ${voiceState === "denied" && hasShellBridge() ? `<button type="button" id="voice-open-settings-btn" class="btn" data-settings-pane="${settingsPane}">Settings</button>` : ""}
               <button type="button" id="voice-dismiss-btn" class="btn">Dismiss</button>
             </div>
           `);
@@ -3936,7 +4101,7 @@
       }
 
       if (voiceStatusBar) {
-        voiceStatusBar.addEventListener("click", (e) => {
+        voiceStatusBar.addEventListener("click", async (e) => {
           if (e.target.closest("#stop-speaking-btn")) {
             Transport.post("stopSpeaking");
             return;
@@ -3947,9 +4112,11 @@
           }
           const settingsBtn = e.target.closest("#voice-open-settings-btn");
           if (settingsBtn) {
-            Transport.post("openPrivacySettings", {
-              section: settingsBtn.dataset.privacySection || "Privacy_SpeechRecognition",
-            });
+            const pane = settingsBtn.dataset.settingsPane || "speechRecognition";
+            const res = await Transport.openSettingsPane(pane);
+            if (res && res.ok === false && res.error) {
+              announceStatus(res.error);
+            }
             return;
           }
           if (e.target.closest("#voice-dismiss-btn")) {
@@ -4004,7 +4171,9 @@
 
       /* F1: Toggle .has-text immediately so hint hides the moment user types */
       function syncPromptFieldState() {
-        promptFieldWrap.classList.toggle("has-text", promptInput.value.length > 0);
+        const hasText = promptInput.value.length > 0;
+        promptFieldWrap.classList.toggle("has-text", hasText);
+        promptForm.classList.toggle("has-text", hasText);
         promptInput.style.height = "20px";
         promptInput.style.height = `${Math.min(80, Math.max(20, promptInput.scrollHeight))}px`;
         syncSizeAndBridge();
@@ -5269,13 +5438,17 @@
           ? `
             <div class="permission-row">
               <span class="permission-copy">! ${escapeHtml(activeRun.permissionIssue.message)}</span>
-              <button
+              ${
+                activeRun.permissionIssue.pane && activeRun.permissionIssue.buttonText
+                  ? `<button
                 type="button"
                 class="btn"
                 data-action="open-privacy"
-                data-section="${escapeHtml(activeRun.permissionIssue.section)}"
+                data-pane="${escapeHtml(activeRun.permissionIssue.pane)}"
                 data-label="${escapeHtml(activeRun.permissionIssue.label)}"
-              >${escapeHtml(activeRun.permissionIssue.buttonText)}</button>
+              >${escapeHtml(activeRun.permissionIssue.buttonText)}</button>`
+                  : ""
+              }
             </div>
           `
           : "";
@@ -5566,11 +5739,15 @@
             return;
           }
           if (action === "open-privacy") {
-            const section = actionBtn.dataset.section || "Privacy_Accessibility";
+            const pane = actionBtn.dataset.pane || "";
             const label = actionBtn.dataset.label || "Privacy";
+            if (!pane) return;
             if (hasShellBridge()) {
-              Transport.post("openPrivacySettings", { section });
               announceStatus(`Opening ${label} settings`);
+              const res = await Transport.openSettingsPane(pane);
+              if (res && res.ok === false && res.error) {
+                announceStatus(res.error);
+              }
             } else {
               announceStatus(`Open System Settings -> Privacy & Security -> ${label}`);
             }
