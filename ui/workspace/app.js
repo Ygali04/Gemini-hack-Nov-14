@@ -5083,8 +5083,8 @@
 
         <details class="analytics-disclosure">
           <summary class="analytics-disclosure-summary">
-            <span class="analytics-disclosure-summary-left">Spend by model purpose &amp; agent role</span>
-            <span class="section-subtitle">${decidePct != null ? `Decide ${decidePct}% of spend` : "Breakdown"}</span>
+            <span class="analytics-disclosure-summary-left">Where the cost goes</span>
+            <span class="section-subtitle">${decidePct != null ? `${decidePct}% is the model deciding each step` : "Breakdown"}</span>
           </summary>
           <div class="analytics-disclosure-body">
             <div class="b1-layout">

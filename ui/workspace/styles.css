@@ -1764,8 +1764,8 @@ select:focus-visible,
 .analytics-disclosure-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
   height: 34px;
   min-height: 34px;
   max-height: 36px;
@@ -1783,6 +1783,8 @@ select:focus-visible,
   align-items: center;
   gap: 8px;
   min-width: 0;
+  margin-right: auto;
+  text-align: left;
 }
 
 .analytics-disclosure-summary::-webkit-details-marker {
@@ -1792,7 +1794,7 @@ select:focus-visible,
 .analytics-disclosure-summary::before {
   content: "▶";
   display: inline-block;
-  margin-right: 8px;
+  flex: 0 0 auto;
   font-size: 12px;
   color: var(--text-muted);
 }
