@@ -224,6 +224,7 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      scroll-margin-top: 200px;
     }
 
     .demo-section + .demo-section {
@@ -411,7 +412,7 @@
     <header class="demo-header">
       <h1 class="demo-title">Agent monitor</h1>
       <p class="demo-intro">
-        Recorded sample walkthrough of the notch panel and shared workspace — no live agents are running behind this page.
+        Recorded sample data walkthrough of the notch panel and shared workspace — no live agents are running behind this page.
       </p>
     </header>
 
@@ -752,7 +753,7 @@
         const section = target === "workspace" ? workspaceSection : notchSection;
         if (!section) return;
         const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        section.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest" });
+        section.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
       }
 
       function applyStep(index, options = {}) {

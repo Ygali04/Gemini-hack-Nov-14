@@ -2078,6 +2078,7 @@
     return {
       buildViewModel,
       formatSeconds,
+      sentenceCase,
     };
   })();
 
@@ -3245,7 +3246,7 @@
         const compWidth = padX * 2 + maxCol * colStep + wNode + 40;
         if (compWidth > maxSvgWidth) maxSvgWidth = compWidth;
 
-        const bottomLoopPad = backEdgeCount > 0 ? 48 + backEdgeCount * 36 : 24;
+        const bottomLoopPad = backEdgeCount > 0 ? 52 + backEdgeCount * 54 : 24;
         currentY = compTopY + (maxRowsInComp - 1) * rowStep + hNode + bottomLoopPad;
       }
 
@@ -3279,6 +3280,8 @@
       }
 
       let backEdgeSeq = 0;
+      const placedPills = [];
+      let maxEdgeBottom = svgHeight;
       const edgesSvg = sm.edges
         .map((edge) => {
           const fromPos = nodeLayout.get(edge.from);
@@ -3341,7 +3344,7 @@
             const y1 = fromPos.y + hNode;
             const x2 = toPos.x + wNode * 0.5;
             const y2 = toPos.y + hNode;
-            const loopY = Math.max(fromPos.compBottomY, toPos.compBottomY) + 34 + (backEdgeSeq - 1) * 34;
+            const loopY = Math.max(fromPos.compBottomY, toPos.compBottomY) + 38 + (backEdgeSeq - 1) * 54;
             const cx1 = x1;
             const cy1 = loopY + 18;
             const cx2 = x2;
@@ -3353,7 +3356,7 @@
           } else {
             /* Forward edge: left-to-right cubic Bezier */
             const pairInfo = edgeIndexInPair.get(edge.id) || { idx: 0, count: 1 };
-            const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 34;
+            const offset = (pairInfo.idx - (pairInfo.count - 1) / 2) * 54;
             const skipLift = toPos.col - fromPos.col > 1 ? -28 : 0;
             const x1 = fromPos.x + wNode;
             const y1 = fromPos.y + hNode / 2;
@@ -3373,7 +3376,20 @@
           const pillW = 246;
           const pillH = 38;
           const pillX = Math.max(8, Math.min(svgWidth - pillW - 8, labelX - pillW / 2));
-          const pillY = Math.max(4, labelY - pillH / 2);
+          let pillY = Math.max(4, labelY - pillH / 2);
+          while (
+            placedPills.some(
+              (p) =>
+                pillX < p.x + p.w + 6 &&
+                pillX + pillW + 6 > p.x &&
+                pillY < p.y + p.h + 6 &&
+                pillY + pillH + 6 > p.y
+            )
+          ) {
+            pillY += pillH + 8;
+          }
+          placedPills.push({ x: pillX, y: pillY, w: pillW, h: pillH });
+          if (pillY + pillH + 8 > maxEdgeBottom) maxEdgeBottom = pillY + pillH + 8;
           const textCenterX = pillX + pillW / 2;
 
           return `
@@ -3427,7 +3443,7 @@
 
       svgGraphHtml = `
         <div class="sm-graph-wrap">
-          <svg class="sm-svg" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Agent state machine screen transitions">
+          <svg class="sm-svg" viewBox="0 0 ${svgWidth} ${maxEdgeBottom}" role="img" aria-label="Agent state machine screen transitions">
             ${edgesSvg}
             ${nodesSvg}
           </svg>
@@ -3874,7 +3890,7 @@
               artifactCopyLabel = "Copy report";
               artifactCopyText = bugs
                 .map((b) => {
-                  const head = `${sentenceCase(b.severity || "med")} · ${b.title || "Bug"}${
+                  const head = `${WorkspaceAdapter.sentenceCase(b.severity || "med")} · ${b.title || "Bug"}${
                     b.file_hint ? ` (${b.file_hint})` : ""
                   }`;
                   return b.evidence ? `${head}\n${b.evidence}` : head;
@@ -3886,7 +3902,7 @@
                   .map(
                     (b) => `
                     <div>
-                      <strong>${escapeHtml(sentenceCase(b.severity || "med"))}</strong> · ${escapeHtml(b.title || "Bug")}
+                      <strong>${escapeHtml(WorkspaceAdapter.sentenceCase(b.severity || "med"))}</strong> · ${escapeHtml(b.title || "Bug")}
                       ${b.file_hint ? ` <span class="section-subtitle">(${escapeHtml(b.file_hint)})</span>` : ""}
                       ${b.evidence ? `<div class="section-subtitle">${escapeHtml(b.evidence)}</div>` : ""}
                     </div>
@@ -4346,10 +4362,10 @@
     let spendChartHtml = "";
     if (tasksWithCost.length) {
       const maxCost = Math.max(...tasksWithCost.map((g) => Number(g.cost.cost_usd || 0)), 0.0001);
-      const barW = 28;
-      const gap = 10;
+      const barW = 44;
+      const gap = 12;
       const chartW = Math.max(240, tasksWithCost.length * (barW + gap) + 16);
-      const chartH = 56;
+      const chartH = 62;
       const barsSvg = tasksWithCost
         .map((g, i) => {
           const val = Number(g.cost.cost_usd || 0);
@@ -4361,7 +4377,7 @@
               <rect x="${x}" y="${y}" width="${barW}" height="${h}" rx="3" fill="#a6adbb" opacity="0.75">
                 <title>${escapeHtml(g.goal)}: $${val.toFixed(4)}</title>
               </rect>
-              <text x="${x + barW / 2}" y="55" text-anchor="middle" fill="#767d8e" font-size="10">$${val.toFixed(3)}</text>
+              <text x="${x + barW / 2}" y="58" text-anchor="middle" fill="#767d8e" font-size="12">$${val.toFixed(3)}</text>
             </g>
           `;
         })
@@ -4721,7 +4737,7 @@
       }
       if (sNum === 3) {
         const a = OnboardingState.a11y;
-        return `Text: ${sentenceCase(a.text_size.replace("_", " "))} · Palette: ${
+        return `Text: ${WorkspaceAdapter.sentenceCase(a.text_size.replace("_", " "))} · Palette: ${
           a.cursor_palette === "okabe_ito" ? "Okabe-Ito" : "Default"
         } · ${a.cursor_scale}x`;
       }
@@ -6259,8 +6275,8 @@
     function syncPromptFieldState() {
       if (!promptInput || !promptFieldWrap) return;
       promptFieldWrap.classList.toggle("has-text", promptInput.value.length > 0);
-      promptInput.style.height = "20px";
-      promptInput.style.height = `${Math.min(80, Math.max(20, promptInput.scrollHeight))}px`;
+      promptInput.style.height = "32px";
+      promptInput.style.height = `${Math.min(80, Math.max(32, promptInput.scrollHeight))}px`;
     }
 
     /* Attachment limits matching backend/computeranything/core/attach.py (3-image limit,

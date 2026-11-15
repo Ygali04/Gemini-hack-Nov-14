@@ -341,7 +341,7 @@ select:focus-visible,
   min-height: 32px;
   background: var(--bg-raised);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -350,9 +350,10 @@ select:focus-visible,
 .prompt-textarea {
   flex: 1;
   min-width: 0;
-  height: 20px;
-  min-height: 20px;
+  height: 32px;
+  min-height: 32px;
   max-height: 80px;
+  padding: 6px 0;
   resize: none;
   border: none;
   background: transparent;
@@ -950,7 +951,7 @@ select:focus-visible,
 
 .sm-svg {
   display: block;
-  min-width: 680px;
+  min-width: 1040px;
   width: 100%;
   height: auto;
 }
@@ -1022,6 +1023,8 @@ select:focus-visible,
 .search-input {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  min-height: 32px;
   border: none;
   background: transparent;
   color: var(--text-primary);
