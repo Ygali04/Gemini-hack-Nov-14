@@ -76,11 +76,11 @@
       "elapsed": 4.9,
       "n_events": 5,
       "events": [
-        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "CU 1", "msg_kind": "hello", "text": "Hi, I'm CU 1! I'll open Notes and draft meeting follow-up." },
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Ava", "msg_kind": "hello", "text": "Hi, I'm Ava! I'll open Notes and draft meeting follow-up." },
         { "t": 0.2, "kind": "state", "state": "planning" },
         { "t": 1.1, "kind": "app_ready", "app": "Notes", "method": "finder", "seconds": 0.9 },
-        { "t": 2.4, "kind": "act", "step": 0, "source": "llm", "action": "click:New Note", "act_ms": 115, "agent": "CU 1" },
-        { "t": 3.6, "kind": "act", "step": 1, "source": "llm", "action": "type:Note body", "act_ms": 140, "agent": "CU 1" }
+        { "t": 2.4, "kind": "act", "step": 0, "source": "llm", "action": "click:New Note", "act_ms": 115, "agent": "Ava" },
+        { "t": 3.6, "kind": "act", "step": 1, "source": "llm", "action": "type:Note body", "act_ms": 140, "agent": "Ava" }
       ],
       "result": {
         "summary": "Typed meeting follow-up into Notes",

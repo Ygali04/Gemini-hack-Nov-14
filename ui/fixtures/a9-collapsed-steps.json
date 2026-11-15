@@ -162,7 +162,7 @@
     {
       "id": "h-a9-send-approval",
       "run": "r-a9-multi",
-      "agent": "CU 1",
+      "agent": "Nora",
       "kind": "confirm",
       "question": "Send Q3-Summary.pdf to Finance?",
       "options": ["Send email", "Cancel"],
@@ -172,20 +172,20 @@
   ],
   "transcript": [
     { "id": "m-1", "role": "user", "text": "Prepare quarterly report and send summary to Finance" },
-    { "id": "m-2", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Opened Q3-Ledger.numbers" },
-    { "id": "m-3", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Verified Q3 revenue subtotal" },
-    { "id": "m-4", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Computed expense ratio 31%" },
-    { "id": "m-5", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Exported Q3-Summary.pdf" },
-    { "id": "m-6", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Drafted email in Mail" },
-    { "id": "m-7", "role": "agent", "kind": "step", "agent": "CU 1", "text": "Ready to send to Finance" },
-    { "id": "m-8", "role": "agent", "agent": "CU 1", "text": "Waiting for confirmation before sending Q3-Summary.pdf to Finance." }
+    { "id": "m-2", "role": "agent", "kind": "step", "agent": "Nora", "text": "Opened Q3-Ledger.numbers" },
+    { "id": "m-3", "role": "agent", "kind": "step", "agent": "Nora", "text": "Verified Q3 revenue subtotal" },
+    { "id": "m-4", "role": "agent", "kind": "step", "agent": "Nora", "text": "Computed expense ratio 31%" },
+    { "id": "m-5", "role": "agent", "kind": "step", "agent": "Nora", "text": "Exported Q3-Summary.pdf" },
+    { "id": "m-6", "role": "agent", "kind": "step", "agent": "Nora", "text": "Drafted email in Mail" },
+    { "id": "m-7", "role": "agent", "kind": "step", "agent": "Nora", "text": "Ready to send to Finance" },
+    { "id": "m-8", "role": "agent", "agent": "Nora", "text": "Waiting for confirmation before sending Q3-Summary.pdf to Finance." }
   ],
   "agents": {
-    "r-a9-step-1": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a9-step-2": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a9-step-3": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a9-step-4": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a9-step-5": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a9-step-6": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+    "r-a9-step-1": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-2": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-3": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-4": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-5": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a9-step-6": { "name": "Nora", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
   }
 }

@@ -39,8 +39,8 @@
             "actions": { "ok": 6, "done_verified": 2 },
             "by_agent": [
               { "agent": "orchestrator", "calls": 1, "cost": 0.0004, "ms": 380 },
-              { "agent": "CU 1", "calls": 1, "cost": 0.0005, "ms": 420 },
-              { "agent": "CU 2", "calls": 2, "cost": 0.0015, "ms": 1300 }
+              { "agent": "Sam", "calls": 1, "cost": 0.0005, "ms": 420 },
+              { "agent": "Mira", "calls": 2, "cost": 0.0015, "ms": 1300 }
             ]
           },
           "children": ["r1763140700-2", "r1763140700-3"]
@@ -151,13 +151,13 @@
       "elapsed": 3.5,
       "n_events": 9,
       "events": [
-        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "CU 1", "msg_kind": "hello", "text": "Hi, I'm CU 1! I'll compute 7 × 6 in Calculator." },
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Sam", "msg_kind": "hello", "text": "Hi, I'm Sam! I'll compute 7 × 6 in Calculator." },
         { "t": 0.2, "kind": "state", "state": "planning" },
         { "t": 0.8, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.3 },
-        { "t": 1.0, "kind": "act", "step": 0, "source": "memory", "action": "click:7", "act_ms": 92, "agent": "CU 1" },
-        { "t": 1.3, "kind": "act", "step": 1, "source": "memory", "action": "click:×", "act_ms": 84, "agent": "CU 1" },
-        { "t": 1.6, "kind": "act", "step": 2, "source": "memory", "action": "click:6", "act_ms": 89, "agent": "CU 1" },
-        { "t": 1.9, "kind": "act", "step": 3, "source": "memory", "action": "click:=", "act_ms": 95, "agent": "CU 1" },
+        { "t": 1.0, "kind": "act", "step": 0, "source": "memory", "action": "click:7", "act_ms": 92, "agent": "Sam" },
+        { "t": 1.3, "kind": "act", "step": 1, "source": "memory", "action": "click:×", "act_ms": 84, "agent": "Sam" },
+        { "t": 1.6, "kind": "act", "step": 2, "source": "memory", "action": "click:6", "act_ms": 89, "agent": "Sam" },
+        { "t": 1.9, "kind": "act", "step": 3, "source": "memory", "action": "click:=", "act_ms": 95, "agent": "Sam" },
         { "t": 3.2, "kind": "verify", "achieved": true, "evidence": "Calculator shows 42" },
         { "t": 3.5, "kind": "state", "state": "done" }
       ],
@@ -176,12 +176,12 @@
       "elapsed": 4.2,
       "n_events": 7,
       "events": [
-        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "CU 2", "msg_kind": "hello", "text": "Hi, I'm CU 2! I'll open Appearance in System Settings." },
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "hello", "text": "Hi, I'm Mira! I'll open Appearance in System Settings." },
         { "t": 0.2, "kind": "state", "state": "planning" },
         { "t": 1.4, "kind": "app_ready", "app": "System Settings", "method": "finder", "seconds": 1.2 },
         { "t": 2.2, "kind": "decide", "ms": 620, "thought": "Scrolling sidebar to find Appearance", "action": "scroll" },
-        { "t": 2.5, "kind": "act", "step": 0, "source": "llm", "action": "scroll:Sidebar", "act_ms": 110, "agent": "CU 2" },
-        { "t": 3.4, "kind": "act", "step": 1, "source": "llm", "action": "click:Appearance", "act_ms": 135, "agent": "CU 2" },
+        { "t": 2.5, "kind": "act", "step": 0, "source": "llm", "action": "scroll:Sidebar", "act_ms": 110, "agent": "Mira" },
+        { "t": 3.4, "kind": "act", "step": 1, "source": "llm", "action": "click:Appearance", "act_ms": 135, "agent": "Mira" },
         { "t": 4.0, "kind": "verify", "achieved": true, "evidence": "Appearance settings panel is open" }
       ],
       "result": {

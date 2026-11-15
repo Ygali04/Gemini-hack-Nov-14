@@ -1,0 +1,59 @@
+{
+  "speechAvailable": false,
+  "onDeviceSpeech": false,
+  "runs": [
+    {
+      "id": "r-mic-unavail-1",
+      "goal": "Open Notes and create a checklist",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.1,
+      "n_events": 2,
+      "result": { "ok": true, "summary": "Created checklist in Notes" }
+    },
+    {
+      "id": "r-mic-unavail-2",
+      "goal": "Open Notes and create a checklist",
+      "role": "cu",
+      "parent": "r-mic-unavail-1",
+      "state": "done",
+      "elapsed": 2.8,
+      "n_events": 3,
+      "result": { "ok": true, "summary": "Created checklist in Notes", "steps": 2 }
+    }
+  ],
+  "details": {
+    "r-mic-unavail-1": {
+      "id": "r-mic-unavail-1",
+      "goal": "Open Notes and create a checklist",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 3.1,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "route", "role": "cu", "app": "Notes", "goal": "Open Notes and create a checklist", "names": ["Mira"] }
+      ],
+      "result": { "ok": true, "summary": "Created checklist in Notes" }
+    },
+    "r-mic-unavail-2": {
+      "id": "r-mic-unavail-2",
+      "goal": "Open Notes and create a checklist",
+      "role": "cu",
+      "parent": "r-mic-unavail-1",
+      "state": "done",
+      "elapsed": 2.8,
+      "events": [
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Mira", "msg_kind": "hello", "text": "Hi, I'm Mira! I'll open Notes and create a checklist." },
+        { "t": 0.8, "kind": "app_ready", "app": "Notes", "method": "running", "seconds": 0.3 },
+        { "t": 2.6, "kind": "verify", "achieved": true, "evidence": "Checklist note visible in Notes" }
+      ],
+      "result": { "ok": true, "summary": "Created checklist in Notes", "steps": 2 }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-mic-unavail-2": { "name": "Mira", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+  }
+}

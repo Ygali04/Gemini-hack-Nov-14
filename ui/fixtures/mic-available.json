@@ -1,0 +1,58 @@
+{
+  "speechAvailable": true,
+  "onDeviceSpeech": true,
+  "runs": [
+    {
+      "id": "r-mic-avail-1",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.2,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-mic-avail-2",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-mic-avail-1",
+      "state": "acting",
+      "elapsed": 3.8,
+      "n_events": 4,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-mic-avail-1": {
+      "id": "r-mic-avail-1",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.2,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "route", "role": "cu", "app": "Calculator", "goal": "Compute 2 + 3 in Calculator", "names": ["Sam"] }
+      ]
+    },
+    "r-mic-avail-2": {
+      "id": "r-mic-avail-2",
+      "goal": "Compute 2 + 3 in Calculator",
+      "role": "cu",
+      "parent": "r-mic-avail-1",
+      "state": "acting",
+      "elapsed": 3.8,
+      "events": [
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Sam", "msg_kind": "hello", "text": "Hi, I'm Sam! I'll compute 2 + 3 in Calculator." },
+        { "t": 0.8, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.3 },
+        { "t": 1.6, "kind": "act", "step": 0, "source": "memory", "action": "click:2", "act_ms": 80, "agent": "Sam" },
+        { "t": 2.3, "kind": "act", "step": 1, "source": "memory", "action": "click:+", "act_ms": 82, "agent": "Sam" }
+      ]
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-mic-avail-2": { "name": "Sam", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
+  }
+}

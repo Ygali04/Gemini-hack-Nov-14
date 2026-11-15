@@ -124,8 +124,8 @@
       "elapsed": 9.2,
       "events": [
         { "t": 0.3, "kind": "app_ready", "app": "Safari", "method": "running", "seconds": 0.2 },
-        { "t": 2.1, "kind": "act", "step": 0, "source": "llm", "action": "navigate:flights", "act_ms": 210, "agent": "CU 1" },
-        { "t": 6.0, "kind": "act", "step": 1, "source": "memory", "action": "click:nonstop-filter", "act_ms": 80, "agent": "CU 1" },
+        { "t": 2.1, "kind": "act", "step": 0, "source": "llm", "action": "navigate:flights", "act_ms": 210, "agent": "Theo" },
+        { "t": 6.0, "kind": "act", "step": 1, "source": "memory", "action": "click:nonstop-filter", "act_ms": 80, "agent": "Theo" },
         { "t": 8.8, "kind": "verify", "achieved": true, "evidence": "Flights comparison table shows 3 airlines" },
         { "t": 9.2, "kind": "state", "state": "done" }
       ]
@@ -139,14 +139,14 @@
       "elapsed": 5.4,
       "events": [
         { "t": 9.5, "kind": "app_ready", "app": "Notes", "method": "running", "seconds": 0.2 },
-        { "t": 12.0, "kind": "act", "step": 2, "source": "llm", "action": "type:note-body", "act_ms": 140, "agent": "CU 2" },
+        { "t": 12.0, "kind": "act", "step": 2, "source": "llm", "action": "type:note-body", "act_ms": 140, "agent": "Zoe" },
         { "t": 14.7, "kind": "state", "state": "done" }
       ]
     }
   },
   "help": [],
   "agents": {
-    "r-a7-scroll-1-cu": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-a7-scroll-1-notes": { "name": "CU 2", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+    "r-a7-scroll-1-cu": { "name": "Theo", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-a7-scroll-1-notes": { "name": "Zoe", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
   }
 }

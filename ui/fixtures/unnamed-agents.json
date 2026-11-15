@@ -1,0 +1,85 @@
+{
+  "speechAvailable": true,
+  "onDeviceSpeech": true,
+  "runs": [
+    {
+      "id": "r-unnamed-1",
+      "goal": "Check Calendar and open Mail",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.4,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-unnamed-3",
+      "goal": "Open Mail inbox",
+      "role": "cu",
+      "parent": "r-unnamed-1",
+      "state": "acting",
+      "elapsed": 3.5,
+      "n_events": 2,
+      "result": null
+    },
+    {
+      "id": "r-unnamed-2",
+      "goal": "Check Calendar for tomorrow",
+      "role": "cu",
+      "parent": "r-unnamed-1",
+      "state": "acting",
+      "elapsed": 3.9,
+      "n_events": 3,
+      "result": null
+    }
+  ],
+  "details": {
+    "r-unnamed-1": {
+      "id": "r-unnamed-1",
+      "goal": "Check Calendar and open Mail",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "acting",
+      "elapsed": 4.4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        {
+          "t": 0.4,
+          "kind": "route",
+          "role": "cu",
+          "goal": "Check Calendar and open Mail",
+          "subtasks": [
+            { "goal": "Check Calendar for tomorrow", "app": "Calendar" },
+            { "goal": "Open Mail inbox", "app": "Mail" }
+          ]
+        }
+      ]
+    },
+    "r-unnamed-2": {
+      "id": "r-unnamed-2",
+      "goal": "Check Calendar for tomorrow",
+      "role": "cu",
+      "parent": "r-unnamed-1",
+      "state": "acting",
+      "elapsed": 3.9,
+      "events": [
+        { "t": 0.5, "kind": "app_ready", "app": "Calendar", "method": "running", "seconds": 0.3 },
+        { "t": 1.6, "kind": "act", "step": 0, "source": "llm", "action": "click:Tomorrow", "act_ms": 95 }
+      ]
+    },
+    "r-unnamed-3": {
+      "id": "r-unnamed-3",
+      "goal": "Open Mail inbox",
+      "role": "cu",
+      "parent": "r-unnamed-1",
+      "state": "acting",
+      "elapsed": 3.5,
+      "events": [
+        { "t": 0.6, "kind": "app_ready", "app": "Mail", "method": "running", "seconds": 0.3 },
+        { "t": 1.9, "kind": "decide", "ms": 420, "thought": null, "action": "click" }
+      ]
+    }
+  },
+  "help": [],
+  "agents": {}
+}

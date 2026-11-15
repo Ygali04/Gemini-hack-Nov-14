@@ -91,7 +91,7 @@
   },
   "help": [],
   "agents": {
-    "r1763140700-2": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" },
+    "r1763140700-2": { "name": "Kai", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" },
     "r1763140690-1": { "name": "ComputerAnything", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" }
   },
   "costs": {

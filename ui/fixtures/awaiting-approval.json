@@ -82,6 +82,6 @@
   ],
   "agents": {
     "r1763140200-10": { "name": "Orchestrator", "color": "#E1CDE8", "edge": "#FBE8F7", "ink": "#71388B" },
-    "r1763140200-11": { "name": "CU 1", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+    "r1763140200-11": { "name": "Mira", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
   }
 }

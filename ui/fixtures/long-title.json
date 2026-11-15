@@ -1,0 +1,73 @@
+{
+  "speechAvailable": true,
+  "onDeviceSpeech": true,
+  "runs": [
+    {
+      "id": "r-long-title-1",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25, check checked-baggage rules, and write a summary in Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 8.4,
+      "n_events": 2,
+      "result": {
+        "ok": true,
+        "summary": "Saved flight comparison summary in Notes"
+      }
+    },
+    {
+      "id": "r-long-title-2",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25, check checked-baggage rules, and write a summary in Notes",
+      "role": "cu",
+      "parent": "r-long-title-1",
+      "state": "done",
+      "elapsed": 7.9,
+      "n_events": 3,
+      "result": {
+        "ok": true,
+        "summary": "Saved flight comparison summary in Notes",
+        "steps": 3
+      }
+    }
+  ],
+  "details": {
+    "r-long-title-1": {
+      "id": "r-long-title-1",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25, check checked-baggage rules, and write a summary in Notes",
+      "role": "orchestrator",
+      "parent": null,
+      "state": "done",
+      "elapsed": 8.4,
+      "events": [
+        { "t": 0.1, "kind": "state", "state": "planning" },
+        { "t": 0.4, "kind": "route", "role": "cu", "app": "Notes", "goal": "Compare flights and write summary in Notes", "names": ["Leo"] }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Saved flight comparison summary in Notes"
+      }
+    },
+    "r-long-title-2": {
+      "id": "r-long-title-2",
+      "goal": "Compare flights from San Francisco to Tokyo for November 18 through November 25, check checked-baggage rules, and write a summary in Notes",
+      "role": "cu",
+      "parent": "r-long-title-1",
+      "state": "done",
+      "elapsed": 7.9,
+      "events": [
+        { "t": 0.1, "kind": "msg", "role": "agent", "agent": "Leo", "msg_kind": "hello", "text": "Hi, I'm Leo! I'll compare flights and write a summary in Notes." },
+        { "t": 1.0, "kind": "app_ready", "app": "Notes", "method": "running", "seconds": 0.3 },
+        { "t": 7.7, "kind": "verify", "achieved": true, "evidence": "Flight comparison summary visible in Notes" }
+      ],
+      "result": {
+        "ok": true,
+        "summary": "Saved flight comparison summary in Notes",
+        "steps": 3
+      }
+    }
+  },
+  "help": [],
+  "agents": {
+    "r-long-title-2": { "name": "Leo", "color": "#C0DED0", "edge": "#E6FFF0", "ink": "#396C5A" }
+  }
+}

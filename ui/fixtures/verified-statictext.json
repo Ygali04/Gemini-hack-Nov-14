@@ -117,8 +117,8 @@
       "elapsed": 3.1,
       "events": [
         { "t": 0.2, "kind": "app_ready", "app": "Calculator", "method": "running", "seconds": 0.2 },
-        { "t": 1.1, "kind": "act", "step": 0, "source": "llm", "action": "type:textfield:display", "act_ms": 95, "agent": "CU 1" },
-        { "t": 1.8, "kind": "act", "step": 1, "source": "llm", "action": "press:return", "act_ms": 60, "agent": "CU 1" },
+        { "t": 1.1, "kind": "act", "step": 0, "source": "llm", "action": "type:textfield:display", "act_ms": 95, "agent": "Sam" },
+        { "t": 1.8, "kind": "act", "step": 1, "source": "llm", "action": "press:return", "act_ms": 60, "agent": "Sam" },
         { "t": 2.9, "kind": "verify", "achieved": true, "evidence": "statictext \"437\"" },
         { "t": 3.1, "kind": "result", "ok": true, "summary": "Computed 23 × 19 = 437", "steps": 2 },
         { "t": 3.1, "kind": "state", "state": "done" }
@@ -168,7 +168,7 @@
   },
   "help": [],
   "agents": {
-    "r-statictext-1-cu": { "name": "CU 1", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
-    "r-unconvertible-ax-1-cu": { "name": "CU 2", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
+    "r-statictext-1-cu": { "name": "Sam", "color": "#B5D0EB", "edge": "#D6E9FF", "ink": "#2F647C" },
+    "r-unconvertible-ax-1-cu": { "name": "Nora", "color": "#EECED6", "edge": "#FFF0F1", "ink": "#963F59" }
   }
 }
