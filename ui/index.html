@@ -5122,6 +5122,8 @@
       const SEEN_FAILED_STORAGE_KEY = "ca.seenFailedRuns";
       const HIDDEN_CHATS_STORAGE_KEY = "ca.hiddenChatIds";
       let hasInitializedFailureBaseline = false;
+      let hasInitializedStatusBaseline = false;
+      const lastRunStatusSnapshots = new Map();
       let pillFailureToast = null; // { runId, text, expiresAt }
       let pillFailureTimer = null;
       let openRowMenuKey = "";
@@ -5313,6 +5315,78 @@
           changed = true;
         }
         return changed;
+      }
+
+      function announceRunTransitions(checkVm) {
+        if (!checkVm || !Array.isArray(checkVm.runs)) return;
+        const convList = getConversationsForVm(checkVm)?.list || [];
+        const resolveRunAgentName = (r) => {
+          const owner = convList.find((c) => c.allRunIds && c.allRunIds.includes(r.id));
+          if (owner?.identity?.name) return owner.identity.name;
+          const workingStep = (r.steps || []).find((s) => s.isWorking);
+          return (
+            workingStep?.agentIdentity?.name ||
+            r.failureAgentName ||
+            getPrimaryAgentRowIdentity().name ||
+            "Agent"
+          );
+        };
+        const buildSnap = (r) => ({
+          state: r.state,
+          isFinished: Boolean(r.isFinished),
+          waitingCount: Array.isArray(r.pendingHelp) ? r.pendingHelp.length : 0,
+          workingStepIds: new Set((r.steps || []).filter((s) => s.isWorking).map((s) => s.id)),
+        });
+
+        if (!hasInitializedStatusBaseline) {
+          hasInitializedStatusBaseline = true;
+          lastRunStatusSnapshots.clear();
+          for (const r of checkVm.runs) {
+            lastRunStatusSnapshots.set(r.id, buildSnap(r));
+          }
+          return;
+        }
+
+        const announcements = [];
+        for (const r of checkVm.runs) {
+          const prev = lastRunStatusSnapshots.get(r.id);
+          const next = buildSnap(r);
+          lastRunStatusSnapshots.set(r.id, next);
+          const agentName = resolveRunAgentName(r);
+
+          if ((!prev && r.state === "working") || (prev && prev.state !== "working" && r.state === "working")) {
+            const workingStep = (r.steps || []).find((s) => s.isWorking);
+            const stepName = workingStep?.agentIdentity?.name || agentName;
+            const appSuffix = workingStep?.app ? ` in ${workingStep.app}` : "";
+            announcements.push(`${stepName} started${appSuffix}`);
+          } else if (prev && r.state === "working") {
+            const newStep = (r.steps || []).find((s) => s.isWorking && !prev.workingStepIds.has(s.id));
+            if (newStep) {
+              const stepName = newStep.agentIdentity?.name || agentName;
+              const appSuffix = newStep.app ? ` in ${newStep.app}` : "";
+              announcements.push(`${stepName} started${appSuffix}`);
+            }
+          }
+
+          if (r.state === "waiting" && (!prev || prev.state !== "waiting" || next.waitingCount > prev.waitingCount)) {
+            const q = (r.pendingHelp || []).find((h) => !h.isExpired)?.question || "";
+            announcements.push(`${agentName} needs you${q ? `: ${q}` : ""}`);
+          }
+
+          if (r.isFinished && (!prev || !prev.isFinished)) {
+            if (r.state === "failed") {
+              const reason = (stopNoticesByRunId.get(r.id) || r.failureLineText || "Stopped").trim();
+              announcements.push(`${agentName}: ${reason}`);
+            } else {
+              const summary = (r.evidenceText || r.stateFact || r.stateSymbolWord || "Done").trim();
+              announcements.push(`${agentName} finished: ${summary}`);
+            }
+          }
+        }
+
+        if (announcements.length) {
+          announceStatus(announcements.slice(0, 2).join(" · "));
+        }
       }
 
       function triggerPillFailureNotice(run) {
@@ -5877,16 +5951,7 @@
         if (!voiceStatusBar) return;
 
         const parts = [];
-        if (ttsSpeaking) {
-          parts.push(`
-            <div class="voice-status-main">
-              <span class="state-text state-working">&#9679; Speaking</span>
-            </div>
-            <div class="voice-status-actions">
-              <button type="button" id="stop-speaking-btn" class="btn">Stop</button>
-            </div>
-          `);
-        } else if (voiceState === "listening") {
+        if (voiceState === "listening") {
           const modeLabel = onDeviceSpeech ? "Listening on this Mac" : "Listening";
           parts.push(`
             <div class="voice-status-main">
@@ -5947,10 +6012,6 @@
 
       if (voiceStatusBar) {
         voiceStatusBar.addEventListener("click", async (e) => {
-          if (e.target.closest("#stop-speaking-btn")) {
-            Transport.post("stopSpeaking");
-            return;
-          }
           if (e.target.closest("#stop-dictation-btn")) {
             Transport.post("stopDictation");
             return;
@@ -7206,7 +7267,7 @@
         return `<button type="button" class="btn btn-danger" data-action="stop-all" ${isStoppingAll ? "disabled" : ""}>Stop all</button>`;
       }
 
-      function renderAgentTaskHtml(activeRun, conv, vm) {
+      function renderAgentTaskHtml(activeRun, conv, vm, isLatestFinishedTask = false) {
         const messageNodes = [];
         const rows = activeRun.transcriptRows || [];
         const hasInitialUserRow =
@@ -7461,6 +7522,11 @@
                       ? `<button type="button" class="btn" data-action="open-output" data-run-id="${escapeHtml(activeRun.id)}" data-output-id="${escapeHtml(firstOpenableOutput.id)}" aria-expanded="${firstOpenableOutput.previewText ? (isFirstPreviewOpen ? "true" : "false") : "false"}">${isFirstPreviewOpen ? "Hide" : "Open"}</button>`
                       : ""
                   }
+                  ${
+                    ttsSpeaking && isLatestFinishedTask
+                      ? `<button type="button" class="btn" data-action="stop-speaking" aria-label="Stop speaking">Stop</button>`
+                      : ""
+                  }
                 </div>
               </div>
             `;
@@ -7696,6 +7762,14 @@
           return;
         }
 
+        let latestFinishedTaskId = "";
+        for (let i = tasks.length - 1; i >= 0; i--) {
+          if (tasks[i].isFinished && tasks[i].state !== "failed") {
+            latestFinishedTaskId = tasks[i].id;
+            break;
+          }
+        }
+
         const taskHtmlParts = tasks.map((task, idx) => {
           let sepHtml = "";
           if (idx > 0) {
@@ -7705,7 +7779,7 @@
               ? `<div class="chat-date-divider">${escapeHtml(divLabel)}</div>`
               : `<div class="chat-task-sep" aria-hidden="true"></div>`;
           }
-          return `${sepHtml}${renderAgentTaskHtml(task, activeConv, vm)}`;
+          return `${sepHtml}${renderAgentTaskHtml(task, activeConv, vm, task.id === latestFinishedTaskId)}`;
         });
 
         blocks.push(`<div class="chat-thread">${taskHtmlParts.join("")}</div>`);
@@ -8136,6 +8210,10 @@
             if (out?.copyText) {
               await copyTextWithFeedback(out.copyText, `out:${runId}:${outId}`, `Copied ${out.title}`);
             }
+            return;
+          }
+          if (action === "stop-speaking") {
+            Transport.post("stopSpeaking");
             return;
           }
           if (action === "open-output") {
@@ -8650,6 +8728,7 @@
             }
           }
           processSpokenReplies(nextRuns);
+          announceRunTransitions(checkVm);
           lastPrimaryAgentRaw = readPrimaryAgentStorageRaw();
           renderNow();
         } catch (err) {
@@ -8836,7 +8915,10 @@
           ttsSpeaking = Boolean(msg.speaking);
           ttsSpeakText = msg.text ? String(msg.text) : "";
           renderVoiceStatusBar();
-          if (lastViewModel) renderPill(lastViewModel);
+          if (lastViewModel) {
+            renderPill(lastViewModel);
+            renderPanel(lastViewModel);
+          }
         }
       });
 
