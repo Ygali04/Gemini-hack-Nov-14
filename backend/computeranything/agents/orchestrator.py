@@ -170,7 +170,8 @@ def _pipeline(parent, prompt, attachments, history=()):
         else:
             runs.say(parent, "assistant", "result", "Finished.", echo=True)
         parent.set("done" if parent.result["ok"] else "failed")
-        _learn_user(parent, prompt, parent.result.get("summary", ""))
+        if parent.result["ok"]:
+            _learn_user(parent, prompt, parent.result.get("summary", ""))
     except Exception as e:  # noqa: BLE001
         parent.emit("error", error="%s: %s" % (type(e).__name__, e))
         parent.result = {"ok": False, "summary": "orchestrator error: %s" % e}
