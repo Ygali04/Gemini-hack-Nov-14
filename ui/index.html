@@ -1857,7 +1857,7 @@
       <div id="panel-header" class="panel-header hidden"></div>
 
       <div id="sample-banner" class="timeline-row" style="display:none;">
-        <span class="sample-tag">Sample data &mdash; mock verification is not real evidence</span>
+        <span class="sample-tag">Sample data. Nothing here ran on this Mac.</span>
       </div>
 
       <div id="timeline-scroll" class="timeline-scroll" role="log" aria-live="polite">
@@ -4188,12 +4188,12 @@
           }
 
           const finalCostText = isExplicitMockCost
-            ? "$0 (mock run)"
+            ? "$0 (sample run)"
             : costIsNull
             ? "—"
             : formatCostUsd(costUsd);
           const liveCostText = isExplicitMockCost
-            ? "$0 (mock run)"
+            ? "$0 (sample run)"
             : costIsNull || costUsd === null
             ? "—"
             : formatCostUsd(costUsd) || "—";
@@ -4369,9 +4369,11 @@
               const remainingSec = Math.max(0, Math.ceil(300 - elapsedSec));
               const isExpired = Boolean(timedOutHelpIds.has(h.id) || remainingSec <= 0);
               const countdownText = isExpired ? "0:00" : formatCountdown(remainingSec);
+              const agentName = h.agent ? String(h.agent).trim() : "";
               return {
                 id: h.id,
                 run: h.run,
+                agentName,
                 kind,
                 kindWarning,
                 askedAtSec,
@@ -4425,6 +4427,14 @@
               );
             });
             const stepById = new Map(steps.map((s) => [s.id, s]));
+            for (const item of pendingHelp) {
+              if (!item.agentName && item.run) {
+                const helpStep = stepById.get(item.run);
+                if (helpStep && !helpStep.isOrchestrator && helpStep.agentIdentity?.name) {
+                  item.agentName = helpStep.agentIdentity.name;
+                }
+              }
+            }
 
             const apps = [];
             const seenApps = new Set();
@@ -4609,10 +4619,8 @@
               failureLineText,
               isFinished,
               isMock: isMockRun,
-              mockNote: isSampleContext
-                ? "Mock verification is not real evidence"
-                : hasMockVerify || isMockRun
-                ? "Mock verification (mock mode) is not real evidence"
+              mockNote: isSampleContext || hasMockVerify || isMockRun
+                ? "Sample data. Nothing here ran on this Mac."
                 : "",
               stateSymbolWord,
               stateFact,
@@ -7059,7 +7067,7 @@
           !runVm?.isMock &&
           rawLiveCost &&
           rawLiveCost !== "—" &&
-          !/^\$0(?:\.0+)?(?:\s*\(mock run\))?$/i.test(rawLiveCost)
+          !/^\$0(?:\.0+)?(?:\s*\((?:mock|sample)\s+run\))?$/i.test(rawLiveCost)
         );
         const labelParts = ["Work", step.agentIdentity.name, `${count} ${stepWord}`];
         if (timeText && timeText !== "—") labelParts.push(timeText);
@@ -7235,7 +7243,7 @@
             } else if (activeRun.stateFact && activeRun.steps.length === 1) {
               greetingText = activeRun.stateFact;
             } else if (!workHtml) {
-              greetingText = activeRun.state === "waiting" ? "Waiting for you" : "On it";
+              greetingText = activeRun.state === "waiting" ? `${stepChipIdentity.name} is waiting for you` : "On it";
             }
           }
           if (greetingText || workHtml) {
@@ -7269,11 +7277,29 @@
           .join("");
 
         const helpHtml = activeRun.pendingHelp
-          .map((h) =>
-            h.isExpired
-              ? `<div class="help-wait-row is-expired" data-help-row-id="${escapeHtml(h.id)}"><span class="state-text state-neutral">Timed out waiting for you</span></div>`
-              : `<div class="help-wait-row" data-help-row-id="${escapeHtml(h.id)}"><button type="button" class="help-wait-btn" data-action="bring-approval-forward" data-help-id="${escapeHtml(h.id)}">&#9684; Waiting for you</button></div>`
-          )
+          .map((h) => {
+            const helpStep = h.run ? stepById.get(h.run) : null;
+            const waiterName =
+              helpStep && !helpStep.isOrchestrator && helpStep.agentIdentity?.name
+                ? helpStep.agentIdentity.name
+                : h.agentName || leadIdentity.name;
+            let rawReason = String(h.question || "").replace(/\?+$/, "").trim();
+            if ((!rawReason || /^(Approval needed|Approve action)$/i.test(rawReason)) && h.detail) {
+              rawReason = String(h.detail).trim();
+            }
+            const shortReason =
+              rawReason.length > 56 ? `${rawReason.slice(0, 55).trimEnd()}…` : rawReason;
+            if (h.isExpired) {
+              const expiredCopy = shortReason
+                ? `${waiterName} timed out waiting for you: ${shortReason}`
+                : `${waiterName} timed out waiting for you`;
+              return `<div class="help-wait-row is-expired" data-help-row-id="${escapeHtml(h.id)}"><span class="state-text state-neutral">${escapeHtml(expiredCopy)}</span></div>`;
+            }
+            const waitCopy = shortReason
+              ? `${waiterName} is waiting for you: ${shortReason}`
+              : `${waiterName} is waiting for you`;
+            return `<div class="help-wait-row" data-help-row-id="${escapeHtml(h.id)}"><button type="button" class="help-wait-btn" data-action="bring-approval-forward" data-help-id="${escapeHtml(h.id)}">&#9684; ${escapeHtml(waitCopy)}</button></div>`;
+          })
           .join("");
 
         const permissionHtml = activeRun.permissionIssue
